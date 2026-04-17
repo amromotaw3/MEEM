@@ -67,7 +67,8 @@
         {
           "provider": "github",
           "owner": "amromotaw3",
-          "repo": "MediaVault-Setup"
+          "repo": "MediaVault-Setup",
+          "releaseType": "release"
         }
       ]
     },

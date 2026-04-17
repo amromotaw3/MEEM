@@ -19,7 +19,7 @@ function createWindow() {
     icon: iconPath,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, '..', '..', 'preload.js'),
+      preload: path.join(__dirname, '..', 'renderer', 'preload.js'),
       contextIsolation: true, 
       nodeIntegration: false, 
       webSecurity: true, // ✅ SECURITY FIX: Enabled web security
@@ -29,7 +29,7 @@ function createWindow() {
     }
   });
   
-  mainWindow.loadFile('index.html');
+  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
   // Background Mode: Hide on close
