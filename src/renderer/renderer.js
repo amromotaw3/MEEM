@@ -12,7 +12,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const safePath = p.replace(/\\/g, '/');
     // Encode URI components but preserve slashes and drive colons
     const encodedPath = encodeURI(safePath).replace(/#/g, '%23').replace(/\?/g, '%3F');
-    return 'file:///' + encodedPath;
+    return 'local-file:///' + encodedPath;
   }
 
   function getMusicMeta(item) {
@@ -251,7 +251,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         return true;
       } else {
         // HTML5 fallback
-        const url = filePath.startsWith('http') ? filePath : 'file:///' + encodeURIComponent(filePath.replace(/\\/g, '/')).replace(/%2F/g, '/').replace(/%3A/g, ':');
+        const url = filePath.startsWith('http') ? filePath : 'local-file:///' + encodeURIComponent(filePath.replace(/\\/g, '/')).replace(/%2F/g, '/').replace(/%3A/g, ':');
         this._video.src = url;
         this._video.load();
         if (options.startTime > 2) {
@@ -732,9 +732,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const name = nameInput ? nameInput.value.trim() : '';
     if (!name) { showToast('Please enter a name'); return; }
     
+    // Check for duplicate names (excluding current profile being edited)
+    const duplicate = appData.profiles.find(p => p.name.toLowerCase() === name.toLowerCase() && p.id !== editingProfileId);
+    if (duplicate) {
+      showToast('A profile with this name already exists');
+      return;
+    }
+
     if (editingProfileId) {
       const profile = appData.profiles.find(p => p.id === editingProfileId);
       if (profile) {
+        const oldName = profile.name;
+        // If name changed, rename folder on disk
+        if (oldName !== name) {
+          await window.api.invoke('rename-profile-folders', oldName, name);
+        }
         profile.name = name;
         profile.avatar = selectedAvatar;
         if (profile.id === currentProfileId) {

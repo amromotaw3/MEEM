@@ -402,6 +402,37 @@ function initMiscIpc(ipcMain) {
     }
   });
 
+  ipcMain.handle('rename-profile-folders', async (_e, oldName, newName) => {
+    if (!oldName || !newName || oldName === newName) return false;
+    const { app: electronApp } = require('electron');
+    const oldPath = path.join(electronApp.getPath('videos'), 'MediaVault', oldName);
+    const newPath = path.join(electronApp.getPath('videos'), 'MediaVault', newName);
+
+    try {
+      if (fs.existsSync(oldPath)) {
+        // If the new directory already exists, we shouldn't rename into it as it might merge or fail
+        if (fs.existsSync(newPath)) {
+          console.warn(`[BACKEND] Target rename path already exists: ${newPath}`);
+          return false;
+        }
+        fs.renameSync(oldPath, newPath);
+        console.log(`[BACKEND] Renamed profile folder: ${oldName} -> ${newName}`);
+        return true;
+      } else {
+        // If old folder doesn't exist, just ensure the new one exists
+        const subDirs = ['Movies', 'Series', 'Social', 'Music'];
+        subDirs.forEach(sub => {
+          const fullPath = path.join(newPath, sub);
+          if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
+        });
+        return true;
+      }
+    } catch (err) {
+      console.error('[BACKEND] Profile folder rename failed:', err);
+      return false;
+    }
+  });
+
   ipcMain.handle('select-user-avatar', async () => {
     const r = await dialog.showOpenDialog(getMainWindow(), {
       properties: ['openFile'],

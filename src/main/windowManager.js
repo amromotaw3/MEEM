@@ -6,12 +6,12 @@ const { loadData, ensureDir } = require('./store');
 let mainWindow;
 
 function showToastNotification(title, body) {
-  const icoPath = path.resolve(__dirname, '..', '..', 'imgs', 'appicon.ico');
+  const icoPath = path.resolve(__dirname, '..', 'renderer', 'imgs', 'appicon.ico');
   if (Notification.isSupported()) new Notification({ title, body, icon: icoPath }).show();
 }
 
 function createWindow() {
-  const iconPath = path.resolve(__dirname, '..', '..', 'imgs', 'appicon.ico');
+  const iconPath = path.resolve(__dirname, '..', 'renderer', 'imgs', 'appicon.ico');
 
   mainWindow = new BrowserWindow({
     width: 1360, height: 860, minWidth: 960, minHeight: 640,
