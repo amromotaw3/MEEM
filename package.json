@@ -51,30 +51,30 @@
       "ico/**/*",
       "src/**/*",
       "package.json",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "src/renderer/imgs/**/*",
+      "dist/**/*"
     ],
     "win": {
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
+        "nsis",
+        "portable"
       ],
-      "icon": "imgs/appicon.ico",
+      "icon": "src/renderer/imgs/appicon.ico",
       "publish": [
         {
           "provider": "github",
           "owner": "amromotaw3",
-          "repo": "MediaVault-Setup",
-          "releaseType": "release"
+          "repo": "MediaVault-Setup"
         }
       ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "shortcutName": "MediaVault",
+      "installerIcon": "src/renderer/imgs/appicon.ico",
+      "uninstallerIcon": "src/renderer/imgs/appicon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }

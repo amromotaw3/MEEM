@@ -83,7 +83,7 @@ app.whenReady().then(() => {
   const win = createWindow();
 
   // Initialize Tray
-  const iconPath = require('path').resolve(__dirname, 'imgs', 'appicon.ico');
+  const iconPath = require('path').resolve(__dirname, 'src', 'renderer', 'imgs', 'appicon.ico');
   tray = new Tray(iconPath);
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show MediaVault', click: () => win.show() },
