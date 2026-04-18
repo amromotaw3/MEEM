@@ -6,7 +6,7 @@
   <title>MediaVault — Personal Media Library</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/layout.css">
   <link rel="stylesheet" href="css/components.css">
@@ -14,6 +14,10 @@
   <link rel="stylesheet" href="css/player.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
+    /* Global Typography Fix - Use Cairo for all Arabic/RTL contexts */
+    body, button, input, select, textarea { font-family: 'Cairo', 'Inter', sans-serif !important; }
+    [dir="rtl"], .arabic-text { font-family: 'Cairo', sans-serif !important; }
+    
     /* API Setup Mode - Highlights only API fields while everything else is locked */
     body.api-setup-mode .view:not(#view-settings) { filter: blur(10px); pointer-events: none; }
     body.api-setup-mode #sidebar, body.api-setup-mode #titlebar-content { pointer-events: none; opacity: 0.5; }
@@ -53,6 +57,20 @@
     }
     @keyframes onboarding-fade-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     
+    .home-sections { 
+      padding: 24px 30px 40px; 
+      display: grid; 
+      grid-template-columns: repeat(3, 1fr); 
+      gap: 20px; 
+    }
+
+    @media (max-width: 1200px) {
+      .home-sections { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 850px) {
+      .home-sections { grid-template-columns: 1fr; }
+    }
+
     .onboarding-feature-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -223,6 +241,10 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
           <span>Watchlist</span>
         </button>
+        <button class="nav-btn" data-view="radio" id="nav-radio">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="17" cy="12" r="2"></circle><circle cx="7" cy="12" r="2"></circle></svg>
+          <span>Quran Radio</span>
+        </button>
 
       </div>
 
@@ -246,14 +268,7 @@
         <div class="sidebar-label" data-group="pinned">PINNED</div>
         <div id="sidebar-pinned" class="sidebar-dynamic-list"><div class="sidebar-empty-hint">Right-click to pin</div></div>
       </div>
-      <div class="sidebar-group">
-        <div class="sidebar-label" data-group="folders">FOLDERS</div>
-        <div id="sidebar-folders" class="sidebar-dynamic-list"></div>
-        <button class="nav-btn sidebar-add-btn" id="btn-add-folder">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          <span>Add Folder</span>
-        </button>
-      </div>
+
       <div class="sidebar-group">
         <button class="nav-btn" data-view="settings" id="nav-settings">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -293,13 +308,35 @@
               <p class="home-hero-desc" id="home-hero-desc"></p>
               <div class="home-hero-actions">
                 <button class="home-hero-btn primary" id="home-hero-play"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><polygon points="5 3 19 12 5 21"/></svg> Watch Now</button>
+                <button class="home-hero-btn secondary" id="home-hero-shuffle" title="Play something random from your library"><i class="fas fa-random"></i> Shuffle</button>
                 <button class="home-hero-btn secondary" id="home-hero-info"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg> Details</button>
               </div>
             </div>
-            <div class="home-hero-dots" id="home-hero-dots"></div>
+        </div>
+        
+        </div>
+        
+        <!-- Stats Hub -->
+        <div id="home-stats-hub" class="home-stats-hub">
+          <div class="stat-box" id="stat-movies">
+            <div class="stat-icon"><i class="fas fa-film"></i></div>
+            <div class="stat-info"><div class="stat-value" id="val-movies">0</div><div class="stat-label">Movies</div></div>
+          </div>
+          <div class="stat-box" id="stat-shows">
+            <div class="stat-icon"><i class="fas fa-tv"></i></div>
+            <div class="stat-info"><div class="stat-value" id="val-shows">0</div><div class="stat-label">Series</div></div>
+          </div>
+          <div class="stat-box" id="stat-music">
+            <div class="stat-icon"><i class="fas fa-music"></i></div>
+            <div class="stat-info"><div class="stat-value" id="val-music">0</div><div class="stat-label">Tracks</div></div>
+          </div>
+          <div class="stat-box" id="stat-download">
+            <div class="stat-icon"><i class="fas fa-download"></i></div>
+            <div class="stat-info"><div class="stat-value" id="val-downloads">0</div><div class="stat-label">Downloads</div></div>
           </div>
         </div>
 
+        <!-- Library Focus Grid -->
         <div class="home-sections">
           <!-- Continue Watching -->
           <div class="home-section" id="home-continue-section" style="display:none">
@@ -307,7 +344,7 @@
             <div class="home-row" id="home-continue-row"></div>
           </div>
 
-          <!-- Recently Downloaded -->
+          <!-- Recently Added (Local) -->
           <div class="home-section" id="home-recent-section" style="display:none">
             <div class="home-section-header"><h2>Recently Added</h2></div>
             <div class="home-row" id="home-recent-row"></div>
@@ -316,11 +353,40 @@
           <!-- Music Quick Access -->
           <div class="home-section" id="home-music-section" style="display:none">
             <div class="home-section-header">
-            <h2><i class="fas fa-play" style="margin-right: 12px; font-size: 0.9em; opacity: 0.8; color: var(--accent);"></i> Quick Play</h2>
+              <h2><i class="fas fa-play" style="margin-right: 12px; font-size: 0.9em; opacity: 0.8; color: var(--accent);"></i> Quick Play</h2>
+            </div>
+            <div class="home-row home-music-row" id="home-music-row"></div>
           </div>
-          <div class="home-row home-music-row" id="home-music-row"></div>
-          </div>
+        </div>
 
+        <!-- Global Discovery Rows -->
+        <div class="home-discovery-rows">
+           <div class="home-row-section" id="hr-trending-movies" style="display:none">
+              <div class="home-row-header">
+                <div class="hr-title"><h3>Trending Movies</h3><span class="hr-tag">TMDB</span></div>
+                <button class="hr-scroll-btn prev" onclick="scrollHomeRow(this, -1)"><i class="fas fa-chevron-left"></i></button>
+                <button class="hr-scroll-btn next" onclick="scrollHomeRow(this, 1)"><i class="fas fa-chevron-right"></i></button>
+              </div>
+              <div class="home-h-row" id="h-row-trending-movies"></div>
+           </div>
+
+           <div class="home-row-section" id="hr-trending-shows" style="display:none">
+              <div class="home-row-header">
+                <div class="hr-title"><h3>Popular TV Shows</h3><span class="hr-tag">TMDB</span></div>
+                <button class="hr-scroll-btn prev" onclick="scrollHomeRow(this, -1)"><i class="fas fa-chevron-left"></i></button>
+                <button class="hr-scroll-btn next" onclick="scrollHomeRow(this, 1)"><i class="fas fa-chevron-right"></i></button>
+              </div>
+              <div class="home-h-row" id="h-row-trending-shows"></div>
+           </div>
+
+           <div class="home-row-section" id="hr-trending-anime" style="display:none">
+              <div class="home-row-header">
+                <div class="hr-title"><h3>Trending Anime</h3><span class="hr-tag">ANILIST</span></div>
+                <button class="hr-scroll-btn prev" onclick="scrollHomeRow(this, -1)"><i class="fas fa-chevron-left"></i></button>
+                <button class="hr-scroll-btn next" onclick="scrollHomeRow(this, 1)"><i class="fas fa-chevron-right"></i></button>
+              </div>
+              <div class="home-h-row" id="h-row-trending-anime"></div>
+           </div>
         </div>
       </section>
 
@@ -779,13 +845,13 @@
                         <svg id="music-icon-pause" viewBox="0 0 24 24" width="30" height="30" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
                       </button>
                       <button id="music-btn-next" class="music-ctrl-btn" title="Next"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><rect x="17" y="4" width="2" height="16"/></svg></button>
-                      <button id="music-btn-eq" class="music-ctrl-btn" title="Equalizer" style="margin-left: 10px; opacity: 0.7;"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg></button>
                     </div>
 
                     <!-- Music Volume Control -->
                     <div class="music-volume-row">
                        <button id="music-btn-mute" class="music-vol-btn"><svg id="music-icon-vol" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><svg id="music-icon-mute" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg></button>
                        <input type="range" id="music-volume-bar" class="music-volume-bar" value="100" min="0" max="100" step="1">
+                       <button id="music-btn-eq" class="music-ctrl-btn" title="Equalizer" style="margin-left: 15px; opacity: 0.6;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg></button>
                     </div>
                   </div>
                 </div>
@@ -827,8 +893,16 @@
             <div id="player-loading" class="player-loading" style="display:none">
               <div class="player-loading-content">
                 <div class="spinner-ring"></div>
-                <div id="player-progress-text" class="player-progress-text">Initializing...</div>
+                <div id="player-progress-text" class="player-progress-text arabic-text">Initializing...</div>
                 <div id="player-speed-text" class="player-speed-text"></div>
+              </div>
+            </div>
+            <div id="player-error-overlay" class="player-overlay" style="display: none; background: rgba(0,0,0,0.9); z-index: 1000; flex-direction: column; align-items: center; justify-content: center; position: absolute; inset: 0;">
+              <i class="fas fa-exclamation-circle" style="font-size: 48px; color: var(--accent); margin-bottom: 20px;"></i>
+              <div id="player-error-msg" class="arabic-text" style="font-size: 18px; font-weight: 600; margin-bottom: 24px; text-align: center; max-width: 80%; color: #fff;">حدث خطأ في الاتصال. يرجى التحقق من الإنترنت أو المحاولة مرة أخرى.</div>
+              <div style="display: flex; gap: 12px;">
+                <button class="btn-primary" onclick="location.reload()" style="min-width: 120px; font-family: 'Cairo' !important;">إعادة المحاولة</button>
+                <button class="btn-ghost" onclick="switchView(prevView || 'home')" style="min-width: 120px; font-family: 'Cairo' !important;">رجوع</button>
               </div>
             </div>
             <div id="auto-next-overlay" class="auto-next-overlay" style="display:none"><div class="auto-next-card"><div class="auto-next-label">Up next</div><div class="auto-next-title" id="auto-next-title"></div><div class="auto-next-countdown-bar"><div id="auto-next-bar-fill" class="auto-next-bar-fill"></div></div><div class="auto-next-actions"><button id="btn-play-now" class="btn-primary-sm">Play Now</button><button id="btn-cancel-next" class="btn-ghost-sm">Cancel</button></div></div></div>
@@ -966,13 +1040,35 @@
           </div>
         </div>
       </section>
+
+      <!-- Quran Radio Page -->
+      <section id="view-radio" class="view">
+        <div class="view-header">
+          <div class="view-header-left">
+            <div class="view-title-wrap">
+              <h1 class="view-title" style="font-weight: 800 !important;">Quran Radio</h1>
+              <p class="view-subtitle">Live Streams & Blessed Recitations from the Islamic World</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="radio-grid-container">
+            <div class="radio-grid" id="radio-grid">
+              <!-- Stations will be rendered here by JS -->
+            </div>
+        </div>
+      </section>
     </main>
   </div>
 
   <!-- Mini Player -->
   <div id="mini-player" class="mini-player" style="display:none">
+    <img id="mp-poster" class="mp-poster" style="display:none">
     <div class="mp-info" id="mp-info-click"><div id="mp-title" class="mp-title"></div><div id="mp-meta" class="mp-meta"></div></div>
     <div class="mp-controls">
+      <div id="mp-radio-visualizer" class="radio-visualizer-small" style="display:none">
+        <span></span><span></span><span></span><span></span>
+      </div>
       <button id="mp-btn-play-pause" class="mp-btn"><svg id="mp-icon-play" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg><svg id="mp-icon-pause" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="display:none"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg></button>
       <button id="mp-btn-close" class="mp-btn"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
@@ -1153,6 +1249,88 @@
        </div>
     </div>
   </div>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap');
+    body { font-family: 'Cairo', sans-serif; }
+    
+    .radio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 20px 0; }
+    .radio-card {
+      background: var(--bg-surface-1); border: 1px solid var(--border);
+      border-radius: 24px; padding: 24px; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex; flex-direction: column; gap: 20px; position: relative; overflow: hidden;
+    }
+    .radio-card:hover { transform: translateY(-8px); border-color: var(--accent); background: var(--bg-surface-2); box-shadow: 0 15px 40px rgba(0,0,0,0.3); }
+    .radio-card.playing { background: var(--accent-low); border-color: var(--accent); box-shadow: 0 0 30px var(--accent-low); }
+    
+    .radio-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .radio-card-icon { 
+      font-size: 2.2rem; 
+      color: var(--accent); 
+      background: rgba(255,255,255,0.03);
+      width: 60px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 16px;
+      box-shadow: inset 0 0 10px rgba(255,255,255,0.02);
+    }
+    .radio-card.playing .radio-card-icon { 
+      color: #fff; 
+      background: var(--accent);
+      box-shadow: 0 0 20px var(--accent-low);
+    }
+    .radio-card-status { 
+      padding: 6px 14px; border-radius: 100px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.5px;
+      background: rgba(255,255,255,0.06); color: var(--text-secondary); 
+      display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.05);
+      text-transform: uppercase;
+    }
+    .radio-card.playing .radio-card-status { background: var(--accent); color: #fff; border-color: transparent; }
+    
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #ff4d4d;
+      box-shadow: 0 0 0 rgba(255, 77, 77, 0.4);
+      animation: pulse-red 2s infinite;
+    }
+    .radio-card.playing .pulse-dot { background: #fff; box-shadow: 0 0 0 rgba(255, 255, 255, 0.4); animation: pulse-white 2s infinite; }
+    
+    @keyframes pulse-red {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 77, 77, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 77, 77, 0); }
+    }
+    @keyframes pulse-white {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+    }
+
+    .radio-card-body { flex: 1; }
+    .radio-card-name { font-size: 1.3rem; font-weight: 700; margin-bottom: 6px; display: block; }
+    .radio-card-loc { font-size: 0.9rem; color: var(--text-muted); }
+
+    .radio-visualizer-large { display: none !important; }
+    
+    .radio-visualizer-small { display: flex; gap: 3px; align-items: flex-end; height: 16px; margin: 0 10px; }
+    .radio-visualizer-small span { width: 3px; height: 100%; background: var(--accent); border-radius: 2px; animation: radio-eq 0.6s infinite ease-in-out alternate; }
+    .radio-visualizer-small span:nth-child(1) { animation-delay: 0.1s; }
+    .radio-visualizer-small span:nth-child(2) { animation-delay: 0.3s; }
+    .radio-visualizer-small span:nth-child(3) { animation-delay: 0.2s; }
+    .radio-visualizer-small span:nth-child(4) { animation-delay: 0.4s; }
+
+    .home-empty-state {
+      background: rgba(255,255,255,0.02); border: 1.5px dashed rgba(255,255,255,0.08);
+      border-radius: 16px; padding: 30px 20px; text-align: center; color: var(--text-muted);
+      width: 100%; grid-column: 1 / -1; min-height: 160px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+      transition: all 0.3s ease;
+    }
+    .home-empty-state:hover { background: rgba(255,255,255,0.04); border-color: var(--accent-low); }
+    .home-empty-state i { font-size: 1.8rem; opacity: 0.4; color: var(--accent); margin-bottom: 5px; }
+    .home-empty-state p { margin: 0; font-size: 0.85rem; font-weight: 500; line-height: 1.5; max-width: 200px; }
+  </style>
 
   <!-- Edit Music Modal -->
   <div id="modal-edit-music" class="modal-overlay" style="display:none">

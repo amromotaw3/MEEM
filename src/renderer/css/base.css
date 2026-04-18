@@ -157,8 +157,8 @@ body {
 
 .title-text {
   font-size: 14px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
   background: linear-gradient(to right, var(--text-primary), var(--text-secondary));
   -webkit-background-clip: text;

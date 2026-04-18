@@ -11,7 +11,7 @@
   /* Keep above watermark */
   overflow-y: auto;
   gap: 2px;
-  padding: 14px 10px;
+  padding: 10px 8px;
 }
 
 .sidebar-group {
@@ -67,15 +67,15 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 12px;
+  padding: 7px 12px;
   border: none;
   background: none;
   color: var(--text-secondary);
   font-family: var(--font);
   font-size: 13px;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   transition: background var(--t), color var(--t);
   text-align: left;
@@ -89,7 +89,7 @@
 .nav-btn.active {
   background: var(--accent-light);
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .nav-btn svg {
@@ -99,12 +99,13 @@
 
 .nav-badge {
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
-  background: var(--accent);
-  color: #fff;
-  padding: 1px 7px;
-  border-radius: 10px;
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+  padding: 2px 6px;
+  border-radius: 4px; /* Square with slight radius */
+  border: 1px solid var(--border);
   display: none;
 }
 
@@ -130,12 +131,12 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s;
   color: var(--text-secondary);
-  height: 40px;
+  height: 38px;
 }
 
 .sidebar-item:hover {
@@ -313,15 +314,20 @@
 }
 
 .view-header-left h1 {
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -.5px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
 }
 
 .item-count {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 700;
+  background: var(--bg-surface-2);
+  padding: 2px 8px;
+  border-radius: 4px; /* Square with slight radius */
+  border: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .view-actions {
@@ -357,7 +363,7 @@
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 7px 12px;
+  padding: 6px 12px;
   width: 220px;
   transition: border-color var(--t);
 }

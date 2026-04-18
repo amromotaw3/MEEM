@@ -51,20 +51,83 @@ app.whenReady().then(() => {
 
   protocol.handle('local-file', (request) => {
     try {
-      // Robust path extraction from local-file:///C:/path or local-file://C:/path
-      let rawPath = request.url.replace('local-file:///', '').replace('local-file://', '');
-      rawPath = decodeURIComponent(rawPath);
-      
-      // On Windows, paths like /C:/... or C:/... need to be handled
-      if (rawPath.startsWith('/') && rawPath.match(/^\/[a-zA-Z]:/)) {
+      const fs = require('fs');
+      const url = new URL(request.url);
+      let rawPath = decodeURIComponent(url.pathname);
+      // On Windows, the pathname for file:///C:/path starts with /C:/. We need C:/
+      if (process.platform === 'win32' && rawPath.startsWith('/') && rawPath.match(/^\/[a-zA-Z]:/)) {
         rawPath = rawPath.slice(1);
       }
-      
-      const normalized = path.normalize(rawPath);
-      return net.fetch(pathToFileURL(normalized).href);
+
+      // Check if file exists
+      if (!fs.existsSync(rawPath)) {
+        return new Response('File not found', { status: 404 });
+      }
+
+      const stat = fs.statSync(rawPath);
+      const fileSize = stat.size;
+      const rangeHeader = request.headers.get('range');
+
+      // Determine MIME type
+      const ext = path.extname(rawPath).toLowerCase();
+      const mimeTypes = {
+        '.mp4': 'video/mp4', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
+        '.mov': 'video/quicktime', '.webm': 'video/webm', '.mp3': 'audio/mpeg',
+        '.wav': 'audio/wav', '.flac': 'audio/flac', '.ogg': 'audio/ogg',
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+        '.webp': 'image/webp', '.gif': 'image/gif', '.srt': 'text/plain',
+        '.vtt': 'text/vtt', '.ass': 'text/plain', '.ssa': 'text/plain'
+      };
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+      if (rangeHeader) {
+        // ─── RANGE REQUEST (required for video seeking) ───
+        const parts = rangeHeader.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+
+        const stream = fs.createReadStream(rawPath, { start, end });
+        const readable = new ReadableStream({
+          start(controller) {
+            stream.on('data', (chunk) => controller.enqueue(chunk));
+            stream.on('end', () => controller.close());
+            stream.on('error', (err) => controller.error(err));
+          }
+        });
+
+        return new Response(readable, {
+          status: 206,
+          headers: {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(chunkSize),
+            'Content-Type': contentType,
+          }
+        });
+      } else {
+        // ─── FULL REQUEST ───
+        const stream = fs.createReadStream(rawPath);
+        const readable = new ReadableStream({
+          start(controller) {
+            stream.on('data', (chunk) => controller.enqueue(chunk));
+            stream.on('end', () => controller.close());
+            stream.on('error', (err) => controller.error(err));
+          }
+        });
+
+        return new Response(readable, {
+          status: 200,
+          headers: {
+            'Content-Length': String(fileSize),
+            'Content-Type': contentType,
+            'Accept-Ranges': 'bytes',
+          }
+        });
+      }
     } catch (e) {
       console.error('[PROTOCOL] local-file error:', e);
-      return net.fetch(request.url.replace('local-file://', 'file://'));
+      return new Response('Internal error', { status: 500 });
     }
   });
 

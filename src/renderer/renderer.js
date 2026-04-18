@@ -7,10 +7,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // Returns the original value if it's already a URL (http/https/data:)
   function localImg(p) {
     if (!p) return '';
-    if (p.startsWith('http') || p.startsWith('data:') || p.startsWith('blob:')) return p;
-    // Safe URL encoding for background-image CSS compatibility (spaces, etc.)
+    if (p.startsWith('http') || p.startsWith('data:') || p.startsWith('blob:') || p.startsWith('src/') || p.startsWith('assets/')) return p;
+    // Standardize to local-file:/// for cross-platform robustness
     const safePath = p.replace(/\\/g, '/');
-    // Encode URI components but preserve slashes and drive colons
     const encodedPath = encodeURI(safePath).replace(/#/g, '%23').replace(/\?/g, '%3F');
     return 'local-file:///' + encodedPath;
   }
@@ -150,18 +149,44 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       this._cleanupFns = [];
       
       this._initMpvListeners();
+      this._watchdogTimer = null;
+      this._isRadio = false;
+    }
+
+    _startWatchdog(timeoutMs = 15000) {
+      this._clearWatchdog();
+      this._watchdogTimer = setTimeout(() => {
+        if (this._currentTime === 0 && !this._paused) {
+          console.error('[Engine] Playback watchdog timeout');
+          this._emit('error', 'Connection failed or timeout. Please check your network.');
+        }
+      }, timeoutMs);
+    }
+
+    _clearWatchdog() {
+      if (this._watchdogTimer) {
+        clearTimeout(this._watchdogTimer);
+        this._watchdogTimer = null;
+      }
     }
 
     _initMpvListeners() {
       // Time position updates from mpv
       this._cleanupFns.push(window.api.onMpvTimePos((time) => {
-        this._currentTime = time;
-        this._emit('timeupdate', time);
+        if (time > 0) this._clearWatchdog();
+        // Don't overwrite time during active seeking - it causes the jump-back
+        if (!isSeeking) {
+          this._currentTime = time;
+          this._emit('timeupdate', time);
+        } else {
+          console.log('[SEEK-DEBUG] mpv time-pos BLOCKED (isSeeking=true):', time);
+        }
       }));
 
       // Duration from mpv
       this._cleanupFns.push(window.api.onMpvDuration((dur) => {
         if (dur && dur > 0) {
+          this._clearWatchdog();
           this._duration = dur;
           this._emit('durationchange', dur);
         }
@@ -230,6 +255,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     // ─── Load a file ───
     async load(filePath, options = {}) {
+      this._isRadio = false; // Force reset at start of every load
       this._currentTime = 0;
       this._duration = 0;
       this._paused = false;
@@ -246,10 +272,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           // Don't fall back — just report the error
           return false;
         }
-        // Show the mpv window
-        await window.api.mpvShowWindow();
+        // Show the mpv window only for video/movies, not for radio
+        this._isRadio = !!options.isRadio;
+        if (!this._isRadio) {
+          await window.api.mpvShowWindow();
+        } else {
+          await window.api.mpvHideWindow();
+        }
+        this._startWatchdog(options.isRadio ? 20000 : 15000);
         return true;
       } else {
+        this._isRadio = !!options.isRadio;
         // HTML5 fallback
         const url = filePath.startsWith('http') ? filePath : 'local-file:///' + encodeURIComponent(filePath.replace(/\\/g, '/')).replace(/%2F/g, '/').replace(/%3A/g, ':');
         this._video.src = url;
@@ -295,12 +328,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     // ─── Seek to absolute time ───
     async seek(timeSeconds) {
+      console.log('[SEEK-DEBUG] engine.seek() called:', timeSeconds, 'isUsingMpv=', this.isUsingMpv);
+      this._currentTime = timeSeconds; // Optimistic update
       if (this.isUsingMpv) {
         await window.api.mpvSeek(timeSeconds);
-        this._currentTime = timeSeconds;
       } else {
         this._video.currentTime = timeSeconds;
-        this._currentTime = timeSeconds;
       }
     }
 
@@ -373,6 +406,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     // ─── Stop playback ───
     async stop() {
+      this._clearWatchdog();
       if (this.isUsingMpv) {
         await window.api.mpvStop();
         await window.api.mpvHideWindow();
@@ -438,7 +472,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     while (retries > 0) {
       try {
         await window.api.saveData(appData);
-        // console.log('[PERSIST] Data saved successfully');
         return;
       } catch (err) {
         retries--;
@@ -448,10 +481,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
       }
     }
-    // If all retries failed
     console.error('[PERSIST] All save attempts failed');
     showToast('⚠️ Warning: Data may not be saved. Please ensure disk space is available.');
   }
+
+  // When a video/movie starts playing, ensure mini player is reset
+  engine.on('pausechange', (paused) => {
+    if (!paused && !engine._isRadio) {
+      const btnPlayPause = $('#mp-btn-play-pause');
+      const vizSmall = $('#mp-radio-visualizer');
+      const infoClick = $('#mp-info-click');
+      
+      if (btnPlayPause) btnPlayPause.style.display = 'flex';
+      if (vizSmall) vizSmall.style.display = 'none';
+      if (infoClick) infoClick.style.cursor = 'pointer';
+    }
+  });
   function deepMerge(t, s) { if (!s || typeof s !== 'object') return t; const o = { ...t }; for (const k of Object.keys(s)) { o[k] = s[k] && typeof s[k] === 'object' && !Array.isArray(s[k]) ? deepMerge(o[k] || {}, s[k]) : s[k]; } return o; }
   function allItems() { const shows = appData.shows || []; return [...(appData.movies || []), ...shows, ...shows.flatMap(s => s.episodes || [])]; }
   function isLocked(id) { return !isVaultUnlocked && (currentProfile?.lockedItems || []).includes(id); }
@@ -516,7 +561,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           </button>`}
         </div>
         <div class="profile-avatar-box" style="width: 150px; height: 150px; border-radius: 50%; background: #222;">
-          <img src="${p.avatar}" alt="${escapeHTML(p.name)}">
+          <img src="${localImg(p.avatar)}" alt="${escapeHTML(p.name)}" onerror="this.onerror=null; this.src='https://api.dicebear.com/7.x/avataaars/svg?seed='+encodeURIComponent('${escapeHTML(p.name)}');">
         </div>
         <span style="font-size: 1.2rem; font-weight: 600; color: #999;">${escapeHTML(p.name)}</span>
       `;
@@ -638,7 +683,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     // Update top titlebar avatar
     const titleAvatar = $('#current-profile-avatar');
     if (titleAvatar) {
-      titleAvatar.src = currentProfile.avatar;
+      titleAvatar.src = localImg(currentProfile.avatar);
+      titleAvatar.onerror = () => { titleAvatar.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(currentProfile.name); };
     }
     
     // Fallback/Legacy widget in sidebar (optional but kept for internal DOM logic if needed)
@@ -677,13 +723,28 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const img = document.createElement('img');
       img.src = url;
       img.className = 'avatar-opt' + (url === selectedAvatar ? ' selected' : '');
+      img.onerror = () => { img.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=MediaVault'; };
       img.onclick = () => {
-        selector.querySelectorAll('img').forEach(el => el.classList.remove('selected'));
+        selector.querySelectorAll('.avatar-opt').forEach(el => el.classList.remove('selected'));
         img.classList.add('selected');
         selectedAvatar = url;
       };
       selector.appendChild(img);
     });
+
+    // If selectedAvatar is a custom one (not in default list), show it too
+    if (selectedAvatar && !AVATARS.includes(selectedAvatar)) {
+      const img = document.createElement('img');
+      img.src = localImg(selectedAvatar);
+      img.className = 'avatar-opt selected';
+      img.onerror = () => { img.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=User'; };
+      img.onclick = () => {
+        selector.querySelectorAll('.avatar-opt').forEach(el => el.classList.remove('selected'));
+        img.classList.add('selected');
+        selectedAvatar = profile.avatar; 
+      };
+      selector.appendChild(img);
+    }
 
     // RE-ADD the upload button
     const uploadBtn = document.createElement('div');
@@ -702,12 +763,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (localPath) {
         selectedAvatar = localPath;
         const img = document.createElement('img');
-        img.src = localPath;
+        img.src = localImg(localPath);
         img.className = 'avatar-opt selected';
-        selector.querySelectorAll('img').forEach(el => el.classList.remove('selected'));
+        img.onerror = () => { img.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=New'; };
+        selector.querySelectorAll('.avatar-opt').forEach(el => el.classList.remove('selected'));
         selector.insertBefore(img, uploadBtn);
         img.onclick = () => {
-          selector.querySelectorAll('img').forEach(el => el.classList.remove('selected'));
+          selector.querySelectorAll('.avatar-opt').forEach(el => el.classList.remove('selected'));
           img.classList.add('selected');
           selectedAvatar = localPath;
         };
@@ -792,7 +854,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     hub: $('#view-hub'), 
     watchlist: $('#view-watchlist'),
     music: $('#view-music'),
-    subtitles: $('#view-subtitles')
+    subtitles: $('#view-subtitles'),
+    radio: $('#view-radio')
   };
 
   // Set Home as the default landing page
@@ -1044,21 +1107,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
 
 
-  $('#btn-add-folder').onclick = async () => { 
-    switchView('settings'); 
-    const f = await window.api.selectFolder(); 
-    if (f && !appData.libraryFolders.includes(f)) { 
-      appData.libraryFolders.push(f); 
-      appData.libraryPath = f; 
-      const input = $('#folder-path');
-      if (input) input.value = f; 
-      const rescanBtn = $('#btn-rescan');
-      if (rescanBtn) rescanBtn.disabled = false; 
-      persist(); 
-      renderSidebar(); 
-      await scanLibrary(); 
-    } 
-  };
+
   $('#btn-select-folder').onclick = async () => { 
     const f = await window.api.selectFolder(); 
     if (f && !appData.libraryFolders.includes(f)) { 
@@ -1310,7 +1359,24 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // Mini player
   $('#mp-btn-play-pause').onclick = (e) => { e.stopPropagation(); engine.togglePause(); };
   $('#mp-btn-close').onclick = (e) => { e.stopPropagation(); engine.stop(); $('#mini-player').style.display = 'none'; exitPlayer(false); };
-  $('#mp-info-click').onclick = () => { switchView('player'); };
+  $('#mp-info-click').onclick = (e) => { 
+    if (engine && engine._isRadio) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false; // Radio mini-player is unclickable as requested
+    }
+    if (isPlayingMusic) {
+      $('#player-wrapper').classList.add('is-music-mode');
+    } else {
+      $('#player-wrapper').classList.remove('is-music-mode');
+    }
+    if (isPlayingMusic) {
+      $('#player-wrapper').classList.add('is-music-mode');
+    } else {
+      $('#player-wrapper').classList.remove('is-music-mode');
+    }
+    switchView('player'); 
+  };
 
   // Volume & Seek
   $('#volume-bar').oninput = () => { 
@@ -1318,20 +1384,51 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (vbar) { engine.setVolume(parseInt(vbar.value)); updateVolumeIcon(); }
   };
   const seekBar = $('#seek-bar');
-  seekBar.onmousedown = () => { isSeeking = true; };
+  let lastSeekTime = 0;
+  let seekThrottleTimeout = null;
+  
+  function applySeekThrottled(targetTime) {
+    if (Date.now() - lastSeekTime > 150) {
+      lastSeekTime = Date.now();
+      engine.seek(targetTime);
+    } else {
+      clearTimeout(seekThrottleTimeout);
+      seekThrottleTimeout = setTimeout(() => {
+        lastSeekTime = Date.now();
+        engine.seek(targetTime);
+      }, 150);
+    }
+  }
+
+  seekBar.onmousedown = () => { isSeeking = true; console.log('[SEEK-DEBUG] mousedown → isSeeking=true'); };
   seekBar.oninput = () => {
     const dur = engine.duration;
-    if (!dur) return;
-    const targetTime = (seekBar.value / 1000) * dur;
-    // mpv handles seeking directly — no re-transcoding needed
-    clearTimeout(seekBar._seekDebounce);
-    seekBar._seekDebounce = setTimeout(() => {
-      engine.seek(targetTime);
-    }, 50);
-    updateSeekFill();
-    updateTimeDisplay();
+    if (!dur || isNaN(dur)) { console.log('[SEEK-DEBUG] oninput SKIP: dur=', dur); return; }
+    isSeeking = true; // Safety trigger
+    const val = parseFloat(seekBar.value) || 0;
+    const targetTime = (val / 1000) * dur;
+    console.log('[SEEK-DEBUG] oninput: val=', val, 'dur=', dur, 'targetTime=', targetTime, 'engine.isUsingMpv=', engine.isUsingMpv);
+    
+    // Instant Visual Feedback
+    updateSeekFill((val / 1000) * 100);
+    updateTimeDisplay(targetTime); 
+    
+    // Throttled Seek for Stability
+    if (!isNaN(targetTime)) applySeekThrottled(targetTime);
   };
-  seekBar.onmouseup = seekBar.ontouchend = () => { isSeeking = false; };
+  seekBar.onmouseup = seekBar.ontouchend = () => { 
+    // Final definitive seek on release
+    const dur = engine.duration;
+    if (dur) {
+      const targetTime = (seekBar.value / 1000) * dur;
+      console.log('[SEEK-DEBUG] mouseup: seeking to', targetTime, 'dur=', dur);
+      engine.seek(targetTime);
+    }
+    // CRITICAL: Delay clearing isSeeking so mpv has time to reach
+    // the new position before we accept its time-pos updates again.
+    // Without this, the old pre-seek time overwrites the bar immediately.
+    setTimeout(() => { isSeeking = false; console.log('[SEEK-DEBUG] isSeeking cleared after 500ms timeout'); }, 500);
+  };
 
   // Video events
   video.addEventListener('loadedmetadata', () => { $('#player-loading').style.display = 'none'; updateTimeDisplay(); updateSeekFill(); });
@@ -1377,8 +1474,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         if (msBar) msBar.value = (time / dur) * 1000;
         updateSeekFill();
       }
+      updateTimeDisplay();
     }
-    updateTimeDisplay();
   });
 
   engine.on('pausechange', (paused) => {
@@ -1595,10 +1692,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
        const bgUrl = localImg(cover) || 'https://api.dicebear.com/7.x/shapes/svg?seed=music';
        if ($('#music-poster-img')) $('#music-poster-img').src = bgUrl;
        
-       // Sync both Background ID and Class for total certainty
+       // Sync opacity for the static background
        const bgEls = document.querySelectorAll('.music-poster-bg, #music-poster-bg');
        bgEls.forEach(el => {
-         el.style.backgroundImage = `url("${bgUrl}")`;
          el.style.opacity = '1';
        });
        
@@ -2214,7 +2310,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     // Priority 1: Local Banner (User uploaded or auto-downloaded)
     if (bannerPath) {
-      posterInner = `<img src="${localImg(bannerPath)}" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.style.display='none';this.parentElement.querySelector('.card-poster-placeholder')?.style.removeProperty('display')">`;
+      const fallbackUrl = tmdb?.posterPath ? `https://image.tmdb.org/t/p/w342${tmdb.posterPath}` : (tmdb?.backdropPath ? `https://image.tmdb.org/t/p/w342${tmdb.backdropPath}` : '');
+      const errScript = fallbackUrl ? `this.onerror=null;this.src='${fallbackUrl}';` : `this.style.display='none';this.parentElement.querySelector('.card-poster-placeholder')?.style.removeProperty('display')`;
+      posterInner = `<img src="${localImg(bannerPath)}" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="${errScript}">`;
     }
     // Priority 2: TMDB Backdrop/Poster from cache
     else if (tmdb && (tmdb.posterPath || tmdb.backdropPath)) {
@@ -2311,7 +2409,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const isW = pb.watched || (pb.duration > 0 && (pb.time / pb.duration) > .9);
           let pH = ''; if (pb.duration > 0) pH = `<div class="episode-progress"><div class="episode-progress-fill" style="width:${Math.min((pb.time / pb.duration) * 100, 100).toFixed(1)}%"></div></div>`;
 
-          const tE = tmdbEps[ep.episode];
+          const epNum = parseInt(ep.episode);
+          const tE = tmdbEps[epNum] || tmdbEps[String(ep.episode)];
           const epTitle = tE?.name || ep.title;
           const epDesc = tE?.overview || '';
           const still = tE?.local_still ? `file:///${tE.local_still.replace(/\\/g, '/')}` : (tE?.still_path ? `https://image.tmdb.org/t/p/w300${tE.still_path}` : '');
@@ -2536,15 +2635,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (show) {
       const tmdb = (appData.tmdbCache || {})[show.id];
       const sn = item.season || 1;
-      const mappedSn = (appData.seasonOffset && appData.seasonOffset[`${show.id}_${sn}`]) || sn;
-      const tmdbEps = (tmdb && tmdb.seasons && tmdb.seasons[mappedSn]) ? tmdb.seasons[mappedSn] : {};
-      const tE = tmdbEps[item.episode];
+      const tmdbEps = (tmdb && tmdb.seasons && tmdb.seasons[sn]) ? tmdb.seasons[sn] : {};
+      const epNum = parseInt(item.episode);
+      const tE = tmdbEps[epNum] || tmdbEps[String(item.episode)];
+      
       if (tE?.name) {
         displayTitle = `S${String(sn).padStart(2, '0')}E${String(item.episode).padStart(2, '0')} · ${tE.name}`;
+      } else if (!isNaN(epNum)) {
+        // Fallback for valid episode numbers even if name is missing from TMDB cache
+        displayTitle = `S${String(sn).padStart(2, '0')}E${String(item.episode).padStart(2, '0')}`;
       }
     }
 
     $('#player-title').textContent = displayTitle;
+    currentItem.displayTitle = displayTitle; // Store for mini-player usage
     $('#player-show-name').textContent = show?.title || '';
     $('#player-loading').style.display = 'flex';
     $('#player-progress-text').textContent = 'Initializing...';
@@ -2575,7 +2679,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         const override = appData.musicMetadata[item.id] || {};
         const coverSrc = override.cover || (item.cover ? localImg(item.cover) : '');
         musicPosterImg.src = coverSrc;
-        musicPosterBg.style.backgroundImage = `url("${coverSrc}")`;
         
         // Populate central metadata
         $('#music-title').textContent = override.title || cleanTechnicalTitle(item.title);
@@ -2622,18 +2725,47 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   $('#music-btn-next').onclick = () => engine.seekRelative(10);
   
   const mSeekBar = $('#music-seek-bar');
+  let mLastSeekTime = 0;
+  let mSeekThrottleTimeout = null;
+
+  function applyMusicSeekThrottled(targetTime) {
+    if (Date.now() - mLastSeekTime > 150) {
+      mLastSeekTime = Date.now();
+      engine.seek(targetTime);
+    } else {
+      clearTimeout(mSeekThrottleTimeout);
+      mSeekThrottleTimeout = setTimeout(() => {
+        mLastSeekTime = Date.now();
+        engine.seek(targetTime);
+      }, 150);
+    }
+  }
+
   if (mSeekBar) {
     mSeekBar.onmousedown = () => { isSeeking = true; };
     mSeekBar.oninput = () => {
       const dur = engine.duration;
-      if (!dur) return;
-      const targetTime = (mSeekBar.value / 1000) * dur;
-      clearTimeout(mSeekBar._seekDebounce);
-      mSeekBar._seekDebounce = setTimeout(() => { engine.seek(targetTime); }, 50);
-      updateSeekFill();
-      updateTimeDisplay();
+      if (!dur || isNaN(dur)) return;
+      isSeeking = true;
+      const val = parseFloat(mSeekBar.value) || 0;
+      const targetTime = (val / 1000) * dur;
+      
+      // Instant Visual Feedback
+      updateSeekFill((val / 1000) * 100);
+      updateTimeDisplay(targetTime);
+      
+      // Throttled Seek
+      if (!isNaN(targetTime)) applyMusicSeekThrottled(targetTime);
     };
-    mSeekBar.onmouseup = mSeekBar.ontouchend = () => { isSeeking = false; };
+    mSeekBar.onmouseup = mSeekBar.ontouchend = () => { 
+      const dur = engine.duration;
+      if (dur && !isNaN(dur)) {
+        const val = parseFloat(mSeekBar.value) || 0;
+        const targetTime = (val / 1000) * dur;
+        if (!isNaN(targetTime)) engine.seek(targetTime);
+      }
+      setTimeout(() => { isSeeking = false; }, 500);
+    };
   }
     // Set Discord RPC
     let subtitle = currentShow ? `${currentShow.title} - S${item.season}E${item.episode}` : '';
@@ -2652,6 +2784,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     $('#btn-subtitle').classList.remove('subtitle-on');
     $('#btn-subtitle').classList.add('subtitle-off');
     video.querySelectorAll('track').forEach(t => t.remove());
+
+    // Defensive Mini-player Reset (Ensures no radio visualizer sticks)
+    const vizSmall = $('#mp-radio-visualizer');
+    const btnPlayPause = $('#mp-btn-play-pause');
+    if (vizSmall) vizSmall.style.display = 'none';
+    if (btnPlayPause) btnPlayPause.style.display = 'flex';
+    $('#mp-info-click').style.cursor = 'pointer';
 
     const engineMsg = engine.isUsingMpv ? 'mpv Engine' : 'HTML5 Fallback';
     $('#player-progress-text').textContent = `Loading via ${engineMsg}...`;
@@ -2697,10 +2836,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // Legacy Cloud Subtitles Removed
 
   function updateVolumeIcon() { const off = engine.muted || engine.volume === 0; const vol = $('#icon-vol'); if (vol) vol.style.display = off ? 'none' : 'block'; const mute = $('#icon-mute'); if (mute) mute.style.display = off ? 'block' : 'none'; }
-  function updateSeekFill() {
+  function updateSeekFill(manualPercent = null) {
     const dur = engine.duration;
     const displayTime = engine.currentTime;
-    const percent = dur ? Math.min((displayTime / dur) * 100, 100) : 0;
+    
+    // If manualPercent is provided (during drag), use it. Otherwise use engine time.
+    const percent = manualPercent !== null ? manualPercent : (dur ? Math.min((displayTime / dur) * 100, 100) : 0);
+    
     const seekFilled = $('#seek-filled');
     if (seekFilled) seekFilled.style.width = percent + '%';
     
@@ -2708,9 +2850,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const mSeekFilled = $('#music-seek-filled');
     if (mSeekFilled && isPlayingMusic) mSeekFilled.style.width = percent + '%';
   }
-  function updateTimeDisplay() {
+  function updateTimeDisplay(manualTime = null) {
     const dur = engine.duration;
-    const displayTime = engine.currentTime;
+    const displayTime = manualTime !== null ? manualTime : engine.currentTime;
     const timeDisplay = $('#time-display');
     if (timeDisplay) timeDisplay.textContent = `${formatTime(displayTime)} / ${formatTime(dur)}`;
     
@@ -2971,10 +3113,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     currentEpisodes.forEach((ep, i) => {
       // Resolve TMDB Data for this episode
-      const sn = ep.season;
-      const mappedSn = currentShow ? ((appData.seasonOffset && appData.seasonOffset[`${currentShow.id}_${sn}`]) || sn) : sn;
-      const tmdbEps = (tmdb && tmdb.seasons && tmdb.seasons[mappedSn]) ? tmdb.seasons[mappedSn] : {};
-      const tE = tmdbEps[ep.episode];
+      const sn = ep.season || 1;
+      const tmdbEps = (tmdb && tmdb.seasons && tmdb.seasons[sn]) ? tmdb.seasons[sn] : {};
+      const epNum = parseInt(ep.episode);
+      const tE = tmdbEps[epNum] || tmdbEps[String(ep.episode)];
+      
       const epTitle = tE?.name || ep.title;
       const still = tE?.local_still ? `file:///${tE.local_still.replace(/\\/g, '/')}` : (tE?.still_path ? `https://image.tmdb.org/t/p/w300${tE.still_path}` : '');
 
@@ -3974,6 +4117,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const yp = $('#yt-folder-path'); if (yp && appData.youtubeFolder) yp.value = appData.youtubeFolder;
           
           renderLibrary(); renderSidebar(); renderDownloadHistory(); renderSocial();
+          
+          // Motivational Startup Toast
+          setTimeout(() => {
+             showToast('الترفيه متعة.. فلا تجعلها وسيلة لجمع ما يؤذي روحك. كن رقيباً على نفسك', 6000);
+          }, 1500);
           renderMusic();
           renderProfileWidget();
           initSidebarGroups();
@@ -4032,7 +4180,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       playerSourceView = currentView;
     }
     if (name === 'discover') discoverStack = []; // Reset sub-navigation when going to main list
-    if (['home', 'movies', 'shows', 'social', 'music', 'watchlist', 'settings', 'discover', 'downloads', 'discover-detail', 'show-detail', 'subtitles'].includes(name)) { 
+    if (['home', 'movies', 'shows', 'social', 'music', 'watchlist', 'settings', 'discover', 'downloads', 'discover-detail', 'show-detail', 'subtitles', 'radio'].includes(name)) { 
       currentView = name; 
       if (!name.includes('detail')) appData.lastView = name; 
       persist(); 
@@ -4040,22 +4188,45 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (name !== 'show-detail') currentShowId = null;
     $$('.nav-btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === name));
     Object.entries(views).forEach(([k, el]) => { if (el) el.classList.toggle('active', k === name); });
-    const isEngineActive = currentItem && (engine.isUsingMpv || !video.paused || video.currentTime > 0 || isPlayingMusic);
-    if (name !== 'player' && name !== 'music-player' && isEngineActive) {
-      let title = currentItem.title, meta = 'Now Playing';
-      if (currentShow) {
+    
+    const isRadioPlaying = engine && engine._isRadio && !engine.paused;
+    const isEngineActive = (currentItem && (engine.isUsingMpv || !video.paused || video.currentTime > 0 || isPlayingMusic)) || isRadioPlaying;
+    
+    // Strictly hide mini-player if we are in the main player view
+    if (name !== 'player' && isEngineActive) {
+      let title = '', meta = '';
+      
+      if (isRadioPlaying) {
+        title = window.currentRadioTitle || 'Quran Radio';
+        meta = 'Live Stream';
+      } else if (currentShow) {
+        title = currentItem.displayTitle || currentItem.title;
         meta = currentShow.title;
       } else if (currentItem.type === 'music' || isPlayingMusic) {
         const musicMeta = getMusicMeta(currentItem);
         title = musicMeta.title;
         meta = musicMeta.artist;
+      } else {
+        title = currentItem.title;
+        meta = 'Now Playing';
       }
+      
       $('#mp-title').textContent = title;
       $('#mp-meta').textContent = meta;
       $('#mini-player').style.display = 'flex';
     } else {
       $('#mini-player').style.display = 'none'; 
     }
+    
+    // Handle Mini-player close (Stop button)
+    $('#mp-btn-close').onclick = () => {
+      if (window.quranRadioAudio && !window.quranRadioAudio.paused) {
+        stopQuranRadio();
+      } else if (typeof engine !== 'undefined') {
+        engine.stop();
+      }
+      $('#mini-player').style.display = 'none';
+    };
     
     // Initial visualizer init if music is active and we just switched to player
     if (name === 'player' && isPlayingMusic && typeof initVisualizer === 'function') {
@@ -4070,7 +4241,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // ── Home Page ──
+  //  Home Page ──
   // ══════════════════════════════════════════════════════════════════════════
   let homeHeroItems = [];
   let homeHeroIndex = 0;
@@ -4107,6 +4278,71 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   }
 
   async function renderHome() {
+    // ── Stats Hub ──
+    const stats = {
+      movies: (appData.movies || []).length,
+      shows: (appData.shows || []).length,
+      tracks: (appData.music || []).length,
+      dls: (appData.downloadHistory || []).length
+    };
+    if ($('#val-movies')) $('#val-movies').textContent = stats.movies;
+    if ($('#val-shows')) $('#val-shows').textContent = stats.shows;
+    if ($('#val-music')) $('#val-music').textContent = stats.tracks;
+    if ($('#val-downloads')) $('#val-downloads').textContent = stats.dls;
+
+    // ── Discovery Rows helper ──
+    const loadHomeHRow = async (rowId, sectionId, apiCall, type) => {
+      try {
+        const data = await apiCall;
+        const row = $(rowId); if (!row) return;
+        const section = $(sectionId);
+        const results = data.results || data || [];
+        if (!results.length) { section.style.display = 'none'; return; }
+        
+        section.style.display = 'block';
+        row.innerHTML = '';
+        results.slice(0, 20).forEach(item => {
+          let poster = '';
+          if (item.poster_path) poster = `https://image.tmdb.org/t/p/w342${item.poster_path}`;
+          else if (item.coverImage?.large) poster = item.coverImage.large;
+
+          const title = item.title?.english || item.title?.romaji || item.title || item.name || 'Unknown';
+          const year = (item.release_date || item.first_air_date || '').slice(0, 4);
+          if (type === 'tv') item.media_type = 'tv';
+          if (type === 'movie') item.media_type = 'movie';
+          if (type === 'anime') item.source = 'anilist';
+          
+          const it = document.createElement('div');
+          it.className = 'h-item';
+          it.innerHTML = `
+            ${poster ? `<img class="h-item-img" src="${poster}" loading="lazy">` : `<div style="background:var(--bg-surface-2);height:100%"></div>`}
+            <div class="h-item-overlay">
+              <div class="h-item-title">${escapeHTML(title)}</div>
+              <div class="h-item-meta">${year ? year + ' · ' : ''}${type === 'anime' ? 'Anime' : (type === 'tv' ? 'TV' : 'Movie')}</div>
+            </div>`;
+          it.onclick = () => openDiscoverDetail(item);
+          row.appendChild(it);
+        });
+      } catch (e) { console.error(`[HOME] Failed ${rowId}:`, e); }
+    };
+
+    // Load Discovery Trends
+    loadHomeHRow('#h-row-trending-movies', '#hr-trending-movies', window.api.tmdbTrending('movie'), 'movie');
+    loadHomeHRow('#h-row-trending-shows', '#hr-trending-shows', window.api.tmdbTrending('tv'), 'tv');
+    loadHomeHRow('#h-row-trending-anime', '#hr-trending-anime', fetchAniListTrending(), 'anime');
+
+    // ── Shuffle Pick button ──
+    const btnShuffle = $('#home-hero-shuffle');
+    if (btnShuffle) {
+      btnShuffle.onclick = () => {
+        const all = allItems().filter(i => !isLocked(i.id));
+        if (!all.length) { showToast('Library is empty'); return; }
+        const rand = all[Math.floor(Math.random() * all.length)];
+        showToast(`Shuffling... picked "${rand.title}"`);
+        if (rand.type === 'show') openShowDetail(rand); else playVideo(rand);
+      };
+    }
+
     // ── Continue Watching ──
     const continueRow = $('#home-continue-row');
     const continueSection = $('#home-continue-section');
@@ -4116,9 +4352,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         return pb && pb.time > 10 && pb.duration > 0 && (pb.time / pb.duration) < 0.9;
       }).sort((a, b) => (currentProfile.playback[b.path]?.lastPlayed || 0) - (currentProfile.playback[a.path]?.lastPlayed || 0)).slice(0, 2);
 
+      continueSection.style.display = 'block';
+      continueRow.innerHTML = '';
       if (items.length) {
-        continueSection.style.display = 'block';
-        continueRow.innerHTML = '';
         items.forEach(item => {
           const pb = currentProfile.playback[item.path];
           const pct = Math.min((pb.time / pb.duration) * 100, 100).toFixed(0);
@@ -4130,7 +4366,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const posterUrl = tmdb?.posterPath ? `https://image.tmdb.org/t/p/w342${tmdb.posterPath}` : '';
           let imgSrc = banner ? localImg(banner) : posterUrl;
 
-          // Detect if it's an episode and fetch parent show info
           if (!item.type || item.episode !== undefined) {
             const parent = (appData.shows || []).find(s => (s.episodes || []).some(e => e.path === item.path));
             if (parent) {
@@ -4139,7 +4374,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               const eNum = String(item.episode || 0).padStart(2, '0');
               title = `${pTmdb?.title || parent.title} - S${sNum}E${eNum}`;
               meta = `${tmdb?.title || item.title} · ${pct}%`;
-              
               if (!imgSrc) {
                 const pBanner = appData.banners[parent.id];
                 const pPoster = pTmdb?.posterPath ? `https://image.tmdb.org/t/p/w342${pTmdb.posterPath}` : '';
@@ -4150,14 +4384,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
           const card = document.createElement('div');
           card.className = 'home-card';
+          const fallbackTMDB = tmdb?.posterPath ? `https://image.tmdb.org/t/p/w342${tmdb.posterPath}` : (tmdb?.backdropPath ? `https://image.tmdb.org/t/p/w342${tmdb.backdropPath}` : '');
+          const errFallback = fallbackTMDB ? `if(this.dataset.tried)return;this.dataset.tried=1;this.src='${fallbackTMDB}';` : `this.style.display='none';`;
           card.innerHTML = `
-            ${imgSrc ? `<img class="home-card-img" src="${imgSrc}" loading="lazy">` : `<div class="home-card-img" style="background:var(--bg-surface-1)"></div>`}
+            ${imgSrc ? `<img class="home-card-img" src="${imgSrc}" loading="lazy" onerror="${errFallback}">` : `<div class="home-card-img" style="background:var(--bg-surface-1)"></div>`}
             <div class="home-card-info"><div class="home-card-title">${escapeHTML(title)}</div><div class="home-card-meta">${escapeHTML(meta)}</div></div>
             <div class="home-card-progress"><div class="home-card-progress-fill" style="width:${pct}%"></div></div>`;
           card.onclick = () => { if (item.type === 'show') openShowDetail(item); else playVideo(item); };
           continueRow.appendChild(card);
         });
-      } else { continueSection.style.display = 'none'; }
+      } else {
+        continueRow.innerHTML = `
+          <div class="home-empty-state">
+            <div class="icon">🍿</div>
+            <p>Ready for your next movie?</p>
+            <div class="sub">Items you start watching will appear here for quick access.</div>
+          </div>`;
+      }
     }
 
     // ── Recently Added ──
@@ -4165,47 +4408,67 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const recentSection = $('#home-recent-section');
     if (recentRow) {
       const allMedia = [...(appData.movies || []), ...(appData.shows || [])].sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, 2);
+      recentSection.style.display = 'block';
+      recentRow.innerHTML = '';
       if (allMedia.length) {
-        recentSection.style.display = 'block';
-        recentRow.innerHTML = '';
         allMedia.forEach(item => {
           const tmdb = (appData.tmdbCache || {})[item.id];
           const posterUrl = tmdb?.posterPath ? `https://image.tmdb.org/t/p/w342${tmdb.posterPath}` : '';
           const banner = appData.banners[item.id];
           const imgSrc = banner ? localImg(banner) : posterUrl;
+          
           const card = document.createElement('div');
           card.className = 'home-card';
+          const fbPoster = tmdb?.posterPath ? `https://image.tmdb.org/t/p/w342${tmdb.posterPath}` : '';
+          const errFallback = fbPoster ? `if(this.dataset.tried)return;this.dataset.tried=1;this.src='${fbPoster}';` : `this.style.display='none';`;
+
           card.innerHTML = `
-            ${imgSrc ? `<img class="home-card-img" src="${imgSrc}" loading="lazy">` : `<div class="home-card-img" style="background:var(--bg-surface-1)"></div>`}
+            ${imgSrc ? `<img class="home-card-img" src="${imgSrc}" loading="lazy" onerror="${errFallback}">` : `<div class="home-card-img" style="background:var(--bg-surface-1)"></div>`}
             <div class="home-card-info"><div class="home-card-title">${escapeHTML(tmdb?.title || item.title)}</div><div class="home-card-meta">${item.type === 'show' ? 'TV Show' : 'Movie'}</div></div>`;
           card.onclick = () => { if (item.type === 'show') openShowDetail(item); else playVideo(item); };
           recentRow.appendChild(card);
         });
-      } else { recentSection.style.display = 'none'; }
+      } else {
+        recentRow.innerHTML = `
+          <div class="home-empty-state">
+            <div class="icon">📂</div>
+            <p>Your library is empty</p>
+            <div class="sub">Head to Settings to add your media folders and start building your collection.</div>
+          </div>`;
+      }
     }
 
     // ── Music Quick Access ──
     const musicRow = $('#home-music-row');
     const musicSection = $('#home-music-section');
-    if (musicRow && appData.music?.length) {
+    if (musicRow) {
       musicSection.style.display = 'block';
-      musicRow.innerHTML = '';
-      const recentMusic = [...appData.music]
+      const recentMusic = [...(appData.music || [])]
         .filter(m => !isLocked(m.id))
         .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
         .slice(0, 4);
-      recentMusic.forEach(item => {
-        const { title, artist, cover } = getMusicMeta(item);
-        const card = document.createElement('div');
-        card.className = 'home-music-card';
-        card.innerHTML = `
-          ${cover ? `<img class="home-music-cover" src="${localImg(cover)}">` : `<div class="home-music-cover" style="background:var(--bg-surface-1);display:flex;align-items:center;justify-content:center">${SVG_MUSIC}</div>`}
-          <div class="home-music-info"><div class="hm-title">${escapeHTML(title)}</div><div class="hm-artist">${escapeHTML(artist)}</div></div>
-          <button class="home-music-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="6 3 20 12 6 21"/></svg></button>`;
-        card.onclick = () => playMusic(item);
-        musicRow.appendChild(card);
-      });
-    } else if (musicSection) { musicSection.style.display = 'none'; }
+      
+      musicRow.innerHTML = '';
+      if (recentMusic.length) {
+        recentMusic.forEach(item => {
+          const { title, artist, cover } = getMusicMeta(item);
+          const card = document.createElement('div');
+          card.className = 'home-music-card';
+          card.innerHTML = `
+            ${cover ? `<img class="home-music-cover" src="${localImg(cover)}">` : `<div class="home-music-cover" style="background:var(--bg-surface-1);display:flex;align-items:center;justify-content:center">${SVG_MUSIC}</div>`}
+            <div class="home-music-info"><div class="hm-title">${escapeHTML(title)}</div><div class="hm-artist">${escapeHTML(artist)}</div></div>
+            <button class="home-music-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="6 3 20 12 6 21"/></svg></button>`;
+          card.onclick = () => playMusic(item);
+          musicRow.appendChild(card);
+        });
+      } else {
+        musicRow.innerHTML = `
+          <div class="home-empty-state" style="padding: 20px;">
+            <div class="icon" style="font-size: 1.5rem;">🎵</div>
+            <p style="font-size: 0.85rem;">No music tracks found</p>
+          </div>`;
+      }
+    }
 
     // ── Hero Carousel (from TMDB Trending + AniList Trending) ──
     if (homeHeroTimer) { clearInterval(homeHeroTimer); homeHeroTimer = null; }
@@ -4238,33 +4501,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
     } catch (e) { console.error('[HOME] Hero load error:', e); }
 
-    // ── Recommended & Top Rated & Anime Rows ──
-    const loadHomeRow = async (rowId, apiCall) => {
-      try {
-        const data = await apiCall;
-        const row = $(rowId); if (!row) return;
-        row.innerHTML = '';
-        (data.results || []).slice(0, 20).forEach(item => {
-          let posterUrl = '';
-          if (item.poster_path) {
-            posterUrl = item.poster_path.startsWith('http') ? item.poster_path : `https://image.tmdb.org/t/p/w342${item.poster_path}`;
-          }
-          const title = item.title || item.name || 'Unknown';
-          const year = (item.release_date || item.first_air_date || '').slice(0, 4);
-          const card = document.createElement('div');
-          card.className = 'home-card';
-          card.innerHTML = `
-            ${posterUrl ? `<img class="home-card-img" src="${posterUrl}" loading="lazy">` : `<div class="home-card-img"></div>`}
-            <div class="home-card-info"><div class="home-card-title">${escapeHTML(title)}</div><div class="home-card-meta">${year}${item.vote_average ? ` · ${item.vote_average.toFixed(1)} ★` : ''}</div></div>`;
-          card.onclick = () => openDiscoverDetail(item);
-          row.appendChild(card);
-        });
-      } catch (e) { console.error(`[HOME] Failed ${rowId}:`, e); }
+    // ── External Discovery Helpers ──
+    window.scrollHomeRow = (btn, dir) => {
+      const row = btn.closest('.home-row-section').querySelector('.home-h-row');
+      if (row) row.scrollBy({ left: dir * 500, behavior: 'smooth' });
     };
-
-    loadHomeRow('#home-recommended-row', window.api.tmdbPopular('movie'));
-    loadHomeRow('#home-toprated-row', window.api.tmdbTopRated('movie'));
-    loadHomeRow('#home-anime-row', window.api.kitsuTrending());
   }
 
   function updateHeroSlide() {
@@ -4309,7 +4550,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (subCurrentDir) {
       const back = document.createElement('div');
       back.className = 'media-card sub-lib-card';
-      back.style = 'background: rgba(255,255,255,0.06); border: 1px dashed rgba(255,255,255,0.2); border-radius: 18px; padding: 16px 20px; display: flex; align-items: center; gap: 20px; cursor: pointer;';
+      back.style = 'background: rgba(255,255,255,0.06); border: 1px dashed rgba(255,255,255,0.2); border-radius: 18px; padding: 8px 14px; display: flex; align-items: center; gap: 20px; cursor: pointer;';
       back.innerHTML = `<div style="font-size: 22px; width: 48px; height: 48px; color: #fff; display: flex; align-items: center; justify-content: center;"><i class="fas fa-arrow-left"></i></div><div style="font-weight: 700;">Back to Parent</div>`;
       back.onclick = () => {
         const parts = subCurrentDir.split(/[\\/]/);
@@ -4971,5 +5212,111 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const label = $('#app-version-label');
     if (label) label.textContent = `v${v}`;
   });
+
+
+  // --- Quran Radio Page Logic ---
+  window.currentRadioTitle = '';
+
+  const RADIO_STATIONS = [
+    { id: 'nida_islam', name: 'إذاعة نداء الإسلام', loc: 'بث مباشر - مكة المكرمة', icon: 'fa-microphone-lines', url: 'https://stream.radiojar.com/4wqre23fytzuv', type: 'LIVE' },
+    { id: 'maher', name: 'راديو ماهر المعيقلي', loc: 'تلاوات على مدار الساعة', icon: 'fa-book-open', url: 'https://backup.qurango.net/radio/maher', type: 'RECITATION' },
+    { id: 'sudais', name: 'راديو عبدالرحمن السديس', loc: 'تلاوات على مدار الساعة', icon: 'fa-book-open', url: 'https://backup.qurango.net/radio/abdulrahman_alsudaes', type: 'RECITATION' },
+    { id: 'ghamdi', name: 'راديو سعد الغامدي', loc: 'تلاوات على مدار الساعة', icon: 'fa-book-open', url: 'https://backup.qurango.net/radio/saad_alghamdi', type: 'RECITATION' }
+  ];
+
+  window.renderRadio = function() {
+    const grid = $('#radio-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    
+    RADIO_STATIONS.forEach(st => {
+      const card = document.createElement('div');
+      card.className = 'radio-card' + (engine.isUsingMpv && engine.currentUrl === st.url && !engine.paused ? ' playing' : '');
+      card.innerHTML = `
+        <div class="radio-card-top">
+          <span class="radio-card-icon"><i class="fa-solid ${st.icon}"></i></span>
+          <div class="radio-card-status">
+             <span class="pulse-dot"></span> ${st.type}
+          </div>
+        </div>
+        <div class="radio-card-body">
+          <span class="radio-card-name arabic-text">${st.name}</span>
+          <span class="radio-card-loc arabic-text">${st.loc}</span>
+        </div>
+      `;
+      card.onclick = () => playQuranRadio(card, st.url, st.name);
+      grid.appendChild(card);
+    });
+  };
+
+  window.playQuranRadio = function(card, url, title) {
+    document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('playing'));
+    
+    engine.stop();
+    
+    // Pass isRadio: true to keep playback in background without opening window
+    engine.load(url, { isRadio: true }).then(success => {
+      if (success) {
+        if (card) card.classList.add('playing');
+        window.currentRadioTitle = title;
+        
+        // Update Mini Player for Radio
+        $('#mp-title').textContent = title;
+        $('#mp-meta').textContent = 'Live Radio Stream';
+        $('#mini-player').style.display = 'flex';
+        
+        // Hide Play/Pause and show Visualizer, Disable Click
+        $('#mp-btn-play-pause').style.display = 'none';
+        const vizSmall = $('#mp-radio-visualizer');
+        if (vizSmall) vizSmall.style.display = 'flex';
+        $('#mp-info-click').style.cursor = 'default';
+        
+        if (typeof showToast !== 'undefined') showToast(`Connected: ${title}`);
+      } else {
+        if (typeof showToast !== 'undefined') showToast(`Connection Failed: ${title}`);
+        stopQuranRadio();
+      }
+    }).catch(err => {
+      console.error('Radio play error:', err);
+      stopQuranRadio();
+    });
+  };
+
+  window.stopQuranRadio = function() {
+    engine.stop();
+    window.currentRadioTitle = '';
+    document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('playing'));
+    
+    // Reset Mini Player
+    $('#mini-player').style.display = 'none';
+    $('#mp-btn-play-pause').style.display = 'flex';
+    const vizSmall = $('#mp-radio-visualizer');
+    if (vizSmall) vizSmall.style.display = 'none';
+    $('#mp-info-click').style.cursor = 'pointer';
+    
+    if (typeof showToast !== 'undefined') showToast('Radio Stopped');
+  };
+
+  engine.on('error', (msg) => {
+    if (typeof showToast !== 'undefined') showToast(msg);
+    $('#player-loading').style.display = 'none';
+    const errOverlay = $('#player-error-overlay');
+    const errMsg = $('#player-error-msg');
+    if (errOverlay && errMsg) {
+      errMsg.textContent = msg;
+      errOverlay.style.display = 'flex';
+    }
+  });
+
+  const navRadio = $('#nav-radio');
+  if (navRadio) {
+    navRadio.onclick = () => {
+      switchView('radio');
+      renderRadio();
+    };
+  }
+
+  // Ensure radio grid is populated on initial boot
+  renderRadio();
 
 })();
