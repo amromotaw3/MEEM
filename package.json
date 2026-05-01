@@ -1,6 +1,6 @@
 {
   "name": "mediavault",
-  "version": "8.5.4",
+  "version": "9.2.0",
   "description": "MediaVault — A smart local media library, video player & downloader",
   "main": "main.js",
   "repository": {
