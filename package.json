@@ -82,7 +82,10 @@
       "installerIcon": "src/renderer/imgs/appicon.ico",
       "uninstallerIcon": "src/renderer/imgs/appicon.ico",
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerSidebar": "build_assets/installerSidebar.png",
+      "installerHeader": "build_assets/installerHeader.png",
+      "include": "build_assets/installer.nsh"
     }
   },
   "dependencies": {
