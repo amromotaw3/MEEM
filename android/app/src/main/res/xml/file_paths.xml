@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- App external files dir (getExternalFilesDir) — used by Capacitor EXTERNAL directory -->
+    <external-files-path name="external_files" path="." />
+
+    <!-- App cache directory -->
+    <cache-path name="cache" path="." />
+
+    <!-- Public external storage root (sdcard) — for downloaded media in MediaVault/ -->
+    <external-path name="external_root" path="." />
+
+    <!-- Internal app data -->
+    <files-path name="internal_files" path="." />
+
+    <!-- Public Documents directory -->
+    <external-path name="documents" path="Documents/" />
+
+    <!-- Public Downloads directory -->
+    <external-path name="downloads" path="Download/" />
+
+    <!-- Legacy compatibility -->
+    <external-path name="my_images" path="." />
+    <cache-path name="my_cache_images" path="." />
+</paths>

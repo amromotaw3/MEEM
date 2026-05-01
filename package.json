@@ -1,6 +1,6 @@
 {
   "name": "mediavault",
-  "version": "8.6.0",
+  "version": "8.5.4",
   "description": "MediaVault — A smart local media library, video player & downloader",
   "main": "main.js",
   "repository": {
@@ -10,10 +10,14 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "prebuild": "node -e \"try { require('fs').rmSync('dist', {recursive:true, force:true}); } catch(e) {}\"",
+    "prebuild": "node -e \"try { require('fs').rmSync('build_out', {recursive:true, force:true}); } catch(e) {}\"",
     "build": "electron-builder --win",
     "build:portable": "electron-builder --win portable",
-    "release": "electron-builder --win -p always"
+    "release": "electron-builder --win -p always",
+    "mobile:dev": "npx cap run android -l",
+    "mobile:sync": "npx cap sync",
+    "mobile:open": "npx cap open android",
+    "web:preview": "npx http-server src/renderer"
   },
   "keywords": [
     "media",
@@ -26,6 +30,8 @@
   "author": "MediaVault",
   "license": "MIT",
   "devDependencies": {
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
     "png-to-ico": "^3.0.1",
@@ -36,7 +42,7 @@
     "productName": "MediaVault",
     "copyright": "Copyright © 2026 MediaVault",
     "directories": {
-      "output": "dist"
+      "output": "build_out"
     },
     "asarUnpack": [
       "**/node_modules/youtube-dl-exec/bin/**/*"
@@ -80,6 +86,11 @@
     }
   },
   "dependencies": {
+    "@capacitor-community/file-opener": "^8.0.0",
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/app-launcher": "^8.0.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
     "adm-zip": "^0.5.17",
     "axios": "^1.15.0",
     "discord-rpc": "^4.0.1",

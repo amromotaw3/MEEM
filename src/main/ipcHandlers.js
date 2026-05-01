@@ -3,8 +3,9 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const axios = require('axios');
-const { BANNERS_DIR, ensureDir, loadData } = require('./store');
+const { BANNERS_DIR, ensureDir, loadData, saveData } = require('./store');
 const { getMainWindow } = require('./windowManager');
+
 
 let currentTmdbKey = null; // Removed hardcoded key
 let currentSubdlKey = null; // New SubDL key
@@ -15,9 +16,14 @@ const JIKAN_BASE = 'https://api.jikan.moe/v4';
 let metadataProvider = 'tmdb'; // 'tmdb' or 'mal'
 
 function tmdbFetch(endpoint) {
-  if (!currentTmdbKey) return Promise.resolve({ error: 'TMDB API key required. Please configure it in settings.' });
+  if (!currentTmdbKey) {
+    console.warn('[TMDB] No API key set.');
+    return Promise.resolve({ error: 'TMDB API key required. Please configure it in settings.' });
+  }
   const sep = endpoint.includes('?') ? '&' : '?';
-  const url = `${TMDB_BASE}${endpoint}${sep}api_key=${currentTmdbKey}`;
+  const url = `${TMDB_BASE}${endpoint}${sep}api_key=${currentTmdbKey}&include_adult=false`;
+  console.log(`[TMDB] Fetching: ${url.replace(currentTmdbKey, '***')}`);
+  
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { 'User-Agent': 'MediaVault/3.0' }, timeout: 8000 }, (res) => {
       let data = '';
@@ -26,17 +32,27 @@ function tmdbFetch(endpoint) {
         try {
           const json = JSON.parse(data);
           if (res.statusCode >= 400 || json.success === false) {
+            console.error(`[TMDB] API Error ${res.statusCode}:`, json.status_message || data);
             resolve({ error: json.status_message || `API Error ${res.statusCode}` });
           } else {
+            console.log(`[TMDB] Success! Results count: ${json.results?.length || 0}`);
             resolve(json);
           }
-        } catch {
+        } catch (e) {
+          console.error('[TMDB] Parse Error:', e.message, data.slice(0, 100));
           resolve({ error: 'Invalid response from TMDB' });
         }
       });
     });
-    req.on('error', (err) => resolve({ error: 'Connectivity Error: ' + err.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ error: 'TMDB Request Timed Out' }); });
+    req.on('error', (err) => {
+      console.error('[TMDB] Request Error:', err.message);
+      resolve({ error: 'Connectivity Error: ' + err.message });
+    });
+    req.on('timeout', () => { 
+      console.error('[TMDB] Request Timeout');
+      req.destroy(); 
+      resolve({ error: 'TMDB Request Timed Out' }); 
+    });
   });
 }
 
@@ -204,7 +220,7 @@ function initMiscIpc(ipcMain) {
         }
         return result;
       }
-
+      
       // TMDB Search (Movies & TV)
       // If it's an IMDB ID (e.g., tt1234567 or 26443616), use the /find endpoint first
       const imdbMatch = q.match(/^(tt)?(\d{7,9})$/);
@@ -214,14 +230,20 @@ function initMiscIpc(ipcMain) {
         const results = [];
         if (find.movie_results?.length) find.movie_results.forEach(r => results.push({ ...r, media_type: 'movie' }));
         if (find.tv_results?.length) find.tv_results.forEach(r => results.push({ ...r, media_type: 'tv' }));
-        if (results.length > 0) return { results };
+        if (results.length > 0) {
+          return JSON.parse(JSON.stringify({ results }));
+        }
       }
 
       const [movies, shows] = await Promise.all([
         tmdbFetch(`/search/movie?query=${encodeURIComponent(q)}`),
         tmdbFetch(`/search/tv?query=${encodeURIComponent(q)}`)
       ]);
-      return { results: [...(movies.results || []).map(r => ({ ...r, media_type: 'movie' })), ...(shows.results || []).map(r => ({ ...r, media_type: 'tv' }))] };
+
+      if (movies.error && shows.error) return { results: [], error: movies.error };
+
+      const out = { results: [...(movies.results || []).map(r => ({ ...r, media_type: 'movie' })), ...(shows.results || []).map(r => ({ ...r, media_type: 'tv' }))] };
+      return JSON.parse(JSON.stringify(out));
     } catch (err) { return { results: [], error: err.message }; }
   });
   ipcMain.handle('tmdb-season-details', async (_e, tvId, seasonNumber) => {
@@ -452,6 +474,9 @@ function initMiscIpc(ipcMain) {
   ipcMain.handle('set-metadata-provider', (_e, p) => {
     if (['tmdb', 'mal'].includes(p)) {
       metadataProvider = p;
+      const data = loadData();
+      data.metadataProvider = p;
+      saveData(data);
       return true;
     }
     return false;
@@ -461,7 +486,10 @@ function initMiscIpc(ipcMain) {
   ipcMain.handle('set-tmdb-key', (_e, key) => {
     if (key && key.trim().length > 0) {
       currentTmdbKey = key.trim();
-      console.log('[TMDB] API key updated');
+      const data = loadData();
+      data.tmdbKey = currentTmdbKey;
+      saveData(data);
+      console.log('[TMDB] API key updated and saved to disk');
       return true;
     }
     return false;
@@ -494,11 +522,13 @@ function initMiscIpc(ipcMain) {
   ipcMain.handle('set-subdl-key', (_e, key) => {
     if (key && key.trim().length > 0) {
       currentSubdlKey = key.trim();
+      const data = loadData();
+      data.subdlKey = currentSubdlKey;
+      saveData(data);
       return true;
     }
     return false;
   });
-
   ipcMain.handle('get-subdl-key-masked', () => {
     if (!currentSubdlKey) return '';
     if (currentSubdlKey.length <= 4) return '••••••••••••';
@@ -529,7 +559,7 @@ function initMiscIpc(ipcMain) {
   ipcMain.handle('kitsu-search', async (_e, query) => {
     try {
       const response = await axios.get(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(query)}`, {
-        headers: { 'Accept': 'application/vnd.api+json' },
+        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' },
         timeout: 8000
       });
       const media = response.data?.data || [];
@@ -554,7 +584,7 @@ function initMiscIpc(ipcMain) {
           trailer: attr.youtubeVideoId ? { id: attr.youtubeVideoId, site: 'youtube' } : null
         };
       });
-      return { results };
+      return JSON.parse(JSON.stringify({ results }));
     } catch (err) {
       console.error('[Kitsu] Search error:', err.message);
       return { results: [], error: err.message };
@@ -564,7 +594,7 @@ function initMiscIpc(ipcMain) {
   ipcMain.handle('kitsu-trending', async () => {
     try {
       const response = await axios.get(`https://kitsu.io/api/edge/trending/anime`, {
-        headers: { 'Accept': 'application/vnd.api+json' },
+        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' },
         timeout: 8000
       });
       const media = response.data?.data || [];
@@ -596,7 +626,7 @@ function initMiscIpc(ipcMain) {
   ipcMain.handle('kitsu-cast', async (_e, id) => {
     try {
       const response = await axios.get(`https://kitsu.io/api/edge/anime/${id}/characters?include=character`, {
-        headers: { 'Accept': 'application/vnd.api+json' },
+        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' },
         timeout: 8000
       });
       const included = response.data?.included || [];
@@ -612,6 +642,46 @@ function initMiscIpc(ipcMain) {
     } catch (err) {
       console.error('[Kitsu] Cast error:', err.message);
       return [];
+    }
+  });
+
+  // ── VLC Integration (Radical Fix: Streaming via Local Server) ──
+  ipcMain.handle('open-in-vlc', async (_e, filePath) => {
+    try {
+      const { spawn } = require('child_process');
+      const { startServer } = require('./mediaServer');
+      
+      let finalUrl = filePath;
+
+      // If it's a local file, serve it via our internal media server to avoid path encoding issues
+      if (fs.existsSync(filePath)) {
+        finalUrl = startServer(filePath);
+        console.log('[VLC] Serving local file via stream:', finalUrl);
+      }
+
+      if (process.platform === 'win32') {
+        const vlcPaths = [
+          path.join(process.env['ProgramFiles'], 'VideoLAN', 'VLC', 'vlc.exe'),
+          path.join(process.env['ProgramFiles(x86)'], 'VideoLAN', 'VLC', 'vlc.exe'),
+          'vlc'
+        ];
+        
+        let vlcPath = vlcPaths.find(p => p === 'vlc' || fs.existsSync(p));
+        
+        if (vlcPath) {
+          spawn(vlcPath, [finalUrl], { detached: true, stdio: 'ignore' }).unref();
+          return { success: true };
+        } else {
+          return { success: false, error: 'VLC not found. Please install it from videolan.org' };
+        }
+      } else {
+        // Linux/Mac/Other
+        spawn('vlc', [finalUrl], { detached: true, stdio: 'ignore' }).unref();
+        return { success: true };
+      }
+    } catch (err) {
+      console.error('[VLC] Error:', err.message);
+      return { success: false, error: err.message };
     }
   });
 

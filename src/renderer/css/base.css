@@ -25,47 +25,25 @@
   --t: .18s ease;
   --sidebar-w: 230px;
   --titlebar-h: 32px;
-  --watermark-img: url('imgs/signature_b.png');
 }
 
 /* Dark theme */
 .dark-theme {
-  --bg: #0f0f13;
-  --bg-surface: #1a1a22;
-  --bg-surface-2: #26263a;
-  --bg-card: #1a1a22;
-  --text-primary: #f0f0f2;
+  --bg: radial-gradient(circle at 20% 0%, #1a1635 0%, #0c0c1e 50%, #05050a 100%);
+  --bg-surface: #20202e;
+  --bg-surface-2: #2b2b3d;
+  --bg-card: #20202e;
+  --text-primary: #f8f8fb;
   --text-secondary: #a0a0b0;
-  --text-muted: #5a5a6e;
-  --border: #2a2a3a;
+  --text-muted: #6e6e85;
+  --border: rgba(255, 255, 255, 0.12);
   --accent-light: rgba(79, 70, 229, .15);
   --accent-glow: rgba(79, 70, 229, .25);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .2);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, .3);
   --shadow-lg: 0 8px 30px rgba(0, 0, 0, .4);
-  --watermark-img: url('imgs/signature_w.png');
 }
 
-
-body::before {
-  content: '';
-  position: fixed;
-  bottom: 25px;
-  right: 25px;
-  width: 240px;
-  height: 80px;
-  background: var(--watermark-img) no-repeat right bottom;
-  background-size: contain;
-  opacity: 0.25;
-  pointer-events: none;
-  z-index: 1; /* Underneath cards and UI elements */
-  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.4));
-  transition: opacity 0.5s ease;
-}
-
-body.playing-mode::before {
-  display: none !important;
-}
 
 .main-content {
   flex: 1;
@@ -87,7 +65,7 @@ body {
   height: 100%;
   overflow: hidden;
   font-family: var(--font);
-  background: var(--bg);
+  background: var(--bg) !important;
   color: var(--text-primary);
   transition: background var(--t), color var(--t);
 }
@@ -133,10 +111,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   padding: 0 10px;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
   user-select: none;
   flex-shrink: 0;
 }
@@ -168,7 +146,20 @@ body {
 
 .title-bar-controls {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.global-search-box {
+  transition: all 0.3s ease;
+  flex: 0 1 450px;
+}
+
+.global-search-box:focus-within {
+  flex: 0 1 600px;
+  background: rgba(255, 255, 255, 0.08) !important;
 }
 
 .title-bar-controls button {
@@ -183,6 +174,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
   transition: background var(--t), color var(--t);
+  -webkit-app-region: no-drag;
 }
 
 .title-bar-controls button:hover {
@@ -200,6 +192,7 @@ body {
   display: flex;
   height: calc(100vh - var(--titlebar-h));
   overflow: hidden;
+  background: transparent !important;
 }
 
 .fullscreen-mode #title-bar {
@@ -213,4 +206,3 @@ body {
 .fullscreen-mode #sidebar {
   display: none;
 }
-

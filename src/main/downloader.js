@@ -74,44 +74,82 @@ async function extractFrame(videoPath, outputPath) {
 async function downloadYouTube(url, outputPath, downloadId, displayName) {
   let cancelled = false, childProcess = null;
   const mainWindow = getMainWindow();
-  const encodedUrl = encodeURI(url);
+  
   activeDownloads.set(downloadId, { cancel: () => { cancelled = true; if (childProcess) childProcess.kill(); } });
+  
   return new Promise((resolve, reject) => {
     mainWindow?.webContents?.send?.('download-progress', { id: downloadId, name: displayName, percent: 1, downloaded: 'Starting...', total: 'Fetching...', status: 'downloading' });
+    
+    // Check for platform
     const isPackaged = app.isPackaged || __dirname.includes('app.asar');
-    let ytPath = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
-    if (isPackaged) ytPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
-    if (!fs.existsSync(ytPath)) ytPath = 'yt-dlp';
+    let ytPath = 'yt-dlp'; // Default to system path
+
+    if (process.platform === 'win32') {
+        ytPath = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
+        if (isPackaged) ytPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
+    } else if (process.platform === 'android') {
+        // On Android (via Capacitor/Node sidecar), we don't have yt-dlp binary easily.
+        // We fallback to direct download if possible or throw a descriptive error.
+        reject(new Error('Social media downloads are currently optimized for Desktop. Please use direct links on Mobile.'));
+        return;
+    }
+
+    if (!fs.existsSync(ytPath) && process.platform === 'win32') {
+        console.warn('[DL] Local yt-dlp not found, trying system path...');
+        ytPath = 'yt-dlp';
+    }
+
     const outputTemplate = path.join(path.dirname(outputPath), downloadId + '.%(ext)s');
-    const args = ['--no-playlist'];
+    const args = ['--no-playlist', '-o', outputTemplate, '--no-warnings', '--newline', '-N', '8'];
+    
     if (ffmpegPath && fs.existsSync(ffmpegPath)) {
       args.push('--ffmpeg-location', ffmpegPath, '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4');
     } else {
-      console.warn('[DL] FFmpeg not available, using best available format');
       args.push('-f', 'b[ext=mp4]/b');
     }
-    // High-speed parallel connection with UA Headers & optimized buffer
-    args.push('-o', outputTemplate, '--no-warnings', '--newline', '-N', '16', '--concurrent-fragments', '16', '--buffer-size', '1M', '--add-header', 'User-Agent: MediaVault/3.0', '--postprocessor-args', 'ffmpeg:-pix_fmt yuv420p', url);
+    
+    args.push(url);
+    
     childProcess = require('child_process').spawn(ytPath, args);
+    
     childProcess.stdout.on('data', (d) => { 
       if (cancelled) return; 
       const t = d.toString();
-      const m = t.match(/\[download\]\s+([\d\.]+)%\s+of\s+[~]?([\d\.]+[a-zA-Z]+)(?:\s+at\s+([^\s]+))?/); 
+      // Match yt-dlp progress: handles ~estimated sizes and fragment downloads
+      const m = t.match(/\[download\]\s+([\d\.]+)%\s+of\s+[~]?([\d\.]+)([a-zA-Z]+)(?:\s+at\s+([^\s]+))?/); 
       if (m) {
-        mainWindow?.webContents?.send?.('download-progress', { id: downloadId, name: displayName, percent: parseFloat(m[1]).toFixed(1), downloaded: 'Downloading...', total: m[2], speed: m[3] || '', status: 'downloading' }); 
+        const sizeNum = parseFloat(m[2]);
+        const sizeUnit = m[3].toUpperCase();
+        let totalDisplay = m[2] + m[3];
+        
+        // Sanity check: yt-dlp fragment downloads can report misleading totals
+        // (e.g. "90.5GiB" when the actual file is ~200MB).
+        // If yt-dlp reports >20GB for a non-torrent download, show "Estimating..." instead.
+        if ((sizeUnit.startsWith('G') && sizeNum > 20) || sizeUnit.startsWith('T')) {
+          totalDisplay = 'Estimating...';
+        }
+        
+        mainWindow?.webContents?.send?.('download-progress', { 
+            id: downloadId, 
+            name: displayName, 
+            percent: parseFloat(m[1]).toFixed(1), 
+            downloaded: 'Downloading...', 
+            total: totalDisplay, 
+            speed: m[4] || '', 
+            status: 'downloading' 
+        }); 
       }
     });
+
     childProcess.on('close', (code) => { 
       if (cancelled) return; 
-      if (code === 0) {
-        resolve();
-      } else if (code === 143 || code === null) {
-        console.log('[DL] YouTube download process killed');
-      } else {
-        reject(new Error(`YouTube download failed with code ${code}`));
-      }
+      if (code === 0) resolve();
+      else reject(new Error(`Download failed (Code ${code}). Check if the link is valid.`));
     });
-    childProcess.on('error', (err) => { if (!cancelled) reject(err); });
+
+    childProcess.on('error', (err) => { 
+        if (!cancelled) reject(new Error('Engine Error: ' + err.message)); 
+    });
   });
 }
 
@@ -141,35 +179,54 @@ async function downloadThumbnail(url, outputPath) {
   }
 }
 
-function downloadDirect(url, outputPath, downloadId, displayName) {
-  const encodedUrl = encodeURI(url);
-  const proto = encodedUrl.startsWith('https') ? https : http;
+async function downloadDirect(url, outputPath, downloadId, displayName) {
   const mainWindow = getMainWindow();
-  return new Promise((resolve, reject) => {
-    const req = proto.get(encodedUrl, { headers: { 'User-Agent': 'MediaVault/3.0' } }, (res) => {
-      // Handle redirects safely
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        const newLocation = res.headers.location;
-        // Prevent infinite loops
-        if (newLocation && newLocation !== encodedUrl) {
-          return downloadDirect(newLocation, outputPath, downloadId, displayName).then(resolve).catch(reject);
-        }
-      }
-      if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
-      const totalBytes = parseInt(res.headers['content-length']) || 0;
-      let downloadedBytes = 0, cancelled = false;
-      const ws = fs.createWriteStream(outputPath);
-      activeDownloads.set(downloadId, { cancel: () => { cancelled = true; req.destroy(); res.destroy(); ws.close(); } });
-      res.on('data', chunk => { 
-        if (cancelled) return; 
-        downloadedBytes += chunk.length; 
-        mainWindow?.webContents?.send?.('download-progress', { id: downloadId, name: displayName, percent: totalBytes > 0 ? +((downloadedBytes/totalBytes)*100).toFixed(1) : 0, downloaded: formatBytes(downloadedBytes), total: formatBytes(totalBytes), status: 'downloading' }); 
-      });
-      res.pipe(ws); ws.on('finish', () => { if (!cancelled) resolve(); });
-      res.on('error', e => { if (!cancelled) reject(e); });
+  let cancelled = false;
+  
+  activeDownloads.set(downloadId, { cancel: () => { cancelled = true; } });
+
+  try {
+    const response = await axios({
+      method: 'get',
+      url: url,
+      responseType: 'stream',
+      timeout: 30000,
+      headers: { 'User-Agent': 'MediaVault/3.0' }
     });
-    req.on('error', reject);
-  });
+
+    const totalBytes = parseInt(response.headers['content-length']) || 0;
+    let downloadedBytes = 0;
+    const ws = fs.createWriteStream(outputPath);
+
+    response.data.on('data', (chunk) => {
+      if (cancelled) {
+        response.data.destroy();
+        ws.close();
+        return;
+      }
+      downloadedBytes += chunk.length;
+      const percent = totalBytes > 0 ? ((downloadedBytes / totalBytes) * 100).toFixed(1) : 0;
+      
+      mainWindow?.webContents?.send?.('download-progress', { 
+        id: downloadId, 
+        name: displayName, 
+        percent, 
+        downloaded: formatBytes(downloadedBytes), 
+        total: formatBytes(totalBytes), 
+        status: 'downloading' 
+      });
+    });
+
+    return new Promise((resolve, reject) => {
+      response.data.pipe(ws);
+      ws.on('finish', () => { if (!cancelled) resolve(); });
+      ws.on('error', reject);
+      response.data.on('error', reject);
+    });
+
+  } catch (err) {
+    throw new Error('Direct Download Failed: ' + (err.response?.statusText || err.message));
+  }
 }
 
 async function downloadTorrent(magnet, outputPath, downloadId, displayName) {
@@ -327,7 +384,13 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName) {
       // Calculate true progress based on selection mode
       const progress = torrent.targetFile ? torrent.targetFile.progress : torrent.progress;
       const downloadedBytes = torrent.targetFile ? torrent.targetFile.downloaded : torrent.downloaded;
-      const totalBytes = torrent.targetFile ? torrent.targetFile.length : torrent.length;
+      
+      // Calculate selected files total length
+      let totalBytes = torrent.targetFile ? torrent.targetFile.length : 0;
+      if (!torrent.targetFile) {
+        totalBytes = torrent.files.filter(f => f.progress > -1).reduce((acc, f) => acc + f.length, 0);
+        if (totalBytes === 0) totalBytes = torrent.length; // Fallback
+      }
 
       mainWindow?.webContents.send('download-progress', { 
         id: downloadId, 
@@ -436,32 +499,50 @@ function initDownloaderIpc(ipcMain) {
 
     // --- SMART PATH RESOLUTION ---
     let rootDir = path.join(app.getPath('videos'), 'MediaVault');
+    if (process.platform === 'android') {
+        // On Android, use the public Downloads folder for better visibility
+        rootDir = path.join(app.getPath('downloads'), 'MediaVault');
+    }
     const profileName = opts.profileName || 'Default';
     const profileSafe = profileName.replace(/[<>:"/\\|?*]/g, '_');
     
-    // Default fallback path
-    let finalDir = path.join(rootDir, profileSafe, category);
+    // If the caller already specified an explicit download path, use it directly.
+    // This prevents creating spurious profile subdirectories (e.g. "Default/Social")
+    // when the UI has already computed the correct destination.
+    let finalDir;
+    if (opts.downloadPath && opts.downloadPath.trim()) {
+        finalDir = opts.downloadPath;
+    } else {
+        // Default fallback path - start with root but don't commit to profile subfolder yet
+        finalDir = rootDir; 
+        let useProfileFolder = true;
 
-    // If profile has custom library folders, try to pick the most relevant one
-    if (opts.libraryFolders && Array.isArray(opts.libraryFolders) && opts.libraryFolders.length > 0) {
-        let bestMatch = null;
-        if (category === 'Movies') {
-            bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('movie') || f.toLowerCase().includes('film'));
-        } else if (category === 'Series') {
-            bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('tv') || f.toLowerCase().includes('series') || f.toLowerCase().includes('show') || f.toLowerCase().includes('anime'));
-        } else if (category === 'Music') {
-            bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('music') || f.toLowerCase().includes('audio'));
-        } else if (category === 'Social') {
-            bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('social') || f.toLowerCase().includes('youtube') || f.toLowerCase().includes('video'));
+        // If profile has custom library folders, try to pick the most relevant one
+        if (opts.libraryFolders && Array.isArray(opts.libraryFolders) && opts.libraryFolders.length > 0) {
+            let bestMatch = null;
+            if (category === 'Movies') {
+                bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('movie') || f.toLowerCase().includes('film'));
+            } else if (category === 'Series') {
+                bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('tv') || f.toLowerCase().includes('series') || f.toLowerCase().includes('show') || f.toLowerCase().includes('anime'));
+            } else if (category === 'Music') {
+                bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('music') || f.toLowerCase().includes('audio'));
+            } else if (category === 'Social') {
+                bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('social') || f.toLowerCase().includes('youtube') || f.toLowerCase().includes('video'));
+            }
+            
+            if (bestMatch) {
+                finalDir = bestMatch;
+                useProfileFolder = false;
+            } else {
+                finalDir = opts.libraryFolders[0];
+                useProfileFolder = false;
+            }
         }
-        
-        // If we found a specific folder for this category, use it AS-IS (the user expects it to go there)
-        // If not, use the first library folder as the root for the Default/{Category} structure
-        if (bestMatch) {
-            finalDir = bestMatch;
+
+        if (useProfileFolder && profileSafe !== 'Default') {
+            finalDir = path.join(finalDir, profileSafe, category);
         } else {
-            rootDir = opts.libraryFolders[0];
-            finalDir = path.join(rootDir, category); // No extra profile naming if it's already a custom folder
+            finalDir = path.join(finalDir, category);
         }
     }
     let finalName = `${safeName}.mp4`;
@@ -498,7 +579,10 @@ function initDownloaderIpc(ipcMain) {
         if (!showTitle) showTitle = safeName;
         showTitle = showTitle.replace(/[<>:"/\\|?*]/g, '_');
         
-        finalDir = path.join(rootDir, profileSafe, 'Series', showTitle, `Season ${pSeason}`);
+        if (!(opts.downloadPath && opts.downloadPath.trim())) {
+            // Append show structure to the properly resolved base directory
+            finalDir = path.join(finalDir, showTitle, `Season ${pSeason}`);
+        }
         finalName = `${showTitle} - S${sNum}E${eNum}.mp4`;
         
     } else if (category === 'Movies') {
@@ -507,7 +591,11 @@ function initDownloaderIpc(ipcMain) {
         movieTitle = movieTitle.replace(/[\[\(].*?[\]\)]/g, '').replace(/[._-]/g, ' ').trim() || safeName;
         movieTitle = movieTitle.replace(/[<>:"/\\|?*]/g, '_');
         const yearTxt = opts.year ? ` (${opts.year})` : '';
-        finalDir = path.join(rootDir, profileSafe, 'Movies', `${movieTitle}${yearTxt}`);
+        
+        if (!(opts.downloadPath && opts.downloadPath.trim())) {
+            // Append movie folder to the properly resolved base directory
+            finalDir = path.join(finalDir, `${movieTitle}${yearTxt}`);
+        }
         finalName = `${movieTitle}.mp4`;
     }
 
@@ -522,71 +610,58 @@ function initDownloaderIpc(ipcMain) {
     mainWindow?.webContents?.send?.('download-progress', { id, name: finalName, percent: 0, status: 'searching', statusText: 'Starting download...' });
     
     try {
-      if (url.startsWith('magnet:') || (url.length === 40 && !url.includes(':'))) { await downloadTorrent(url, tempPath, id, finalName); }
-      else if (isSupportedByYtDlp(url)) { await downloadYouTube(url, tempPath, id, finalName); }
-      else { await downloadDirect(url, tempPath, id, finalName); }
+      if (url.startsWith('magnet:') || (url.length === 40 && !url.includes(':'))) { 
+        await downloadTorrent(url, tempPath, id, finalName); 
+      } else {
+        // RADICAL FIX: Try Native Direct Download first for speed and reliability
+        // Only use yt-dlp if it's a known social media / video site that requires extraction
+        const useYtDlp = isYouTubeUrl(url) || isSocialMediaUrl(url);
+        
+        if (useYtDlp) {
+          try {
+            await downloadYouTube(url, tempPath, id, finalName);
+          } catch (ytErr) {
+            console.warn('[DL] yt-dlp failed, attempting native fallback:', ytErr.message);
+            await downloadDirect(url, tempPath, id, finalName);
+          }
+        } else {
+          await downloadDirect(url, tempPath, id, finalName);
+        }
+      }
       
       const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(id));
-      if (files.length === 0) throw new Error('Download finished but no internal file was found.');
-      const sourceFile = path.join(TEMP_DIR, files[0]), actualExt = path.extname(files[0]);
-      if (actualExt !== '.mp4') { finalPath = finalPath.replace(/\.mp4$/i, actualExt); finalName = finalName.replace(/\.mp4$/i, actualExt); }
+      if (files.length === 0) throw new Error('Download finished but no file was found.');
       
-      // Secondary check: Ensure dir exists right before copying to prevent ENOENT
+      const sourceFile = path.join(TEMP_DIR, files[0]);
+      const actualExt = path.extname(files[0]);
+      
+      if (actualExt && actualExt !== '.mp4') { 
+        finalPath = finalPath.replace(/\.mp4$/i, actualExt); 
+        finalName = finalName.replace(/\.mp4$/i, actualExt); 
+      }
+      
       if (!fs.existsSync(path.dirname(finalPath))) fs.mkdirSync(path.dirname(finalPath), { recursive: true });
-      fs.copyFileSync(sourceFile, finalPath); 
       
-      // Notify completion IMMEDIATELY - Don't wait for metadata tasks
-      const mDataResolved = metadataPromise ? await Promise.race([
-        metadataPromise,
-        new Promise(r => setTimeout(() => r(null), 1500))
-      ]).catch(() => null) : null;
-
-      const fallbackTitle = mDataResolved?.title || name || finalName;
-      mainWindow?.webContents?.send?.('download-complete', { id, name: fallbackTitle, path: finalPath, url });
-      showToastNotification('Download Complete', fallbackTitle);
+      // Use move instead of copy for speed
+      fs.renameSync(sourceFile, finalPath);
+      
+      mainWindow?.webContents?.send?.('download-complete', { id, name: finalName, path: finalPath, url });
+      showToastNotification('Download Complete', finalName);
       activeDownloads.delete(id);
 
-      // PERFORM METADATA TASKS IN BACKGROUND (Async)
+      // Metadata generation in background
       (async () => {
         try {
-          const mData = metadataPromise ? await Promise.race([
-            metadataPromise,
-            new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 6000))
-          ]).catch(() => null) : null;
-
-          const metadataPath = finalPath + '.metadata.json';
           const coverPath = finalPath + '.cover.jpg';
-          
-          // GENERATE THUMBNAIL FROM VIDEO AS REQUESTED
-          let hasCover = false;
           if (isMusicMode || category === 'Social') {
-            hasCover = await extractFrame(finalPath, coverPath);
+            await extractFrame(finalPath, coverPath);
           }
-          
-          if (isMusicMode && mData) {
-            const sidecar = { 
-              ...mData, 
-              cover: hasCover ? coverPath : (mData.coverUrl || ''), 
-              downloadDate: new Date().toISOString() 
-            };
-            fs.writeFileSync(metadataPath, JSON.stringify(sidecar, null, 2));
-          }
-          
-          // Signal the renderer to re-scan for the new cover/metadata
           mainWindow?.webContents?.send?.('metadata-ready', { path: finalPath });
-        } catch (bgErr) {
-          console.warn('[Downloader] Background tasks failed:', bgErr.message);
-        }
+        } catch (e) {}
       })();
 
       return { success: true, id, path: finalPath };
     } catch (err) {
-      try { 
-        const fList = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(id)); 
-        for (const f of fList) fs.unlinkSync(path.join(TEMP_DIR, f)); 
-      } catch (cleanErr) { 
-        console.warn('[DL] Failed to clean temp dir:', cleanErr.message); 
-      }
       activeDownloads.delete(id); 
       mainWindow?.webContents?.send?.('download-error', { id, name: finalName, error: err.message }); 
       return { success: false, id, error: err.message };

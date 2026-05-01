@@ -1,0 +1,1175 @@
+/* ── Premium Mobile UI (MediaVault Android) ── */
+
+@media (max-width: 768px) {
+    :root {
+        --sidebar-w: 0px;
+        --dock-h: 58px;
+    }
+
+    /* 1. Global Reset */
+    #app-body {
+        flex-direction: column !important; /* Stack vertically */
+    }
+
+    #sidebar {
+        display: none !important;
+    }
+
+    #title-bar {
+        display: none !important; /* Fully Hide Top Bar as requested */
+    }
+
+    /* Purple-ish Premium Dark Mode - Deep Indigo Charcoal */
+    :root {
+        --bg: #0d0d12 !important; /* Sidebar/Deep blackish indigo */
+        --bg-content: #111116 !important; /* Main content background */
+        --bg-surface: #1a1a2e !important;
+        --bg-surface-2: #25253d !important;
+        --bg-card: #1a1a2e !important;
+        --text-primary: #f8fafc !important;
+        --text-secondary: #94a3b8 !important;
+        --text-muted: #64748b !important;
+        --border: rgba(99, 102, 241, 0.15) !important;
+        --accent: #6366f1 !important;
+        --accent-light: rgba(99, 102, 241, 0.2) !important;
+        --accent-glow: rgba(99, 102, 241, 0.3) !important;
+    }
+
+    body {
+        background-color: #0d0d12 !important;
+        background-attachment: fixed !important;
+        color: #f8fafc !important;
+    }
+
+    /* 2. Main Content Viewport */
+    .view {
+        padding: 15px 20px calc(var(--dock-h) + 70px) !important; 
+        min-height: 100vh;
+        background: transparent !important;
+    }
+
+    .view-header h1 {
+        font-size: 1.8rem !important;
+        font-weight: 800;
+        margin-top: 10px;
+    }
+
+    .card-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 12px !important;
+        padding-bottom: 20px;
+    }
+
+    /* 3. The Premium Bottom Dock (Purple Glass Tint) */
+    #mobile-dock {
+        display: flex !important;
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 94%;
+        max-width: 450px;
+        height: var(--dock-h);
+        background: rgba(18, 18, 28, 0.8) !important; 
+        backdrop-filter: blur(40px) saturate(210%);
+        -webkit-backdrop-filter: blur(40px) saturate(210%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px; /* Matches search-box */
+        z-index: 9999;
+        justify-content: space-around;
+        align-items: center;
+        padding: 0 10px;
+        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
+        animation: dockPop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    @keyframes dockPop {
+        from { transform: translateX(-50%) translateY(100px) scale(0.8); opacity: 0; }
+        to { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+    }
+
+    #mobile-dock .nav-btn {
+        display: flex !important;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: none !important;
+        border: none !important;
+        color: rgba(255, 255, 255, 0.4);
+        gap: 6px;
+        width: 70px;
+        height: 100%;
+        transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+        position: relative;
+    }
+
+    #mobile-dock .nav-btn i {
+        font-size: 20px;
+        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.4s ease;
+        z-index: 2;
+    }
+
+    #mobile-dock .nav-btn span {
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        opacity: 0.7;
+        transition: all 0.4s ease;
+    }
+
+    /* Active State: Premium Indigo Halo & Slim Pill */
+    #mobile-dock .nav-btn.active {
+        color: #fff;
+    }
+
+    #mobile-dock .nav-btn.active i {
+        color: #fff;
+        transform: translateY(-4px) scale(1.15);
+        filter: drop-shadow(0 0 12px var(--accent));
+    }
+
+    #mobile-dock .nav-btn.active span {
+        opacity: 1;
+        color: #fff;
+        transform: translateY(-2px);
+    }
+
+    /* The Indigo Halo */
+    #mobile-dock .nav-btn.active::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 45px;
+        height: 45px;
+        background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+        border-radius: 50%;
+        z-index: 1;
+        animation: haloPulse 2s infinite ease-in-out;
+    }
+
+    /* The Slim Pill Indicator */
+    #mobile-dock .nav-btn.active::after {
+        content: '';
+        position: absolute;
+        bottom: 6px;
+        width: 14px;
+        height: 3px;
+        background: var(--accent);
+        border-radius: 10px;
+        box-shadow: 0 0 10px var(--accent);
+        animation: pillIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    @keyframes haloPulse {
+        0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+        50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.2); }
+    }
+
+    @keyframes pillIn {
+        from { width: 0; opacity: 0; transform: scaleX(0); }
+        to { width: 14px; opacity: 1; transform: scaleX(1); }
+    }
+
+    /* Contextual Dock: Step Back Button */
+    #mobile-dock .dock-back-btn {
+        color: var(--accent) !important;
+        opacity: 0.9;
+        width: 52px !important;
+        flex-shrink: 0;
+        border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+        border-radius: 0 !important;
+        margin-right: 2px;
+    }
+
+    #mobile-dock .dock-back-btn i {
+        font-size: 16px !important;
+        color: var(--accent) !important;
+        transform: none !important;
+        filter: none !important;
+    }
+
+    #mobile-dock .dock-back-btn span {
+        font-size: 8px !important;
+        color: var(--accent) !important;
+        opacity: 0.8 !important;
+    }
+
+    #mobile-dock .dock-back-btn::before,
+    #mobile-dock .dock-back-btn::after {
+        display: none !important;
+    }
+
+    /* When contextual dock is active (has back btn), fit all tabs tighter */
+    #mobile-dock:has(.dock-back-btn) {
+        max-width: 500px;
+        padding: 0 6px;
+    }
+
+    #mobile-dock:has(.dock-back-btn) .nav-btn:not(.dock-back-btn) {
+        width: 58px !important;
+    }
+
+    /* 4. Restore the Mini Player for Mobile */
+    #mini-player {
+        display: none; /* Controlled by JS but styled here */
+        position: fixed;
+        bottom: calc(var(--dock-h) + 32px);
+        left: 50%;
+        transform: translateX(-50%);
+        width: 92%;
+        max-width: 440px;
+        background: rgba(30, 30, 50, 0.75) !important;
+        backdrop-filter: blur(30px) saturate(180%);
+        -webkit-backdrop-filter: blur(30px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 18px;
+        padding: 12px 18px;
+        z-index: 9998;
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+        align-items: center;
+        gap: 15px;
+        animation: miniPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    @keyframes miniPop {
+        from { transform: translateX(-50%) translateY(40px) scale(0.9); opacity: 0; }
+        to { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+    }
+
+    #mini-player #mp-art {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        object-fit: cover;
+    }
+
+    #mini-player .mp-info {
+        flex: 1;
+        overflow: hidden;
+    }
+
+    #mini-player #mp-title {
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: #fff;
+    }
+
+    #mini-player #mp-meta {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.5);
+    }
+
+    /* 5. Mobile Optimized Settings */
+    #view-settings .settings-content {
+        padding: 0;
+    }
+
+    .settings-card {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
+        border-radius: 18px !important;
+        padding: 20px !important;
+        margin-bottom: 20px !important;
+    }
+
+    .settings-card h3 {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--accent);
+        margin-bottom: 20px !important;
+    }
+
+    .dl-form .dl-field label {
+        font-size: 12px;
+        margin-bottom: 8px;
+    }
+
+    #view-settings button {
+        height: 48px;
+        font-size: 14px;
+        border-radius: 12px;
+    }
+
+    /* Hide Desktop Elements */
+    #sidebar-signature {
+        display: none !important;
+    }
+
+    /* Fix Search and Filter Boxes */
+    .search-box {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        width: 100% !important;
+        height: 44px;
+        border-radius: 12px !important;
+    }
+
+    /* Home Stats Hub for My Space */
+    .home-stats-hub {
+        grid-template-columns: 1fr !important; /* Stack stats vertically or better grid */
+        gap: 15px;
+    }
+    
+    .stat-box {
+        padding: 20px !important;
+        border-radius: 20px !important;
+    }
+
+    /* 9. Settings Polish: App Controls & Fixed Grid */
+    .mobile-ctrl-grid {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 12px;
+        width: 100%;
+        margin-top: 10px;
+    }
+
+    .mobile-ctrl-grid button {
+        width: 100% !important;
+        justify-content: center;
+        padding: 12px !important;
+        height: 48px !important;
+    }
+
+    .zoom-controls {
+        display: flex !important;
+        width: 100% !important;
+        gap: 8px;
+    }
+
+    .zoom-controls button:first-child,
+    .zoom-controls button:last-child {
+        width: 60px !important;
+        flex-shrink: 0;
+    }
+
+    /* 10. Downloads View Mobile Fixes */
+    #view-downloads .view-header {
+        margin-bottom: 20px;
+    }
+
+    #view-downloads .dl-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px !important;
+    }
+
+    .dl-item {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
+        border-radius: 14px !important;
+        padding: 14px !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+    }
+
+    .dl-item-info {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .dl-item-name {
+        font-weight: 600;
+        font-size: 13px;
+        color: #fff;
+    }
+
+    .dl-item-status {
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+
+    .dl-error { color: #ef4444; font-weight: 700; font-size: 12px; }
+
+    /* 11. Immersive Video Player Redesign */
+    body.playing-mode #mobile-dock {
+        display: none !important; /* Maximise screen space */
+        pointer-events: none;
+    }
+
+    #view-player {
+        padding: 0 !important; /* Immersive edge-to-edge */
+        background: #000 !important;
+        overflow: hidden;
+    }
+
+    #player-wrapper {
+        height: 100vh;
+        width: 100vw;
+    }
+
+    /* Top Bar: Minimalist & Elevated */
+    #player-topbar {
+        background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%) !important;
+        padding: 15px 20px 40px !important;
+        height: auto !important;
+        z-index: 10;
+    }
+
+    .player-show-name { font-size: 11px !important; opacity: 0.6; }
+    .player-ep-title { font-size: 15px !important; font-weight: 700 !important; }
+
+    /* Massive Center Controls */
+    #player-controls {
+        background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%) !important;
+        padding: 20px 25px 30px !important;
+    }
+
+    .controls-row {
+        justify-content: center !important;
+        gap: 30px !important;
+        margin-top: 10px;
+    }
+
+    /* Re-order or simplify for mobile touch */
+    .controls-left { gap: 20px !important; }
+    .controls-right { display: none !important; /* Secondary controls moved or hidden for clarity */ }
+
+    .ctrl-btn.large {
+        width: 70px !important;
+        height: 70px !important;
+        background: rgba(99, 102, 241, 0.2) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 50% !important;
+        backdrop-filter: blur(10px);
+    }
+
+    /* Thick touch-friendly Seeker */
+    .seek-bar-wrap { height: 8px !important; border-radius: 10px; }
+    #seek-bar::-webkit-slider-thumb {
+        width: 18px !important;
+        height: 18px !important;
+        background: #fff !important;
+        box-shadow: 0 0 15px var(--accent);
+    }
+
+    /* Controls absolute over video only */
+    #player-wrapper .player-topbar,
+    #player-wrapper .player-controls,
+    #player-wrapper .player-loading {
+        position: absolute !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+    }
+
+    #player-wrapper .player-topbar { top: 0 !important; }
+    #player-wrapper .player-controls { bottom: 0 !important; }
+
+    /* 12. Immersive Discover Detail Redesign */
+    #view-discover-detail {
+        padding: 0 !important;
+        overflow-y: auto !important;
+    }
+
+    .dd-backdrop {
+        height: 45vh !important;
+        position: relative !important;
+        mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+        -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    }
+
+    .dd-top-bar {
+        position: fixed;
+        top: 15px;
+        left: 15px;
+        z-index: 100;
+    }
+
+    .dd-content {
+        margin-top: -120px !important;
+        padding: 0 20px 40px !important;
+        position: relative;
+        z-index: 2;
+    }
+
+    .dd-main {
+        flex-direction: column !important;
+        align-items: center !important;
+        text-align: center;
+        gap: 20px;
+    }
+
+    .dd-poster-wrap {
+        width: 180px !important;
+        box-shadow: 0 25px 50px rgba(0,0,0,0.8);
+        border-radius: 20px;
+        overflow: hidden;
+    }
+
+    #dd-title {
+        font-size: 28px !important;
+        font-weight: 800 !important;
+        background: linear-gradient(to bottom, #fff, #94a3b8);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .dd-meta {
+        justify-content: center !important;
+        font-size: 13px !important;
+        opacity: 0.8;
+    }
+
+    .dd-actions {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 12px !important;
+        width: 100% !important;
+        margin-top: 25px !important;
+    }
+
+    .dd-actions button {
+        width: 100% !important;
+        height: 52px !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        border-radius: 16px !important;
+    }
+
+    .dd-body-split {
+        flex-direction: column !important;
+        gap: 30px !important;
+        margin-top: 40px !important;
+    }
+
+    /* Horizontal Cast Scroll */
+    .dd-cast-section {
+        overflow-x: auto;
+        white-space: nowrap;
+        padding-bottom: 10px;
+    }
+    
+    .cast-item {
+        display: inline-flex !important;
+        flex-direction: column;
+        width: 80px;
+        margin-right: 15px;
+        text-align: center;
+    }
+
+    .cast-avatar { width: 65px !important; height: 65px !important; margin: 0 auto 8px; }
+
+    /* 13. Welcome & Profile Picker Redesign */
+    #profile-picker {
+        padding: 40px 20px !important;
+        gap: 25px !important;
+    }
+
+    #profile-picker h1 {
+        font-size: 1.8rem !important;
+        margin-bottom: 5px !important;
+        text-align: center;
+    }
+
+    #profile-list {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 20px !important;
+        width: 100%;
+        max-width: 320px;
+    }
+
+    .profile-avatar-box {
+        width: 110px !important;
+        height: 110px !important;
+    }
+
+    .profile-card span {
+        font-size: 1rem !important;
+    }
+
+    /* 14. Profile Modal Redesign */
+    #profile-modal .modal-content {
+        width: 90vw !important;
+        padding: 30px 20px !important;
+        border-radius: 20px !important;
+    }
+
+    #profile-modal h2 {
+        font-size: 1.4rem !important;
+    }
+
+    #avatar-selector {
+        gap: 10px !important;
+    }
+
+    .avatar-opt {
+        width: 50px !important;
+        height: 50px !important;
+    }
+
+    #profile-name-input {
+        padding: 12px !important;
+        font-size: 14px !important;
+    }
+
+    /* 15. Premium Mobile Player Overhaul (Vertical & Horizontal) */
+    body.playing-mode #view-player {
+        display: flex !important;
+        flex-direction: column !important;
+        background: #000 !important;
+        overflow: hidden !important;
+    }
+
+    @media (orientation: portrait) {
+        #player-wrapper {
+            position: relative !important;
+            display: block !important;
+            width: 100vw !important;
+            height: auto !important;
+            min-height: 220px !important; /* Safety for small phones */
+            height: calc(100vw * 9 / 16) !important; /* Fallback for aspect-ratio */
+            aspect-ratio: 16 / 9 !important;
+            flex-shrink: 0 !important;
+            z-index: 50 !important;
+            order: 1 !important; /* Force video to top */
+            background: #000 !important;
+        }
+
+        #view-player #player-side-panel {
+            order: 2 !important; /* Force panel to below video */
+            position: relative !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            flex-grow: 1 !important;
+            background: linear-gradient(180deg, #12121e 0%, #0a0a0f 100%) !important;
+            display: flex !important;
+            flex-direction: column !important;
+            border-left: none !important;
+            transform: none !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            overflow: hidden !important;
+            border-top: 2px solid var(--accent);
+        }
+
+        .side-panel-header {
+            padding: 20px !important;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        #panel-episode-list {
+            padding: 15px !important;
+            gap: 12px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow-y: auto !important;
+        }
+
+        /* Premium Episode Cards (Crunchyroll Style) */
+        .panel-ep-item {
+            display: flex !important;
+            background: rgba(255, 255, 255, 0.03) !important;
+            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+            padding: 8px !important;
+            gap: 12px !important;
+            transition: all 0.3s ease;
+        }
+
+        .panel-ep-item.active {
+            background: rgba(99, 102, 241, 0.15) !important;
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.2);
+        }
+
+        .panel-ep-thumb-wrap {
+            width: 120px !important;
+            height: 68px !important;
+            flex-shrink: 0 !important;
+            border-radius: 6px !important;
+        }
+
+        .panel-ep-title {
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            line-height: 1.3 !important;
+            color: #fff !important;
+        }
+
+        .panel-ep-meta {
+            font-size: 11px !important;
+            opacity: 0.6;
+            margin-top: 4px;
+        }
+
+        /* Hide close/settings on portrait side panel; they are redundant */
+        .side-panel-header .panel-close-btn { display: none; }
+    }
+
+    @media (orientation: landscape) {
+        #player-wrapper {
+            height: 100vh !important;
+            width: 100vw !important;
+        }
+        
+        #view-player #player-side-panel {
+            /* Keep it as an overlay in landscape */
+            position: fixed !important;
+            right: -350px !important;
+            top: 0 !important;
+            height: 100vh !important;
+            width: 320px !important;
+            z-index: 1000;
+        }
+
+        #view-player #player-side-panel.open {
+            right: 0 !important;
+            transform: none !important;
+        }
+    }
+
+    /* Opaque Player Backdrop - Force Full Screen Coverage */
+    body.playing-mode #view-player {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: #000 !important;
+        background-color: #000 !important;
+        z-index: 99999 !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    body.playing-mode #view-player.active {
+        display: flex !important;
+    }
+
+    /* 16. Luxury Player Error Overlay (Premium) */
+    .player-error-modern {
+        background: rgba(10, 10, 15, 0.95) !important;
+        backdrop-filter: blur(25px) !important;
+        z-index: 2000 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 30px !important;
+        text-align: center !important;
+        position: absolute !important;
+        inset: 0 !important;
+        animation: fadeIn 0.4s ease;
+    }
+
+    .error-icon-premium {
+        font-size: 64px !important;
+        color: #ef4444 !important;
+        margin-bottom: 25px !important;
+        filter: drop-shadow(0 0 20px rgba(239, 68, 68, 0.3));
+    }
+
+    .error-msg-premium {
+        font-family: 'Cairo', sans-serif !important;
+        font-size: 19px !important;
+        font-weight: 700 !important;
+        color: #fff !important;
+        margin-bottom: 30px !important;
+        max-width: 90% !important;
+        line-height: 1.5 !important;
+    }
+
+    .error-btn-group {
+        display: flex !important;
+        gap: 15px !important;
+        width: 100% !important;
+        justify-content: center !important;
+    }
+
+    .error-btn-premium {
+        min-width: 140px !important;
+        padding: 14px 20px !important;
+        border-radius: 12px !important;
+        font-family: 'Cairo', sans-serif !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .error-btn-premium.retry {
+        background: var(--accent) !important;
+        color: #fff !important;
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+    }
+
+    .error-btn-premium.exit {
+        background: rgba(255, 255, 255, 0.05) !important;
+        color: rgba(255, 255, 255, 0.7) !important;
+    }
+
+    /* Fix Background Leak */
+    body.playing-mode #view-player.active {
+        background: #000 !important;
+        z-index: 500 !important;
+    }
+
+
+
+    /* 10. Discover / Explore Premium Redesign */
+    #view-discover {
+        padding: 15px 20px calc(var(--dock-h) + 20px) !important;
+        overflow-x: hidden !important;
+    }
+
+    .discover-hero {
+        height: 220px !important;
+        margin-bottom: 20px !important;
+        border-radius: 16px !important;
+    }
+
+    .hero-overlay {
+        padding: 20px !important;
+        background: linear-gradient(to top, var(--bg) 0%, transparent 80%) !important;
+        justify-content: flex-end !important;
+    }
+
+    .hero-title {
+        font-size: 1.4rem !important;
+    }
+
+    .discover-layout {
+        flex-direction: column !important;
+        height: auto !important;
+        gap: 15px !important;
+    }
+
+    #discover-sidebar {
+        display: flex !important;
+        flex-direction: row !important;
+        width: 100% !important;
+        overflow-x: auto !important;
+        padding-bottom: 10px !important;
+        gap: 10px !important;
+        margin-bottom: 15px !important;
+        border-right: none !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Ensure sidebar is always visible on mobile, ignoring collapsed state */
+    #view-discover.sidebar-collapsed .discover-sidebar {
+        width: 100% !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        margin-left: 0 !important;
+    }
+
+    #discover-sidebar::-webkit-scrollbar {
+        display: none;
+    }
+
+    #discover-sidebar .sidebar-label {
+        display: none !important;
+    }
+
+    #discover-sidebar .nav-btn {
+        flex-direction: row !important;
+        width: auto !important;
+        padding: 8px 15px !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-radius: 20px !important;
+        white-space: nowrap !important;
+        flex-shrink: 0;
+    }
+
+    #discover-sidebar .nav-btn.active {
+        background: rgba(99, 102, 241, 0.2) !important;
+        border: 1px solid var(--accent) !important;
+    }
+
+    .discover-main {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important; /* Alignment synced with parent padding */
+    }
+
+    #discover-content {
+        display: flex;
+        flex-direction: column;
+        gap: 25px;
+    }
+
+    .discover-section {
+        margin-bottom: 20px;
+    }
+
+    .discover-section-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+        padding-left: 4px;
+    }
+
+    .discover-section-header h2 {
+        font-size: 1.3rem !important;
+        font-weight: 800 !important;
+        color: #fff;
+        letter-spacing: -0.2px;
+    }
+
+    .discover-section-header svg {
+        color: var(--accent);
+        width: 22px;
+        height: 22px;
+        filter: drop-shadow(0 0 10px var(--accent-glow));
+    }
+
+    /* Row Fix: Use flex-scroll instead of forced 2-column grid to prevent giant cards */
+    .discover-row {
+        display: flex !important;
+        gap: 16px !important;
+        overflow-x: auto !important;
+        padding: 10px 0 25px !important;
+        margin: 0 !important;
+        scrollbar-width: none;
+    }
+    .discover-row::-webkit-scrollbar { display: none; }
+
+    .discover-row-wrapper {
+        position: relative;
+    }
+
+    .discover-scroll-btn {
+        display: none !important;
+    }
+
+    /* Fix Mobile Grid and Scroll List Cards */
+    .card-grid .discover-card {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+    }
+
+    .discover-row .discover-card {
+        width: 130px !important;
+        min-width: 130px !important;
+        max-width: 130px !important;
+    }
+
+    .card-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 15px !important;
+        padding: 10px 10px 40px !important;
+    }
+
+    /* Search Box Premium Overhaul */
+    .discover-search-box {
+        width: 100% !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 14px !important;
+        height: 48px !important;
+        margin: 0 !important; /* Fixed huge gap */
+        transition: all 0.3s ease;
+    }
+
+    .discover-search-box:focus-within {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
+    }
+
+    #search-discover {
+        font-size: 16px !important;
+    }
+
+    /* Hide redundant toggles */
+    #btn-discover-sidebar {
+        display: none !important;
+    }
+
+    .view-actions {
+        width: 100% !important;
+    }
+
+    .view-header {
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 15px !important;
+        padding-bottom: 0 !important;
+        margin-bottom: 15px !important; /* Fixed huge gap */
+    }
+
+
+    /* Premium Skeleton Shimmer Animation */
+    .skeleton {
+        background: linear-gradient(90deg, 
+            rgba(255, 255, 255, 0.03) 25%, 
+            rgba(255, 255, 255, 0.08) 50%, 
+            rgba(255, 255, 255, 0.03) 75%
+        ) !important;
+        background-size: 200% 100% !important;
+        animation: shimmer 1.5s infinite linear !important;
+        border-radius: 18px !important;
+    }
+
+    @keyframes shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+    }
+
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: scale(0.98); }
+        to { opacity: 1; transform: scale(1); }
+    }
+
+    /* 11. Mobile Settings & Library Hub Polish */
+    .library-quick-actions {
+        padding: 0 4px;
+        margin-top: -10px;
+    }
+
+    #btn-rescan-mobile-quick {
+        background: linear-gradient(135deg, var(--accent) 0%, #4338ca 100%) !important;
+        border: none !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    #btn-rescan-mobile-quick:active {
+        transform: scale(0.97);
+        filter: brightness(1.2);
+    }
+
+    #view-settings {
+        padding: 10px 16px var(--dock-h) !important;
+    }
+
+    .settings-card {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        border-radius: 20px !important;
+        padding: 20px !important;
+        margin-bottom: 20px !important;
+    }
+
+    .settings-card h3 {
+        font-size: 1.1rem !important;
+        margin-bottom: 20px !important;
+        opacity: 0.9;
+    }
+
+    .dl-form .dl-field {
+        margin-bottom: 18px !important;
+    }
+
+    .dl-form label {
+        font-size: 0.8rem !important;
+        color: var(--text-muted) !important;
+        margin-bottom: 8px !important;
+        display: block !important;
+    }
+
+    .dl-form input[type="password"], 
+    .dl-form input[type="text"] {
+        background: rgba(0, 0, 0, 0.2) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        height: 50px !important;
+        border-radius: 12px !important;
+        padding: 0 16px !important;
+        font-size: 15px !important;
+    }
+
+    #btn-update-tmdb-key {
+        width: 100% !important;
+        height: 50px !important;
+        border-radius: 12px !important;
+        font-weight: 700 !important;
+        margin-top: 15px !important;
+    }
+
+    /* 17. Onboarding / Setup Wizard Mobile Fixes */
+    #api-onboarding-overlay.setup-active {
+        padding: 20px !important;
+        align-items: flex-start !important;
+        overflow-y: auto !important;
+    }
+
+    .onboarding-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 25px 20px !important;
+        margin-top: 20px !important;
+        border-radius: 20px !important;
+    }
+
+    .onboarding-card h1 {
+        font-size: 1.6rem !important;
+    }
+
+    .onboarding-feature-grid {
+        grid-template-columns: 1fr !important;
+        gap: 15px !important;
+        margin: 25px 0 !important;
+    }
+
+    .onboarding-feat-box {
+        padding: 15px !important;
+    }
+
+    .onboarding-feat-box i {
+        font-size: 20px !important;
+        margin-bottom: 10px !important;
+    }
+
+    .onboarding-secondary-btn {
+        width: 100% !important;
+        padding: 16px !important;
+    }
+
+    /* Wizard Setup */
+    #onboarding-tool-box {
+        flex-direction: column !important;
+        width: 100% !important;
+        padding: 20px 15px !important;
+        margin-top: 20px !important;
+        margin-bottom: 50px !important;
+    }
+
+    .wizard-field-row {
+        flex-direction: column !important;
+        gap: 12px !important;
+    }
+
+    .wizard-btn-verify {
+        width: 100% !important;
+        height: 48px !important;
+    }
+
+    /* 18. Global Mobile Profile Button */
+    #app-signature {
+        display: none !important;
+    }
+
+    /* 19. Toast Notifications from Top */
+    .toast {
+        bottom: auto !important;
+        top: 25px !important;
+        transform: translateX(-50%) translateY(-100px) !important;
+        z-index: 2100000 !important;
+    }
+
+    .toast.show {
+        transform: translateX(-50%) translateY(0) !important;
+    }
+}

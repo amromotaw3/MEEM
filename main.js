@@ -7,9 +7,9 @@ const { initLibraryScannerIpc } = require('./src/main/libraryScanner');
 const { initSubtitlesIpc } = require('./src/main/subtitles');
 const { initAddonsIpc } = require('./src/main/addons');
 const { initDownloaderIpc } = require('./src/main/downloader');
-const { initMpvController } = require('./src/main/mpvController');
 const { initDiscordRPC } = require('./src/main/discordRPC');
 const { initUpdater } = require('./src/main/updater');
+const { initStreamerIpc } = require('./src/main/streamer');
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.mediavault.app');
@@ -90,9 +90,18 @@ app.whenReady().then(() => {
         const stream = fs.createReadStream(rawPath, { start, end });
         const readable = new ReadableStream({
           start(controller) {
-            stream.on('data', (chunk) => controller.enqueue(chunk));
-            stream.on('end', () => controller.close());
-            stream.on('error', (err) => controller.error(err));
+            stream.on('data', (chunk) => {
+              try { controller.enqueue(chunk); } catch (e) { stream.destroy(); }
+            });
+            stream.on('end', () => {
+              try { controller.close(); } catch (e) {}
+            });
+            stream.on('error', (err) => {
+              try { controller.error(err); } catch (e) {}
+            });
+          },
+          cancel() {
+            stream.destroy();
           }
         });
 
@@ -110,9 +119,18 @@ app.whenReady().then(() => {
         const stream = fs.createReadStream(rawPath);
         const readable = new ReadableStream({
           start(controller) {
-            stream.on('data', (chunk) => controller.enqueue(chunk));
-            stream.on('end', () => controller.close());
-            stream.on('error', (err) => controller.error(err));
+            stream.on('data', (chunk) => {
+              try { controller.enqueue(chunk); } catch (e) { stream.destroy(); }
+            });
+            stream.on('end', () => {
+              try { controller.close(); } catch (e) {}
+            });
+            stream.on('error', (err) => {
+              try { controller.error(err); } catch (e) {}
+            });
+          },
+          cancel() {
+            stream.destroy();
           }
         });
 
@@ -161,35 +179,35 @@ app.whenReady().then(() => {
   try {
     console.log('[DEBUG] Initializing Store IPC...');
     initStoreIpc(ipcMain);
-    
+
     console.log('[DEBUG] Initializing Window IPC...');
     initWindowIpc(ipcMain);
-    
+
     console.log('[DEBUG] Initializing Misc IPC...');
     initMiscIpc(ipcMain);
-    
+
     console.log('[DEBUG] Initializing Library Scanner IPC...');
     initLibraryScannerIpc(ipcMain);
-    
+
     console.log('[DEBUG] Initializing Subtitles IPC...');
     initSubtitlesIpc(ipcMain);
-    
+
     console.log('[DEBUG] Initializing Addons IPC...');
     // Provide a store shim for the Addons logic
     initAddonsIpc(ipcMain, { get: (k) => k === 'appData' ? loadData() : null });
-    
+
     console.log('[DEBUG] Initializing Downloader IPC...');
     initDownloaderIpc(ipcMain);
-    
-    console.log('[DEBUG] Initializing MPV Controller...');
-    initMpvController(ipcMain, getMainWindow());
-    
+
     console.log('[DEBUG] Initializing Discord RPC...');
     initDiscordRPC(ipcMain);
-    
+
     console.log('[DEBUG] Initializing Auto-Updater...');
     initUpdater(win);
-    
+
+    console.log('[DEBUG] Initializing Streamer IPC...');
+    initStreamerIpc(ipcMain);
+
     console.log('[DEBUG] ALL IPC HANDLERS INITIALIZED SUCCESSFULLY');
   } catch (err) {
     console.error('[FATAL] CRASH DURING IPC INITIALIZATION:', err);
@@ -203,7 +221,7 @@ app.whenReady().then(() => {
     const color = level === 'error' ? '\x1b[31m' : level === 'warn' ? '\x1b[33m' : '\x1b[36m';
     console.log(`${color}[RENDERER] [${new Date().toLocaleTimeString()}] ${msg}\x1b[0m`);
   });
-  
+
   // SHUTDOWN & ERROR HANDLERS
   process.on('uncaughtException', (err) => {
     console.error('[FATAL] Uncaught exception:', err);
@@ -214,8 +232,8 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => { 
-  if (process.platform !== 'darwin' && isQuitting) app.quit(); 
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin' && isQuitting) app.quit();
 });
 
 app.on('before-quit', () => {
