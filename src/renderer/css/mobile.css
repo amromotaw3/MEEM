@@ -19,26 +19,26 @@
         display: none !important; /* Fully Hide Top Bar as requested */
     }
 
-    /* Purple-ish Premium Dark Mode - Deep Indigo Charcoal */
+    /* High-Contrast Premium Dark Mode - Deep Indigo Charcoal */
     :root {
-        --bg: #0d0d12 !important; /* Sidebar/Deep blackish indigo */
-        --bg-content: #111116 !important; /* Main content background */
-        --bg-surface: #1a1a2e !important;
-        --bg-surface-2: #25253d !important;
-        --bg-card: #1a1a2e !important;
-        --text-primary: #f8fafc !important;
-        --text-secondary: #94a3b8 !important;
-        --text-muted: #64748b !important;
-        --border: rgba(99, 102, 241, 0.15) !important;
+        --bg: radial-gradient(circle at 20% 0%, #1d1b4a 0%, #0a0a14 85%, #050508 100%) !important;
+        --bg-content: #08080c !important; 
+        --bg-surface: #15152b !important; /* Clearer surface distinction */
+        --bg-surface-2: #1e1e3a !important;
+        --bg-card: #15152b !important;
+        --text-primary: #ffffff !important;
+        --text-secondary: #a0aec0 !important;
+        --text-muted: #718096 !important;
+        --border: rgba(99, 102, 241, 0.25) !important; /* Stronger borders for contrast */
         --accent: #6366f1 !important;
-        --accent-light: rgba(99, 102, 241, 0.2) !important;
-        --accent-glow: rgba(99, 102, 241, 0.3) !important;
+        --accent-light: rgba(99, 102, 241, 0.25) !important;
+        --accent-glow: rgba(99, 102, 241, 0.35) !important;
     }
 
     body {
-        background-color: #0d0d12 !important;
+        background: var(--bg) !important;
         background-attachment: fixed !important;
-        color: #f8fafc !important;
+        color: var(--text-primary) !important;
     }
 
     /* 2. Main Content Viewport */
@@ -60,35 +60,40 @@
         padding-bottom: 20px;
     }
 
-    /* 3. The Premium Bottom Dock (Purple Glass Tint) */
-    #mobile-dock {
-        display: flex !important;
+    /* 3. The Premium Bottom Dock (Improved & Centered) */
+    #mobile-dock, .mobile-dock-contextual {
+        display: none; /* Controlled by JS */
         position: fixed;
-        bottom: 20px;
+        bottom: calc(15px + env(safe-area-inset-bottom));
         left: 50%;
         transform: translateX(-50%);
-        width: 94%;
-        max-width: 450px;
+        width: auto;
+        min-width: 260px;
+        max-width: 96%;
         height: var(--dock-h);
-        background: rgba(18, 18, 28, 0.8) !important; 
+        background: rgba(18, 18, 28, 0.95) !important; 
         backdrop-filter: blur(40px) saturate(210%);
         -webkit-backdrop-filter: blur(40px) saturate(210%);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 14px; /* Matches search-box */
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 22px;
         z-index: 9999;
-        justify-content: space-around;
-        align-items: center;
+        justify-content: center;
+        gap: 2px;
         padding: 0 10px;
-        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
-        animation: dockPop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+        animation: dockPop 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    #mobile-dock.active, .mobile-dock-contextual.active {
+        display: flex !important;
     }
 
     @keyframes dockPop {
-        from { transform: translateX(-50%) translateY(100px) scale(0.8); opacity: 0; }
+        from { transform: translateX(-50%) translateY(40px) scale(0.95); opacity: 0; }
         to { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
     }
 
-    #mobile-dock .nav-btn {
+    #mobile-dock .nav-btn, .mobile-dock-contextual .nav-btn {
         display: flex !important;
         flex-direction: column;
         align-items: center;
@@ -96,26 +101,22 @@
         background: none !important;
         border: none !important;
         color: rgba(255, 255, 255, 0.4);
-        gap: 6px;
-        width: 70px;
+        width: 60px;
         height: 100%;
-        transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+        transition: all 0.3s ease;
         position: relative;
     }
 
     #mobile-dock .nav-btn i {
         font-size: 20px;
-        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.4s ease;
+        transition: all 0.3s ease;
         z-index: 2;
     }
 
-    #mobile-dock .nav-btn span {
-        font-size: 9px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        opacity: 0.7;
-        transition: all 0.4s ease;
+    #mobile-dock .nav-btn span, .mobile-dock-contextual .nav-btn span {
+        display: none !important;
+        opacity: 0;
+        visibility: hidden;
     }
 
     /* Active State: Premium Indigo Halo & Slim Pill */
@@ -130,9 +131,7 @@
     }
 
     #mobile-dock .nav-btn.active span {
-        opacity: 1;
-        color: #fff;
-        transform: translateY(-2px);
+        display: none !important;
     }
 
     /* The Indigo Halo */
@@ -271,11 +270,12 @@
     }
 
     .settings-card {
-        background: rgba(255, 255, 255, 0.03) !important;
-        border: 1px solid rgba(255, 255, 255, 0.06) !important;
+        background: #12121e !important; /* Solid dark color for clear separation */
+        border: 1px solid rgba(255, 255, 255, 0.12) !important; /* Lighter border to pop */
         border-radius: 18px !important;
         padding: 20px !important;
         margin-bottom: 20px !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
     }
 
     .settings-card h3 {
@@ -284,6 +284,7 @@
         letter-spacing: 1px;
         color: var(--accent);
         margin-bottom: 20px !important;
+        font-weight: 800;
     }
 
     .dl-form .dl-field label {
@@ -303,12 +304,33 @@
     }
 
     /* Fix Search and Filter Boxes */
-    .search-box {
-        background: rgba(255, 255, 255, 0.05) !important;
+    .search-bar, .dl-field input, .dl-field select {
+        background: rgba(255, 255, 255, 0.05) !important; /* Transparent glass look */
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
         width: 100% !important;
-        height: 44px;
+        height: 48px;
         border-radius: 12px !important;
+        color: #fff !important;
+        padding: 0 15px !important;
+        backdrop-filter: blur(10px);
+    }
+
+    /* Ensure inner input is transparent - Nuclear Reset Fix */
+    #global-search, 
+    #global-search:focus,
+    #global-search:active {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        border-color: transparent !important;
+        outline: none !important;
+        box-shadow: none !important;
+        color: #fff !important;
+        width: 100%;
+        height: 100%;
+        padding-left: 10px !important;
+        -webkit-appearance: none !important;
+        appearance: none !important;
     }
 
     /* Home Stats Hub for My Space */
@@ -522,6 +544,24 @@
         opacity: 0.8;
     }
 
+    /* Visibility Overrides */
+    #mobile-dock span {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        width: 0 !important;
+        position: absolute !important;
+    }
+
+    /* High-Contrast Surface Overrides - Pop Update */
+    .settings-card, .stream-card, .modal-content {
+        background: rgba(35, 35, 60, 0.95) !important; 
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6) !important;
+        backdrop-filter: blur(15px);
+        -webkit-backdrop-filter: blur(15px);
+    }
+
     .dd-actions {
         display: flex !important;
         flex-direction: column !important;
@@ -638,7 +678,7 @@
             background: #000 !important;
         }
 
-        #view-player #player-side-panel {
+        #view-player #player-side-panel.open {
             order: 2 !important; /* Force panel to below video */
             position: relative !important;
             top: 0 !important;
@@ -654,6 +694,7 @@
             transform: none !important;
             opacity: 1 !important;
             visibility: visible !important;
+            pointer-events: auto !important;
             overflow: hidden !important;
             border-top: 2px solid var(--accent);
         }
@@ -1052,8 +1093,35 @@
     }
 
     #view-settings {
-        padding: 10px 16px var(--dock-h) !important;
+        display: none;
+        padding: 20px 20px calc(var(--dock-h) + 60px) !important;
+        background: var(--bg) !important;
+        background-attachment: fixed !important;
+        position: absolute !important;
+        top: 0;
+        left: 0;
+        right: 0;
+        min-height: 100vh;
+        z-index: 10;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
     }
+
+    #view-settings.active {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+
+    .settings-content {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 25px !important;
+        width: 100% !important;
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
 
     .settings-card {
         background: rgba(255, 255, 255, 0.03) !important;
@@ -1171,5 +1239,9 @@
 
     .toast.show {
         transform: translateX(-50%) translateY(0) !important;
+    }
+    /* 20. Hide VLC / External Player Button on Mobile */
+    #btn-external-player {
+        display: none !important;
     }
 }

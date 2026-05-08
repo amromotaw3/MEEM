@@ -14,6 +14,7 @@
   overflow-y: auto;
   gap: 2px;
   padding: 10px 16px;
+  transition: transform 0.3s ease, width 0.3s ease, opacity 0.3s ease;
 }
 
 .sidebar-group {
@@ -348,6 +349,10 @@
   display: block;
 }
 
+#view-player.active {
+  display: block;
+}
+
 /* Skeleton Loading */
 .skeleton {
   background: linear-gradient(90deg, var(--bg-surface-2) 25%, var(--border) 50%, var(--bg-surface-2) 75%);
@@ -503,34 +508,7 @@
   color: #fff;
 }
 
-@media (max-width: 768px) {
-    #mobile-dock, .mobile-dock-contextual {
-        display: flex !important;
-        position: fixed;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 94%;
-        max-width: 450px;
-        height: var(--dock-h);
-        background: rgba(18, 18, 28, 0.8) !important; 
-        backdrop-filter: blur(40px) saturate(210%);
-        -webkit-backdrop-filter: blur(40px) saturate(210%);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 14px; /* Matches search-box */
-        z-index: 9999;
-        justify-content: space-around;
-        align-items: center;
-        padding: 0 10px;
-        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
-        animation: dockPop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-    }
 
-    .mobile-dock-contextual {
-        background: rgba(99, 102, 241, 0.15) !important; /* Tinted for MySpace */
-        border-color: rgba(99, 102, 241, 0.3);
-    }
-}
 
 .myspace-cat-pill {
   background: rgba(255, 255, 255, 0.03);
@@ -650,10 +628,14 @@
   }
 
   /* Hide original headers on mobile library views to prevent duplication */
-  .view-header .view-title,
-  .view-header h1,
-  .view-header h2 {
+  .view-header .view-title {
     display: none !important;
+  }
+  
+  .view-header h1 {
+    font-size: 1.6rem !important;
+    margin: 0 !important;
+    display: block !important;
   }
 
   /* Full width search on mobile */
@@ -692,4 +674,32 @@
 
 .myspace-shelf-row::-webkit-scrollbar {
   display: none;
-}
+}
+
+/* Platform Visibility Helpers */
+@media (min-width: 769px) {
+  .hide-on-pc { display: none !important; }
+}
+@media (max-width: 768px) {
+  .hide-on-mobile { display: none !important; }
+}
+
+/* ── Media Card Genres ────────────────────────────────────────────────────── */
+.card-genres {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-card:hover .card-genres {
+  color: #fff;
+  opacity: 1;
+}
+

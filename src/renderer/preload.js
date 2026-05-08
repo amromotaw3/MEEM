@@ -91,6 +91,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Generic Invoke Fail-Safe
   invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+  send: (channel, ...args) => ipcRenderer.send(channel, ...args),
 
   // LOG BRIDGE
   logToServer: (level, msg) => ipcRenderer.send('log-bridge', { level, msg }),

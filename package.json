@@ -1,6 +1,6 @@
 {
   "name": "mediavault",
-  "version": "9.2.0",
+  "version": "11.3.0",
   "description": "MediaVault — A smart local media library, video player & downloader",
   "main": "main.js",
   "repository": {
@@ -32,8 +32,10 @@
   "devDependencies": {
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
+    "app-builder-bin": "^4.2.0",
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.8.1",
+    "jimp": "^1.6.1",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5"
   },
@@ -71,7 +73,7 @@
         {
           "provider": "github",
           "owner": "amromotaw3",
-          "repo": "MediaVault-Setup"
+          "repo": "MediaVault-Landing"
         }
       ]
     },
@@ -83,19 +85,17 @@
       "uninstallerIcon": "src/renderer/imgs/appicon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "installerSidebar": "build_assets/installerSidebar.png",
-      "installerHeader": "build_assets/installerHeader.png",
       "include": "build_assets/installer.nsh"
     }
   },
   "dependencies": {
-    "@capacitor-community/file-opener": "^8.0.0",
     "@capacitor/android": "^8.3.1",
-    "@capacitor/app-launcher": "^8.0.1",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/share": "^8.0.1",
     "adm-zip": "^0.5.17",
     "axios": "^1.15.0",
+    "bonjour": "^3.5.1",
+    "cheerio": "^1.2.0",
     "discord-rpc": "^4.0.1",
     "electron-updater": "^6.8.3",
     "ffmpeg-static": "^5.3.0",

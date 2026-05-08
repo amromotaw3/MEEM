@@ -10,6 +10,7 @@ const { initDownloaderIpc } = require('./src/main/downloader');
 const { initDiscordRPC } = require('./src/main/discordRPC');
 const { initUpdater } = require('./src/main/updater');
 const { initStreamerIpc } = require('./src/main/streamer');
+const { startPersistentServer } = require('./src/main/mediaServer');
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.mediavault.app');
@@ -18,6 +19,7 @@ if (process.platform === 'win32') {
 // FIX: Disable GPU Cache to resolve "Access Denied" errors and startup crashes on Windows
 app.commandLine.appendSwitch('disable-gpu-cache');
 app.commandLine.appendSwitch('disable-software-rasterizer');
+app.commandLine.appendSwitch('log-level', '3'); // Suppress native Chromium logs/errors in terminal
 
 let tray = null;
 let isQuitting = false;
@@ -161,19 +163,84 @@ app.whenReady().then(() => {
     }
   });
 
+  const { session } = require('electron');
+  session.defaultSession.webRequest.onBeforeSendHeaders({
+    urls: ['*://*.mangadex.org/*', '*://*.mangadex.network/*']
+  }, (details, callback) => {
+    details.requestHeaders['Referer'] = 'https://mangadex.org';
+    details.requestHeaders['Origin'] = 'https://mangadex.org';
+    callback({ requestHeaders: details.requestHeaders });
+  });
+
   const win = createWindow();
 
-  // Initialize Tray
-  const iconPath = require('path').resolve(__dirname, 'src', 'renderer', 'imgs', 'appicon.ico');
+  // ─── ADVANCED TRAY SYSTEM ───
+  let trayState = {
+    status: 'Idle',
+    isPlaying: false,
+    syncEnabled: true,
+  };
+
+  const updateTrayMenu = () => {
+    if (!tray || tray.isDestroyed()) return;
+    const safeSend = (channel, ...args) => {
+      if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
+    };
+    const contextMenu = Menu.buildFromTemplate([
+      { label: `MediaVault v${app.getVersion()}`, enabled: false },
+      { type: 'separator' },
+      
+      // 1. Now Playing / Resume
+      { label: trayState.status, enabled: false },
+      { 
+        label: trayState.isPlaying ? 'Pause Playback' : 'Resume Playback', 
+        click: () => safeSend('player-control', trayState.isPlaying ? 'pause' : 'play') 
+      },
+      { type: 'separator' },
+
+      // 2. Network & Sync
+      { 
+        label: 'Enable Mobile Sync', 
+        type: 'checkbox', 
+        checked: trayState.syncEnabled,
+        click: (item) => {
+          trayState.syncEnabled = item.checked;
+          safeSend('sync-toggle', item.checked);
+        }
+      },
+      { type: 'separator' },
+
+      // 3. Torrent Manager
+      { label: 'Add Magnet Link...', click: () => { if (win && !win.isDestroyed()) { win.show(); safeSend('open-modal', 'magnet'); } } },
+      { label: 'Pause All Downloads', click: () => safeSend('downloads-control', 'pause-all') },
+      { type: 'separator' },
+
+      // 4. Standard App Controls
+      { label: 'Settings', click: () => { if (win && !win.isDestroyed()) { win.show(); safeSend('switch-view', 'settings'); } } },
+      { label: 'Show MediaVault', click: () => { if (win && !win.isDestroyed()) win.show(); } },
+      { label: 'Quit MediaVault', click: () => { app.isQuitting = true; app.quit(); } }
+    ]);
+    tray.setContextMenu(contextMenu);
+  };
+
+  // Initialize Tray with the new premium icon
+  const iconPath = path.join(__dirname, 'src', 'renderer', 'imgs', 'appicon.ico');
   tray = new Tray(iconPath);
-  const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show MediaVault', click: () => win.show() },
-    { type: 'separator' },
-    { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } }
-  ]);
   tray.setToolTip('MediaVault');
-  tray.setContextMenu(contextMenu);
+  updateTrayMenu();
   tray.on('double-click', () => win.show());
+
+  // IPC Listeners for Dynamic Tray Updates
+  ipcMain.on('update-tray-status', (event, { status, isPlaying }) => {
+    trayState.status = status || 'Idle';
+    trayState.isPlaying = !!isPlaying;
+    updateTrayMenu();
+  });
+
+  ipcMain.on('update-sync-status', (event, enabled) => {
+    trayState.syncEnabled = !!enabled;
+    updateTrayMenu();
+  });
 
   // Initialize all modular IPC handlers with safety wrappers
   try {
@@ -193,8 +260,12 @@ app.whenReady().then(() => {
     initSubtitlesIpc(ipcMain);
 
     console.log('[DEBUG] Initializing Addons IPC...');
-    // Provide a store shim for the Addons logic
-    initAddonsIpc(ipcMain, { get: (k) => k === 'appData' ? loadData() : null });
+    try {
+      initAddonsIpc(ipcMain, { get: (k) => k === 'appData' ? loadData() : null });
+      console.log('[DEBUG] Addons IPC initialized.');
+    } catch (addonErr) {
+      console.error('[ERROR] Failed to initialize Addons IPC:', addonErr);
+    }
 
     console.log('[DEBUG] Initializing Downloader IPC...');
     initDownloaderIpc(ipcMain);
@@ -207,6 +278,18 @@ app.whenReady().then(() => {
 
     console.log('[DEBUG] Initializing Streamer IPC...');
     initStreamerIpc(ipcMain);
+
+    console.log('[DEBUG] Starting Persistent Sync Server...');
+    startPersistentServer((port) => {
+       console.log(`[DEBUG] Sync Server started on port: ${port}`);
+       win.webContents.on('did-finish-load', () => {
+          win.webContents.send('sync-server-started', { port });
+       });
+       // If window is already loaded
+       if (!win.webContents.isLoading()) {
+          win.webContents.send('sync-server-started', { port });
+       }
+    });
 
     console.log('[DEBUG] ALL IPC HANDLERS INITIALIZED SUCCESSFULLY');
   } catch (err) {
@@ -238,4 +321,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  // Cleanly stop the sync server & Bonjour broadcast
+  try {
+    const { stopPersistentServer } = require('./src/main/mediaServer');
+    stopPersistentServer();
+  } catch (e) { /* ignore */ }
 });

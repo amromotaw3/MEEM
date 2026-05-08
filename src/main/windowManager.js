@@ -11,7 +11,7 @@ function showToastNotification(title, body) {
 }
 
 function createWindow() {
-  const iconPath = path.resolve(__dirname, '..', 'renderer', 'imgs', 'appicon.ico');
+  const iconPath = path.join(__dirname, '..', 'renderer', 'imgs', 'appicon.ico');
 
   mainWindow = new BrowserWindow({
     width: 1360, height: 860, minWidth: 960, minHeight: 640,

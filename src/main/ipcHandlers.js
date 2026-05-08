@@ -1,4 +1,4 @@
-const { dialog, shell, app } = require('electron');
+const { dialog, shell, app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -6,9 +6,8 @@ const axios = require('axios');
 const { BANNERS_DIR, ensureDir, loadData, saveData } = require('./store');
 const { getMainWindow } = require('./windowManager');
 
-
-let currentTmdbKey = null; // Removed hardcoded key
-let currentSubdlKey = null; // New SubDL key
+let currentTmdbKey = null;
+let currentSubdlKey = null;
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
 const JIKAN_BASE = 'https://api.jikan.moe/v4';
@@ -56,7 +55,6 @@ function tmdbFetch(endpoint) {
   });
 }
 
-// Jikan API for MyAnimeList
 async function jikanFetch(endpoint) {
   try {
     const url = `${JIKAN_BASE}${endpoint}`;
@@ -71,7 +69,6 @@ async function jikanFetch(endpoint) {
 }
 
 function initMiscIpc(ipcMain) {
-  // Initialize keys from store on startup
   const data = loadData();
   if (data.tmdbKey) currentTmdbKey = data.tmdbKey;
   if (data.subdlKey) currentSubdlKey = data.subdlKey;
@@ -98,10 +95,13 @@ function initMiscIpc(ipcMain) {
     return r.canceled ? null : r.filePaths[0];
   });
 
+  ipcMain.handle('get-default-library-root', () => {
+    return path.join(app.getPath('videos'), 'MediaVault');
+  });
+
   ipcMain.handle('open-external', (_e, url) => { shell.openExternal(url); });
 
   ipcMain.handle('open-in-external-player', (_e, pathOrUrl) => {
-    // If it's a local file path, open with default app. If it's a URL, open with external browser/player
     if (pathOrUrl.startsWith('http')) {
       shell.openExternal(pathOrUrl);
     } else {
@@ -134,6 +134,31 @@ function initMiscIpc(ipcMain) {
     const dest = path.join(BANNERS_DIR, safe + ext); fs.copyFileSync(src, dest); return dest;
   });
 
+  ipcMain.handle('select-files', async () => {
+    const r = await dialog.showOpenDialog(getMainWindow(), { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Videos', extensions: ['mp4', 'mkv', 'avi', 'webm', 'mov', 'm4v'] }] });
+    return r.canceled ? [] : r.filePaths;
+  });
+
+  ipcMain.handle('move-file', async (_e, { src, dest }) => {
+    try {
+      if (!fs.existsSync(src)) return { success: false, error: 'Source missing' };
+      const destDir = path.dirname(dest);
+      if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+      fs.renameSync(src, dest);
+      return { success: true };
+    } catch (err) { return { success: false, error: err.message }; }
+  });
+
+  ipcMain.handle('create-folder', async (_e, folderPath) => {
+    try {
+      if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+        return true;
+      }
+      return false;
+    } catch (e) { return false; }
+  });
+
   ipcMain.handle('rename-file', (_e, oldPath, newName) => {
     try {
       const newPath = path.join(path.dirname(oldPath), newName);
@@ -143,7 +168,6 @@ function initMiscIpc(ipcMain) {
   });
 
   // TMDB handlers
-  // UNIFIED Search (respects metadata provider)
   ipcMain.handle('tmdb-search', async (_e, type, query) => {
     try {
       return await tmdbFetch(`/search/${type}?query=${encodeURIComponent(query)}`);
@@ -199,8 +223,6 @@ function initMiscIpc(ipcMain) {
   ipcMain.handle('tmdb-search-discover', async (_e, query) => {
     try {
       const q = query.trim();
-      
-      // If using MyAnimeList provider, search anime primarily
       if (metadataProvider === 'mal') {
         const result = await jikanFetch(`/anime?query=${encodeURIComponent(q)}&status=complete`);
         if (result.data) {
@@ -220,9 +242,6 @@ function initMiscIpc(ipcMain) {
         }
         return result;
       }
-      
-      // TMDB Search (Movies & TV)
-      // If it's an IMDB ID (e.g., tt1234567 or 26443616), use the /find endpoint first
       const imdbMatch = q.match(/^(tt)?(\d{7,9})$/);
       if (imdbMatch) {
         const imdbId = imdbMatch[1] ? q : `tt${imdbMatch[2]}`;
@@ -230,22 +249,17 @@ function initMiscIpc(ipcMain) {
         const results = [];
         if (find.movie_results?.length) find.movie_results.forEach(r => results.push({ ...r, media_type: 'movie' }));
         if (find.tv_results?.length) find.tv_results.forEach(r => results.push({ ...r, media_type: 'tv' }));
-        if (results.length > 0) {
-          return JSON.parse(JSON.stringify({ results }));
-        }
+        if (results.length > 0) return JSON.parse(JSON.stringify({ results }));
       }
-
       const [movies, shows] = await Promise.all([
         tmdbFetch(`/search/movie?query=${encodeURIComponent(q)}`),
         tmdbFetch(`/search/tv?query=${encodeURIComponent(q)}`)
       ]);
-
-      if (movies.error && shows.error) return { results: [], error: movies.error };
-
       const out = { results: [...(movies.results || []).map(r => ({ ...r, media_type: 'movie' })), ...(shows.results || []).map(r => ({ ...r, media_type: 'tv' }))] };
       return JSON.parse(JSON.stringify(out));
     } catch (err) { return { results: [], error: err.message }; }
   });
+
   ipcMain.handle('tmdb-season-details', async (_e, tvId, seasonNumber) => {
     try { return await tmdbFetch(`/tv/${tvId}/season/${seasonNumber}`); }
     catch (err) { return { episodes: [], error: err.message }; }
@@ -255,9 +269,9 @@ function initMiscIpc(ipcMain) {
     try { return await tmdbFetch(`/${type}/${id}/external_ids`); }
     catch (err) { return { error: err.message }; }
   });
+
   ipcMain.handle('tmdb-discover-by-genre', async (_e, genreId) => {
     try {
-      // If using MyAnimeList, return popular anime instead
       if (metadataProvider === 'mal') {
         const result = await jikanFetch(`/anime?status=complete&orderBy=score&sort=desc&limit=40`);
         if (result.data) {
@@ -277,50 +291,27 @@ function initMiscIpc(ipcMain) {
         }
         return result;
       }
-
-      // Mapping table for genres that differ between Movie and TV
-      // Movie ID -> TV ID (if different)
-      const tvGenreMap = {
-        '28': '10759', // Action (Movie) -> Action & Adventure (TV)
-        '878': '10765', // Sci-Fi (Movie) -> Sci-Fi & Fantasy (TV)
-        '27': '10765', // Horror (Movie) -> No exact TV match, use Sci-Fi/Fantasy as fallback or just keep original
-      };
-
+      const tvGenreMap = { '28': '10759', '878': '10765', '27': '10765' };
       const movieGenre = genreId;
       const tvGenre = tvGenreMap[genreId] || genreId;
-
-      // Fetch both Movie and TV results
       const [movies, shows] = await Promise.all([
         tmdbFetch(`/discover/movie?with_genres=${movieGenre}&sort_by=popularity.desc`),
         tmdbFetch(`/discover/tv?with_genres=${tvGenre}&sort_by=popularity.desc`)
       ]);
-
-      // Merge and tag results
       const results = [
         ...(movies.results || []).map(r => ({ ...r, media_type: 'movie' })),
         ...(shows.results || []).map(r => ({ ...r, media_type: 'tv' }))
       ];
-
-      // Sort by popularity descending
       results.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
-
       return { results: results.slice(0, 40) };
     }
     catch (err) { return { results: [], error: err.message }; }
   });
 
-
-
   ipcMain.handle('download-image', async (_e, imgPath, itemId) => {
     if (!imgPath) return null;
     ensureDir(BANNERS_DIR);
-    // Support both TMDB relative paths (/xyz.jpg) and full HTTP URLs (MAL, Jikan)
-    let url;
-    if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
-      url = imgPath;
-    } else {
-      url = `${TMDB_IMG}/w500${imgPath}`;
-    }
+    let url = (imgPath.startsWith('http')) ? imgPath : `${TMDB_IMG}/w500${imgPath}`;
     const safe = Buffer.from(String(itemId)).toString('base64').replace(/[/+=]/g, '_');
     const dest = path.join(BANNERS_DIR, safe + '.jpg');
     if (fs.existsSync(dest)) return dest;
@@ -328,30 +319,11 @@ function initMiscIpc(ipcMain) {
       const file = fs.createWriteStream(dest);
       const proto = url.startsWith('https') ? https : require('http');
       const req = proto.get(url, { headers: { 'User-Agent': 'MediaVault/3.0' }, timeout: 10000 }, (res) => {
-        if (res.statusCode !== 200) {
-          file.close();
-          try { fs.unlinkSync(dest); } catch (err) {
-            console.warn('[IMG] Failed to unlink failed download:', err.message);
-          }
-          resolve(null);
-          return;
-        }
-        res.pipe(file);
-        file.on('finish', () => { file.close(); resolve(dest); });
+        if (res.statusCode !== 200) { file.close(); try { fs.unlinkSync(dest); } catch (e) {} resolve(null); return; }
+        res.pipe(file); file.on('finish', () => { file.close(); resolve(dest); });
       });
-      req.on('error', (err) => {
-        file.close();
-        try { fs.unlinkSync(dest); } catch (cleanErr) {
-          console.warn('[IMG] Failed to clean failed download:', cleanErr.message);
-        }
-        resolve(null);
-      });
-      req.on('timeout', () => {
-        req.destroy();
-        file.close();
-        try { fs.unlinkSync(dest); } catch (e) {}
-        resolve(null);
-      });
+      req.on('error', (err) => { file.close(); try { fs.unlinkSync(dest); } catch (e) {} resolve(null); });
+      req.on('timeout', () => { req.destroy(); file.close(); try { fs.unlinkSync(dest); } catch (e) {} resolve(null); });
     });
   });
 
@@ -379,29 +351,17 @@ function initMiscIpc(ipcMain) {
       ensureDir(BANNERS_DIR);
       const safe = Buffer.from(id).toString('base64').replace(/[/+=]/g, '_');
       const dest = path.join(BANNERS_DIR, safe + '.jpg');
-
-      // Data is base64 string
       const base64Data = data.replace(/^data:image\/jpeg;base64,/, "");
       fs.writeFileSync(dest, base64Data, 'base64');
       return { path: dest };
-    } catch (err) {
-      console.error('Save frame error:', err);
-      return { error: err.message };
-    }
+    } catch (err) { return { error: err.message }; }
   });
 
   ipcMain.handle('get-profile-media-paths', (_e, profileName) => {
     if (!profileName) return null;
     const { app: electronApp } = require('electron');
     const p = (sub) => path.join(electronApp.getPath('videos'), 'MediaVault', profileName, sub);
-    const paths = {
-      movies: p('Movies'),
-      series: p('Series'),
-      social: p('Social'),
-      music: p('Music')
-    };
-    console.log(`[BACKEND/INFO] Resolved Profile Media Paths for "${profileName}":`, paths);
-    return paths;
+    return { movies: p('Movies'), series: p('Series'), social: p('Social'), music: p('Music') };
   });
 
   ipcMain.handle('ensure-profile-folders', (_e, profileName) => {
@@ -409,19 +369,13 @@ function initMiscIpc(ipcMain) {
     const { app: electronApp } = require('electron');
     const basePath = path.join(electronApp.getPath('videos'), 'MediaVault', profileName);
     const subDirs = ['Movies', 'Series', 'Social', 'Music'];
-    
     try {
       subDirs.forEach(sub => {
         const fullPath = path.join(basePath, sub);
-        if (!fs.existsSync(fullPath)) {
-          fs.mkdirSync(fullPath, { recursive: true });
-        }
+        if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
       });
       return true;
-    } catch (err) {
-      console.error('[BACKEND] Failed to create profile folders:', err);
-      return false; // graceful fail
-    }
+    } catch (err) { return false; }
   });
 
   ipcMain.handle('rename-profile-folders', async (_e, oldName, newName) => {
@@ -429,19 +383,12 @@ function initMiscIpc(ipcMain) {
     const { app: electronApp } = require('electron');
     const oldPath = path.join(electronApp.getPath('videos'), 'MediaVault', oldName);
     const newPath = path.join(electronApp.getPath('videos'), 'MediaVault', newName);
-
     try {
       if (fs.existsSync(oldPath)) {
-        // If the new directory already exists, we shouldn't rename into it as it might merge or fail
-        if (fs.existsSync(newPath)) {
-          console.warn(`[BACKEND] Target rename path already exists: ${newPath}`);
-          return false;
-        }
+        if (fs.existsSync(newPath)) return false;
         fs.renameSync(oldPath, newPath);
-        console.log(`[BACKEND] Renamed profile folder: ${oldName} -> ${newName}`);
         return true;
       } else {
-        // If old folder doesn't exist, just ensure the new one exists
         const subDirs = ['Movies', 'Series', 'Social', 'Music'];
         subDirs.forEach(sub => {
           const fullPath = path.join(newPath, sub);
@@ -449,61 +396,43 @@ function initMiscIpc(ipcMain) {
         });
         return true;
       }
-    } catch (err) {
-      console.error('[BACKEND] Profile folder rename failed:', err);
-      return false;
-    }
+    } catch (err) { return false; }
   });
 
   ipcMain.handle('select-user-avatar', async () => {
     const r = await dialog.showOpenDialog(getMainWindow(), {
-      properties: ['openFile'],
-      title: 'Select Avatar Image',
+      properties: ['openFile'], title: 'Select Avatar Image',
       filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'png'] }]
     });
     if (r.canceled || !r.filePaths.length) return null;
     ensureDir(BANNERS_DIR);
     const src = r.filePaths[0], ext = path.extname(src);
     const dest = path.join(BANNERS_DIR, `avatar_${Date.now()}${ext}`);
-    fs.copyFileSync(src, dest);
-    return dest;
+    fs.copyFileSync(src, dest); return dest;
   });
 
-  // ───────── METADATA PROVIDER MANAGEMENT ─────────
   ipcMain.handle('get-metadata-provider', () => metadataProvider);
   ipcMain.handle('set-metadata-provider', (_e, p) => {
     if (['tmdb', 'mal'].includes(p)) {
-      metadataProvider = p;
-      const data = loadData();
-      data.metadataProvider = p;
-      saveData(data);
-      return true;
+      metadataProvider = p; const data = loadData(); data.metadataProvider = p; saveData(data); return true;
     }
     return false;
   });
 
-  // ───────── TMDB KEY MANAGEMENT ─────────
   ipcMain.handle('set-tmdb-key', (_e, key) => {
     if (key && key.trim().length > 0) {
-      currentTmdbKey = key.trim();
-      const data = loadData();
-      data.tmdbKey = currentTmdbKey;
-      saveData(data);
-      console.log('[TMDB] API key updated and saved to disk');
-      return true;
+      currentTmdbKey = key.trim(); const data = loadData(); data.tmdbKey = currentTmdbKey; saveData(data); return true;
     }
     return false;
   });
 
   ipcMain.handle('get-tmdb-key-masked', () => {
-    // Return masked version: show only first 2 and last 2 characters
     if (!currentTmdbKey) return '';
     if (currentTmdbKey.length <= 4) return '••••••••••••';
     return currentTmdbKey.substring(0, 2) + '••••••••••' + currentTmdbKey.substring(currentTmdbKey.length - 2);
   });
 
   ipcMain.handle('verify-tmdb-key', async (_e, key) => {
-    // Test if the TMDB key is valid
     try {
       const testUrl = `${TMDB_BASE}/movie/550?api_key=${key}`;
       const response = await new Promise((resolve) => {
@@ -512,20 +441,13 @@ function initMiscIpc(ipcMain) {
         }).on('error', () => resolve(0));
       });
       return response === 200;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   });
 
-  // ───────── SUBDL KEY MANAGEMENT ─────────
   ipcMain.handle('get-subdl-key', () => currentSubdlKey);
   ipcMain.handle('set-subdl-key', (_e, key) => {
     if (key && key.trim().length > 0) {
-      currentSubdlKey = key.trim();
-      const data = loadData();
-      data.subdlKey = currentSubdlKey;
-      saveData(data);
-      return true;
+      currentSubdlKey = key.trim(); const data = loadData(); data.subdlKey = currentSubdlKey; saveData(data); return true;
     }
     return false;
   });
@@ -536,7 +458,6 @@ function initMiscIpc(ipcMain) {
   });
 
   ipcMain.handle('verify-subdl-key', async (_e, key) => {
-    // Simple verification check to see if key exists and responds
     try {
       const testUrl = `https://api.subdl.com/api/v1/subtitles?api_key=${key}&type=movie&tmdb_id=550`;
       const response = await axios.get(testUrl, { timeout: 5000 });
@@ -544,66 +465,26 @@ function initMiscIpc(ipcMain) {
     } catch { return false; }
   });
 
-  // ───────── JIKAN API (MYANIMELIST) ─────────
   ipcMain.handle('mal-search', async (_e, query) => {
     if (!query.trim()) return { data: [] };
-    try {
-      const result = await jikanFetch(`/anime?query=${encodeURIComponent(query)}&status=complete`);
-      return result;
-    } catch (err) {
-      return { error: err.message, data: [] };
-    }
+    try { return await jikanFetch(`/anime?query=${encodeURIComponent(query)}&status=complete`); }
+    catch (err) { return { error: err.message, data: [] }; }
   });
 
-  // ── Kitsu API (The Ultimate Anime Provider for Torrents) ──
   ipcMain.handle('kitsu-search', async (_e, query) => {
     try {
       const response = await axios.get(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(query)}`, {
-        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' },
-        timeout: 8000
-      });
-      const media = response.data?.data || [];
-      
-      const results = media.map(m => {
-        const attr = m.attributes;
-        return {
-          id: m.id,
-          title: attr.canonicalTitle || attr.titles?.en || attr.titles?.en_jp || 'Unknown',
-          title_romaji: attr.titles?.en_jp,
-          title_english: attr.titles?.en,
-          overview: attr.synopsis,
-          poster_path: attr.posterImage?.large || attr.posterImage?.original || '',
-          backdrop_path: attr.coverImage?.large || attr.coverImage?.original || '',
-          vote_average: attr.averageRating ? parseFloat(attr.averageRating) / 10 : 0,
-          first_air_date: attr.startDate || '',
-          media_type: 'anime', // explicitly mark as anime
-          source: 'kitsu',
-          episodes: attr.episodeCount || 1,
-          status: attr.status,
-          format: attr.subtype, // TV, MOVIE, OVA, etc.
-          trailer: attr.youtubeVideoId ? { id: attr.youtubeVideoId, site: 'youtube' } : null
-        };
-      });
-      return JSON.parse(JSON.stringify({ results }));
-    } catch (err) {
-      console.error('[Kitsu] Search error:', err.message);
-      return { results: [], error: err.message };
-    }
-  });
-  
-  ipcMain.handle('kitsu-trending', async () => {
-    try {
-      const response = await axios.get(`https://kitsu.io/api/edge/trending/anime`, {
-        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' },
-        timeout: 8000
+        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' }, timeout: 8000
       });
       const media = response.data?.data || [];
       const results = media.map(m => {
         const attr = m.attributes;
+        const titles = attr.titles || {};
         return {
           id: m.id,
-          title: attr.canonicalTitle || attr.titles?.en || attr.titles?.en_jp || 'Unknown',
-          name: attr.canonicalTitle || attr.titles?.en || 'Unknown',
+          title: attr.canonicalTitle || titles.en || titles.en_jp || 'Unknown',
+          title_english: titles.en || '',
+          title_romaji: titles.en_jp || '',
           overview: attr.synopsis,
           poster_path: attr.posterImage?.large || attr.posterImage?.original || '',
           backdrop_path: attr.coverImage?.large || attr.coverImage?.original || '',
@@ -611,82 +492,124 @@ function initMiscIpc(ipcMain) {
           first_air_date: attr.startDate || '',
           media_type: 'anime',
           source: 'kitsu',
-          episodes: attr.episodeCount || 1,
-          format: attr.subtype,
-          status: attr.status
+          episodes: attr.episodeCount || 0,
+          status: attr.status || ''
         };
       });
       return { results };
-    } catch (err) {
-      console.error('[Kitsu] Trending error:', err.message);
-      return { results: [], error: err.message };
-    }
+    } catch (err) { return { results: [], error: err.message }; }
   });
 
-  ipcMain.handle('kitsu-cast', async (_e, id) => {
+  ipcMain.handle('kitsu-trending', async () => {
     try {
-      const response = await axios.get(`https://kitsu.io/api/edge/anime/${id}/characters?include=character`, {
-        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' },
-        timeout: 8000
+      const response = await axios.get(`https://kitsu.io/api/edge/trending/anime`, {
+        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' }, timeout: 8000
       });
-      const included = response.data?.included || [];
-      const cast = included.filter(item => item.type === 'characters').map(char => {
+      const media = response.data?.data || [];
+      const results = media.map(m => {
+        const attr = m.attributes;
+        const titles = attr.titles || {};
         return {
-          id: char.id,
-          name: char.attributes.canonicalName || char.attributes.name,
-          character: 'Character',
-          profile_path: char.attributes.image?.original || char.attributes.image?.large || char.attributes.image?.medium || ''
+          id: m.id,
+          title: attr.canonicalTitle || titles.en || titles.en_jp || 'Unknown',
+          title_english: titles.en || '',
+          title_romaji: titles.en_jp || '',
+          overview: attr.synopsis,
+          poster_path: attr.posterImage?.large || attr.posterImage?.original || '',
+          backdrop_path: attr.coverImage?.large || attr.coverImage?.original || '',
+          vote_average: attr.averageRating ? parseFloat(attr.averageRating) / 10 : 0,
+          first_air_date: attr.startDate || '',
+          media_type: 'anime',
+          source: 'kitsu',
+          episodes: attr.episodeCount || 0,
+          status: attr.status || ''
         };
       });
+      return { results };
+    } catch (err) { return { results: [], error: err.message }; }
+  });
+
+  ipcMain.handle('kitsu-episodes', async (_e, animeId) => {
+    try {
+      const response = await axios.get(`https://kitsu.io/api/edge/anime/${animeId}/episodes?page[limit]=100&sort=number`, {
+        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' }, timeout: 8000
+      });
+      const episodes = response.data?.data || [];
+      return episodes.map(ep => ({
+        id: ep.id,
+        number: ep.attributes?.number,
+        title: ep.attributes?.canonicalTitle || ep.attributes?.titles?.en_jp || `Episode ${ep.attributes?.number}`,
+        overview: ep.attributes?.synopsis || '',
+        airdate: ep.attributes?.airdate || '',
+        thumbnail: ep.attributes?.thumbnail?.original || ''
+      }));
+    } catch (err) { return []; }
+  });
+
+  ipcMain.handle('kitsu-cast', async (_e, animeId) => {
+    try {
+      const response = await axios.get(`https://kitsu.io/api/edge/castings?filter[media_id]=${animeId}&filter[media_type]=Anime&include=character,person&page[limit]=20`, {
+        headers: { 'Accept': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' }, timeout: 8000
+      });
+      const castings = response.data?.data || [];
+      const included = response.data?.included || [];
+      const cast = castings.map(c => {
+        const relChar = c.relationships?.character?.data;
+        const relPerson = c.relationships?.person?.data;
+        const char = included.find(i => i.type === 'characters' && i.id === relChar?.id);
+        const person = included.find(i => i.type === 'people' && i.id === relPerson?.id);
+        
+        let profile = '';
+        if (char?.attributes?.image) profile = char.attributes.image.original || char.attributes.image.medium;
+        if (!profile && person?.attributes?.image) profile = person.attributes.image.original || person.attributes.image.medium;
+
+        return {
+          name: person?.attributes?.name || 'Unknown',
+          character: char?.attributes?.name || 'Unknown',
+          profile_path: profile || ''
+        };
+      }).filter(c => c.name !== 'Unknown');
       return cast;
-    } catch (err) {
-      console.error('[Kitsu] Cast error:', err.message);
-      return [];
+    } catch (err) { 
+      console.error('[Kitsu] Cast fetch error:', err);
+      return []; 
     }
   });
 
-  // ── VLC Integration (Radical Fix: Streaming via Local Server) ──
   ipcMain.handle('open-in-vlc', async (_e, filePath) => {
     try {
       const { spawn } = require('child_process');
       const { startServer } = require('./mediaServer');
-      
       let finalUrl = filePath;
-
-      // If it's a local file, serve it via our internal media server to avoid path encoding issues
       if (fs.existsSync(filePath)) {
         finalUrl = startServer(filePath);
         console.log('[VLC] Serving local file via stream:', finalUrl);
       }
-
       if (process.platform === 'win32') {
         const vlcPaths = [
           path.join(process.env['ProgramFiles'], 'VideoLAN', 'VLC', 'vlc.exe'),
           path.join(process.env['ProgramFiles(x86)'], 'VideoLAN', 'VLC', 'vlc.exe'),
           'vlc'
         ];
-        
         let vlcPath = vlcPaths.find(p => p === 'vlc' || fs.existsSync(p));
-        
-        if (vlcPath) {
-          spawn(vlcPath, [finalUrl], { detached: true, stdio: 'ignore' }).unref();
-          return { success: true };
-        } else {
-          return { success: false, error: 'VLC not found. Please install it from videolan.org' };
-        }
+        if (vlcPath) { spawn(vlcPath, [finalUrl], { detached: true, stdio: 'ignore' }).unref(); return { success: true }; }
+        else return { success: false, error: 'VLC not found' };
       } else {
-        // Linux/Mac/Other
-        spawn('vlc', [finalUrl], { detached: true, stdio: 'ignore' }).unref();
-        return { success: true };
+        spawn('vlc', [finalUrl], { detached: true, stdio: 'ignore' }).unref(); return { success: true };
       }
-    } catch (err) {
-      console.error('[VLC] Error:', err.message);
-      return { success: false, error: err.message };
-    }
+    } catch (err) { return { success: false, error: err.message }; }
   });
 
-  // NOTE: get-transcoded-url, probe-media, and get-subtitle-url are
-  // registered by transcoder.js via initTranscoder() — do not duplicate here.
+  ipcMain.handle('fetch-proxy', async (_e, url, options = {}) => {
+    try {
+      const axios = require('axios');
+      const response = await axios({
+        url, method: options.method || 'GET', headers: { 'User-Agent': 'Mozilla/5.0' },
+        data: options.body, timeout: 15000
+      });
+      return response.data;
+    } catch (err) { return { error: err.message }; }
+  });
 }
 
 module.exports = { initMiscIpc };

@@ -1,11 +1,11 @@
 /**
- * MediaVault Bridge v3.0
+ * MediaVault Bridge v4.0
  * Handles real API fetching, robust data persistence, and
- * UNIVERSAL EXTERNAL PLAYER HANDOFF for Android/Mobile.
+ * INTERNAL VIDEO PLAYER for Android/Mobile.
  *
- * All "Play" actions on mobile are delegated to external players
- * (VLC, MX Player, Stremio, etc.) via Android Intents.
- * The internal video player is ONLY used on Desktop (Electron).
+ * All "Play" actions on mobile use a native Internal Player
+ * served via a localhost HTTP server to bypass file:// CORS.
+ * Desktop playback uses Electron's built-in player.
  */
 (function() {
     'use strict';
@@ -13,18 +13,16 @@
     const isElectron = !!(window.api);
     const isAndroid = !!(window.Capacitor);
     
-    let Filesystem, Directory, AppLauncher, FileOpener, IntentLauncher, Share;
+    let Filesystem, Directory, Share, LocalServer;
     if (isAndroid) {
         Filesystem = window.Capacitor.Plugins.Filesystem;
-        AppLauncher = window.Capacitor.Plugins.AppLauncher;
-        // @capacitor-community/file-opener — handles FileProvider URI generation
-        // automatically so external players have read permission for local files.
-        FileOpener = window.Capacitor.Plugins.FileOpener;
-        // Custom plugin registered in MainActivity.java
-        IntentLauncher = window.Capacitor.Plugins.IntentLauncher;
-        // @capacitor/share — Nuclear fallback: OS Share Sheet bypasses FileProvider
-        // entirely by granting temporary read permissions automatically.
         Share = window.Capacitor.Plugins.Share;
+        LocalServer = window.Capacitor.Plugins.LocalServer;
+        if (!LocalServer) {
+            console.warn('[Bridge] LocalServer plugin NOT found in window.Capacitor.Plugins. Trying fallback...');
+        } else {
+            console.log('[Bridge] LocalServer plugin successfully loaded.');
+        }
 
         Directory = {
             Documents: 'DOCUMENTS',
@@ -39,29 +37,26 @@
     if (isElectron) return;
 
     // ═══════════════════════════════════════════════════════════════════
-    //  PLAY MEDIA SERVICE — Universal External Player Handoff (Mobile)
+    //  PLAY MEDIA SERVICE — Internal Player via Local HTTP Server
     // ═══════════════════════════════════════════════════════════════════
-    //  Every "Play" action on mobile MUST go through this service.
-    //  Scenario 1: Torrent/Magnet/HTTP → AppLauncher.openUrl (ACTION_VIEW)
-    //  Scenario 2: Local file → FileOpener.open (FileProvider content:// URI)
+    //  All "Play" actions on mobile go through this service.
+    //  Phase 3: Local HTTP Server serves files at http://localhost
+    //  Phase 4: InternalPlayer component renders HTML5 <video>
     // ═══════════════════════════════════════════════════════════════════
     const PlayMediaService = {
         /**
          * Determine the type of media source.
-         * @returns {'magnet'|'torrent_file'|'http_stream'|'local_file'}
+         * @returns {'magnet'|'torrent_file'|'http_stream'|'local_file'|'content_uri'|'unknown'}
          */
         _classifySource(url) {
             if (!url) return 'unknown';
             if (url.startsWith('magnet:')) return 'magnet';
-            // Bare 40-char info-hash
             if (/^[a-fA-F0-9]{40}$/.test(url)) return 'magnet';
             if (url.toLowerCase().endsWith('.torrent')) return 'torrent_file';
             if (url.startsWith('http://') || url.startsWith('https://')) return 'http_stream';
             if (url.startsWith('content://')) return 'content_uri';
             if (url.startsWith('file://')) return 'local_file';
-            // Absolute native path (starts with /)
             if (url.startsWith('/')) return 'local_file';
-            // Everything else is treated as a local file path (Capacitor-relative)
             return 'local_file';
         },
 
@@ -85,43 +80,18 @@
         },
 
         /**
-         * Resolve a Capacitor-relative path (e.g. "MediaVault/Movies/file.mp4")
-         * to an absolute native file:// URI (e.g. "file:///storage/emulated/0/.../file.mp4").
-         *
-         * CRITICAL (Android 13+ Scoped Storage):
-         * We return the FULL file:// URI as provided by Filesystem.getUri().
-         * Do NOT strip the file:// prefix — FileOpener, IntentLauncher, and Share
-         * all require the properly formatted native URI to function.
-         *
-         * @returns {Promise<{uri: string, directory: string|null}>}
-         *          uri = the absolute file:// or content:// URI
-         *          directory = the Capacitor Directory enum that matched (for Share fallback)
+         * Resolve a Capacitor-relative path to an absolute native file:// URI.
+         * Used by the Local HTTP Server (Phase 3) to locate files on disk.
          */
         async _resolveToNativeUri(filePath) {
-            // Already a content:// URI — pass through as-is
-            if (filePath.startsWith('content://')) {
-                return { uri: filePath, directory: null };
-            }
-            // Already a full file:// URI — pass through
-            if (filePath.startsWith('file://')) {
-                return { uri: filePath, directory: null };
-            }
-            // Already an absolute native path — prepend file:// scheme
-            if (filePath.startsWith('/')) {
-                return { uri: `file://${filePath}`, directory: null };
-            }
-            // HTTP URLs are not local files — pass through
-            if (filePath.startsWith('http')) {
-                return { uri: filePath, directory: null };
-            }
+            if (filePath.startsWith('content://')) return { uri: filePath, directory: null };
+            if (filePath.startsWith('file://')) return { uri: filePath, directory: null };
+            if (filePath.startsWith('/')) return { uri: `file://${filePath}`, directory: null };
+            if (filePath.startsWith('http')) return { uri: filePath, directory: null };
 
-            // It's a Capacitor-relative path — resolve via Filesystem.getUri()
-            // Try multiple directories in priority order
             const dirsToTry = [
-                Directory.Documents,
-                Directory.External,
-                Directory.ExternalStorage,
-                Directory.Data
+                Directory.Documents, Directory.External,
+                Directory.ExternalStorage, Directory.Data
             ];
 
             for (const dir of dirsToTry) {
@@ -132,245 +102,61 @@
                         return { uri: result.uri, directory: dir };
                     }
                 } catch (e) {
-                    // File not found in this directory, try next
                     console.log(`[PlayMediaService] Not found in ${dir}: ${e.message || e}`);
                 }
             }
 
-            // Could not resolve — return as file:// URI and hope for the best
             console.warn('[PlayMediaService] Could not resolve path, using raw:', filePath);
             return { uri: filePath, directory: Directory.External };
         },
 
         /**
-         * Scenario 1: Play a Magnet link or HTTP stream via external app.
-         * Uses AppLauncher.openUrl which fires ACTION_VIEW intent.
-         * Checks the `completed` flag and falls back to window.location
-         * if AppLauncher silently fails (common with magnet: URIs).
+         * Start the local HTTP server (auto-starts if not running).
+         * @returns {Promise<{url: string, port: number}>}
          */
-        async playMagnetOrStream(url) {
-            console.log('[PlayMediaService] Scenario 1 — Magnet/HTTP:', url);
-            
-            // Expand bare info-hash to full magnet URI
-            if (/^[a-fA-F0-9]{40}$/.test(url)) {
-                url = `magnet:?xt=urn:btih:${url}&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://open.stealth.si:80/announce`;
+        async _ensureServer() {
+            if (!LocalServer) {
+                console.warn('[PlayMediaService] LocalServer plugin not available');
+                return null;
             }
-
-            // --- Method 1: Custom IntentLauncher (Best for Magnets/Intents)
-            if (IntentLauncher) {
-                try {
-                    const result = await IntentLauncher.launchUrl({ url });
-                    if (result && result.completed) {
-                        console.log('[PlayMediaService] IntentLauncher succeeded');
-                        return { success: true, method: 'IntentLauncher' };
-                    }
-                } catch (err) {
-                    console.warn('[PlayMediaService] IntentLauncher failed:', err.message);
-                }
-            }
-
-            // --- Method 2: AppLauncher.openUrl (ACTION_VIEW intent)
-            if (AppLauncher) {
-                try {
-                    const result = await AppLauncher.openUrl({ url });
-                    if (result && result.completed) {
-                        console.log('[PlayMediaService] AppLauncher succeeded');
-                        return { success: true, method: 'AppLauncher' };
-                    }
-                    console.warn('[PlayMediaService] AppLauncher returned completed=false for:', url);
-                } catch (err) {
-                    console.warn('[PlayMediaService] AppLauncher.openUrl threw:', err.message);
-                }
-            }
-
-            // --- Method 2: Direct location assignment (triggers system intent resolver)
-            // On Android WebView, setting window.location to a magnet: or intent: URI
-            // triggers the OS intent resolver directly.
             try {
-                // For magnet links, try the intent:// scheme which gives more control
-                if (url.startsWith('magnet:')) {
-                    const intentUrl = `intent:${url.substring(url.indexOf(':') + 1)}#Intent;scheme=magnet;end`;
-                    console.log('[PlayMediaService] Trying intent:// fallback:', intentUrl);
-                    window.location.href = intentUrl;
-                    return { success: true, method: 'intent-scheme' };
-                }
-                // For HTTP streams, use window.open
-                window.open(url, '_system');
-                return { success: true, method: 'window.open' };
-            } catch (err2) {
-                console.warn('[PlayMediaService] Intent fallback failed:', err2.message);
-            }
-
-            // --- Method 3: Last resort — window.open
-            try {
-                window.open(url, '_system');
-                return { success: true, method: 'fallback' };
-            } catch (err3) {
-                return { success: false, error: 'No app found to handle this link. Install VLC, Stremio, or a torrent client.' };
+                const result = await LocalServer.start({ port: 8976 });
+                console.log('[PlayMediaService] Local server running at', result.url);
+                return result;
+            } catch (e) {
+                console.error('[PlayMediaService] Failed to start local server:', e);
+                return null;
             }
         },
 
         /**
-         * Scenario 2: Play a local file via external app.
-         *
-         * RADICAL 2-STEP FIX (Android 13+ Scoped Storage):
-         *
-         * Step 1 — Strict URI Resolution:
-         *   Force Capacitor to give us the absolute native file:// URI
-         *   via Filesystem.getUri(). This is the ONLY format that Android's
-         *   FileProvider can reliably convert to a content:// URI.
-         *   NEVER pass a relative path or Capacitor web URL to FileOpener.
-         *
-         * Step 2 — Nuclear Share Intent Fallback:
-         *   If FileProvider is irreversibly broken (XML misconfiguration,
-         *   authority mismatch, etc.), bypass it entirely using the OS
-         *   Share Sheet. Android natively generates a content:// URI and
-         *   grants temporary read permissions to whichever app the user
-         *   picks (VLC, MX Player, etc.).
+         * Serve a local file through the localhost server.
+         * @param {string} nativePath - Absolute file path (with or without file:// prefix)
+         * @returns {Promise<string|null>} The localhost URL to stream from, or null on failure
          */
-        async playLocalFile(filePath) {
-            console.log('[PlayMediaService] Scenario 2 — Local file:', filePath);
-            const mime = this._guessMime(filePath);
-
-            // ═══════════════════════════════════════════════════════════
-            //  STEP 1: Strict URI Resolution via Filesystem.getUri()
-            // ═══════════════════════════════════════════════════════════
-            let resolved;
+        async _serveViaLocalhost(nativePath) {
+            if (!LocalServer) return null;
             try {
-                resolved = await this._resolveToNativeUri(filePath);
-            } catch (resolveErr) {
-                console.warn('[PlayMediaService] URI resolution failed, using raw path:', resolveErr.message);
-                resolved = { uri: filePath.startsWith('/') ? `file://${filePath}` : filePath, directory: null };
-            }
-
-            const nativeUri = resolved.uri;
-            console.log('[PlayMediaService] Resolved native URI:', nativeUri, '| MIME:', mime);
-
-            // ═══════════════════════════════════════════════════════════
-            //  Try 1: Custom IntentLauncher (Java-side FileProvider)
-            // ═══════════════════════════════════════════════════════════
-            if (IntentLauncher) {
-                try {
-                    const result = await IntentLauncher.openFile({
-                        filePath: nativeUri,
-                        contentType: mime
-                    });
-                    if (result && result.completed) {
-                        console.log('[PlayMediaService] ✓ IntentLauncher openFile succeeded');
-                        return { success: true, method: 'IntentLauncher-file' };
-                    }
-                } catch (err) {
-                    console.warn('[PlayMediaService] IntentLauncher openFile failed:', err.message);
-                }
-            }
-
-            // ═══════════════════════════════════════════════════════════
-            //  Try 2: FileOpener with strict native URI
-            // ═══════════════════════════════════════════════════════════
-            if (FileOpener) {
-                try {
-                    await FileOpener.open({
-                        filePath: nativeUri,
-                        contentType: mime
-                    });
-                    console.log('[PlayMediaService] ✓ FileOpener succeeded');
-                    return { success: true, method: 'FileOpener' };
-                } catch (err) {
-                    console.error('[PlayMediaService] FileOpener FAILED. Executing Nuclear Fallback...', err.message || err);
-                }
-            }
-
-            // ═══════════════════════════════════════════════════════════
-            //  STEP 2: NUCLEAR OPTION — Share Intent Fallback
-            //  Android OS generates content:// URI + grants temp read
-            //  permissions automatically through the Share Sheet.
-            // ═══════════════════════════════════════════════════════════
-            const shareResult = await this._fallbackToShareIntent(filePath, resolved.directory);
-            if (shareResult.success) return shareResult;
-
-            // ═══════════════════════════════════════════════════════════
-            //  Last Resort: AppLauncher / window.open
-            // ═══════════════════════════════════════════════════════════
-            try {
-                if (AppLauncher) {
-                    const result = await AppLauncher.openUrl({ url: nativeUri });
-                    if (result && result.completed) {
-                        return { success: true, method: 'AppLauncher-file' };
-                    }
-                }
-            } catch (err2) {
-                console.warn('[PlayMediaService] AppLauncher fallback failed:', err2.message);
-            }
-
-            try {
-                window.open(nativeUri, '_system');
-                return { success: true, method: 'window.open-fallback' };
-            } catch (err3) {
-                return {
-                    success: false,
-                    error: 'All playback methods exhausted. Please ensure a media player (VLC, MX Player) is installed.'
-                };
+                await this._ensureServer();
+                const result = await LocalServer.serveFile({ path: nativePath });
+                console.log(`[PlayMediaService] Serving via localhost: ${result.url} (${result.mimeType}, ${(result.size / 1048576).toFixed(1)}MB)`);
+                return result.url;
+            } catch (e) {
+                console.error('[PlayMediaService] Failed to serve file:', e);
+                return null;
             }
         },
 
         /**
-         * NUCLEAR FALLBACK — Share Intent
-         * Bypasses FileProvider entirely by using the OS Share Sheet.
-         * Android natively grants temporary read permissions to external
-         * apps when using ACTION_SEND. Video players like VLC and MX Player
-         * automatically register in the Share Sheet.
+         * Universal entry point — routes to Internal Player via Local HTTP Server.
          *
-         * @param {string} originalPath - The original (potentially relative) file path
-         * @param {string|null} resolvedDir - The Directory enum the file was found in
-         */
-        async _fallbackToShareIntent(originalPath, resolvedDir) {
-            if (!Share) {
-                console.warn('[PlayMediaService] Share plugin not available, skipping nuclear fallback');
-                return { success: false, method: 'share-unavailable' };
-            }
-
-            try {
-                // Re-resolve the URI specifically for Share
-                let shareUri;
-                if (originalPath.startsWith('file://') || originalPath.startsWith('content://')) {
-                    shareUri = originalPath;
-                } else if (originalPath.startsWith('/')) {
-                    shareUri = `file://${originalPath}`;
-                } else if (resolvedDir) {
-                    // Re-resolve via Filesystem.getUri with the known directory
-                    const stat = await Filesystem.getUri({
-                        path: originalPath,
-                        directory: resolvedDir
-                    });
-                    shareUri = stat.uri;
-                } else {
-                    // Try all directories again
-                    const resolved = await this._resolveToNativeUri(originalPath);
-                    shareUri = resolved.uri;
-                }
-
-                console.log('[PlayMediaService] Nuclear Share fallback with URI:', shareUri);
-
-                await Share.share({
-                    title: 'Play in External Player',
-                    text: 'Select VLC or your preferred player to watch this video.',
-                    url: shareUri,
-                    dialogTitle: 'Play Video With...'
-                });
-
-                console.log('[PlayMediaService] ✓ Share Intent dispatched');
-                return { success: true, method: 'share-intent-nuclear' };
-            } catch (shareError) {
-                console.error('[PlayMediaService] Share Intent completely failed:', shareError.message || shareError);
-                return { success: false, method: 'share-failed', error: shareError.message };
-            }
-        },
-
-        /**
-         * Universal entry point — classifies the source and delegates.
+         * For local files: resolves path → serves via localhost → returns streamable URL
+         * For HTTP streams: passes URL directly (no server needed)
+         * For magnets: hands off to OS via intent:// scheme
+         *
          * @param {string} url  - Magnet link, HTTP URL, or local file path
-         * @param {object} meta - Optional metadata (title, etc.) for logging
-         * @returns {Promise<{success: boolean, method?: string, error?: string}>}
+         * @param {object} meta - Optional metadata (title, etc.)
+         * @returns {Promise<{success: boolean, streamUrl?: string, method?: string, error?: string}>}
          */
         async play(url, meta = {}) {
             if (!url) return { success: false, error: 'No URL provided' };
@@ -378,18 +164,64 @@
             const sourceType = this._classifySource(url);
             console.log(`[PlayMediaService] play("${url.substring(0, 80)}...") → type=${sourceType}`, meta.title || '');
 
-            switch (sourceType) {
-                case 'magnet':
-                case 'http_stream':
-                case 'torrent_file':
-                    return this.playMagnetOrStream(url);
-                case 'local_file':
-                case 'content_uri':
-                    return this.playLocalFile(url);
-                default:
-                    // Attempt generic open
-                    return this.playMagnetOrStream(url);
+            // Magnet links & Torrent files: hand off to OS via native intent
+            if (sourceType === 'magnet' || sourceType === 'torrent_file') {
+                let magnetUrl = url;
+                if (/^[a-fA-F0-9]{40}$/.test(url)) {
+                    magnetUrl = `magnet:?xt=urn:btih:${url}&tr=udp://tracker.opentrackr.org:1337/announce`;
+                }
+
+                if (isAndroid) {
+                    if (!LocalServer) {
+                        console.warn('[PlayMediaService] LocalServer plugin missing from window.Capacitor.Plugins');
+                        if (window.showToast) window.showToast('Native Bridge not found. Please rebuild the app.');
+                    } else {
+                        try {
+                            console.log('[PlayMediaService] Opening magnet/torrent via native intent:', magnetUrl);
+                            await LocalServer.openUrl({ url: magnetUrl });
+                            return { success: true, method: 'native-intent' };
+                        } catch (e) {
+                            console.error('[PlayMediaService] Native intent failed:', e);
+                            if (window.showToast) window.showToast('Native Error: ' + (e.message || 'Check if a torrent app is installed'));
+                        }
+                    }
+                }
+
+                // Fallback to legacy methods
+                try {
+                    const intentUrl = `intent:${magnetUrl.substring(magnetUrl.indexOf(':') + 1)}#Intent;scheme=magnet;end`;
+                    window.location.href = intentUrl;
+                    return { success: true, method: 'intent-scheme' };
+                } catch (e) {
+                    if (window.showToast) window.showToast('Fallback failed: ' + e.message);
+                    window.open(magnetUrl, '_system');
+                    return { success: true, method: 'window.open' };
+                }
             }
+
+            // HTTP streams: pass directly to internal player (no server needed)
+            if (sourceType === 'http_stream') {
+                console.log('[PlayMediaService] HTTP stream → Internal Player:', url);
+                return { success: true, streamUrl: url, method: 'direct-http' };
+            }
+
+            // Local files: resolve path → serve via localhost → return streamable URL
+            if (sourceType === 'local_file' || sourceType === 'content_uri') {
+                const resolved = await this._resolveToNativeUri(url);
+                console.log('[PlayMediaService] Resolved native URI:', resolved.uri);
+
+                const localhostUrl = await this._serveViaLocalhost(resolved.uri);
+                if (localhostUrl) {
+                    console.log('[PlayMediaService] ✓ Streaming via localhost:', localhostUrl);
+                    return { success: true, streamUrl: localhostUrl, method: 'local-server' };
+                }
+
+                // Fallback: try direct file URI (may work on some devices)
+                console.warn('[PlayMediaService] Local server failed, trying direct URI...');
+                return { success: true, streamUrl: resolved.uri, method: 'direct-uri-fallback' };
+            }
+
+            return { success: false, error: `Unhandled source type: ${sourceType}` };
         }
     };
 
@@ -631,7 +463,7 @@
         },
 
         startDownload: async (options) => {
-            const { url, name } = options;
+            let { url, name } = options;
             const id = 'dl_' + Date.now();
             console.log('[Bridge] startDownload:', name, url);
 
@@ -639,6 +471,81 @@
                 window.dispatchEvent(new CustomEvent('download-error', { detail: { id, name, error: 'Only direct HTTP links can be downloaded on mobile.' } }));
                 return { success: false, id, error: 'Direct links only on mobile' };
             }
+
+            // --- Serverless Social Downloader Fallback for Capacitor ---
+            const isSocialUrl = (u) => /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|twitter\.com|x\.com)\//i.test(u);
+            if (isSocialUrl(url)) {
+                window.dispatchEvent(new CustomEvent('download-progress', { detail: { id, name: name || 'Video', percent: 5, status: 'downloading', statusText: 'Resolving social link...' } }));
+                try {
+                    let directUrl = null;
+                    const makeReq = async (endpoint, payload) => {
+                        if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                            const res = await window.Capacitor.Plugins.CapacitorHttp.post({
+                                url: endpoint,
+                                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                                data: payload
+                            });
+                            return res.data;
+                        } else {
+                            const res = await fetch(endpoint, {
+                                method: 'POST',
+                                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            return await res.json();
+                        }
+                    };
+
+                    // 1. TikWM API for TikTok
+                    if (url.includes('tiktok.com')) {
+                        try {
+                            const tikRes = await makeReq('https://www.tikwm.com/api/', { url });
+                            if (tikRes?.data?.play) directUrl = tikRes.data.play;
+                        } catch(e) { console.warn('[Bridge] TikWM failed:', e); }
+                    }
+
+                    // 2. Cobalt API v11 for everything else
+                    if (!directUrl) {
+                        const instances = [
+                            'https://co.wuk.sh/', 
+                            'https://cobalt.q0.wtf/', 
+                            'https://api.vve.wtf/', 
+                            'https://cobalt.catbox.video/', 
+                            'https://api.cobalt.tools/'
+                        ];
+                        for (let apiUrl of instances) {
+                            try {
+                                const cobRes = await makeReq(apiUrl, { url });
+                                if (cobRes && cobRes.url) { directUrl = cobRes.url; break; }
+                            } catch(e) { console.warn('[Bridge] Cobalt failed at', apiUrl); }
+                        }
+                    }
+
+                    // 3. Final Fallback: CORS Proxy + Cobalt v11 (Aggressive)
+                    if (!directUrl) {
+                        try {
+                            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://api.vve.wtf/');
+                            const res = await fetch(proxyUrl, {
+                                method: 'POST',
+                                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ url })
+                            }).then(r => r.json());
+                            if (res && res.url) directUrl = res.url;
+                        } catch (e) { console.warn('[Bridge] Final proxy fallback failed:', e); }
+                    }
+
+                    if (directUrl) {
+                        url = directUrl; // Upgrade the URL to the direct MP4
+                    } else {
+                        throw new Error('Could not extract direct video link.');
+                    }
+                } catch (err) {
+                    window.dispatchEvent(new CustomEvent('download-error', { detail: { id, name, error: err.message } }));
+                    return { success: false, id, error: err.message };
+                }
+            }
+            // --- End Social Injection ---
+
 
             const safeName = (name || 'download').replace(/[<>:"/\\|?*]/g, '_');
             const ext = url.match(/\.(mp4|mkv|avi|webm|mp3|m4a)/i)?.[0] || '.mp4';
@@ -668,11 +575,13 @@
             }
 
             const fs = window.Capacitor.Plugins.Filesystem;
-            // 'EXTERNAL' maps to the app's own external files dir —
-            // always writable without runtime permissions on Android 10+.
-            // 'DOWNLOADS' is NOT a valid Capacitor directory constant and causes a native crash.
-            const SAVE_DIR = 'EXTERNAL';
-            const SAVE_SUBDIR = 'MediaVault';
+            
+            // On mobile, we save to the public Documents folder so MediaVault can scan it.
+            const SAVE_DIR = 'DOCUMENTS';
+            const profileName = params.profileName || 'Default';
+            const SAVE_SUBDIR = params.type === 'social' 
+                ? `MediaVault/${profileName}/Social` 
+                : `MediaVault/${profileName}/Downloads`;
             let progressHandle = null;
 
             try {
@@ -729,25 +638,48 @@
 
 
         streamTorrent: async (url, fileIdx) => {
-            // Mobile: Always use external player for torrents for 100% stability
             const finalUrl = (url && url.length === 40 && !url.includes(':')) ? `magnet:?xt=urn:btih:${url}` : url;
-            return { success: true, url: finalUrl, isExternal: true };
+            return { success: true, url: finalUrl };
         },
 
-        renderTorrentTo: async (infoHash, selector) => ({ success: false, error: 'Internal streaming disabled. Use External Player.' }),
+        renderTorrentTo: async (infoHash, selector) => ({ success: false, error: 'Use Internal Player.' }),
 
-        // Unified external player — delegates to PlayMediaService
-        openInVlc: async (url) => {
-            console.log('[Bridge] openInVlc → PlayMediaService:', url);
+        // Play via External Player (Amnis, VLC, etc.)
+        playExternal: async (url, meta = {}) => {
             if (!isAndroid) {
                 window.open(url, '_blank');
-                return true;
+                return { success: true };
             }
-            const result = await PlayMediaService.play(url, { title: 'VLC Handoff' });
-            return result.success;
+            try {
+                const sourceType = PlayMediaService._classifySource(url);
+                let finalUrl = url;
+
+                if (sourceType === 'local_file' || sourceType === 'content_uri') {
+                    const resolved = await PlayMediaService._resolveToNativeUri(url);
+                    const localhostUrl = await PlayMediaService._serveViaLocalhost(resolved.uri);
+                    if (localhostUrl) finalUrl = localhostUrl;
+                }
+
+                // Force Amnis Player directly via Intent
+                const intentUrl = `intent://${finalUrl.replace(/^https?:\/\//, '')}#Intent;package=com.amnis.player;scheme=http;end;`;
+                window.location.href = intentUrl;
+                return { success: true };
+            } catch (e) {
+                console.error('[Bridge] playExternal failed:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        openInExternalPlayer: async (url) => {
+            return window.api.playExternal(url);
+        },
+
+        openInVlc: async (url) => {
+            return window.api.playExternal(url);
         },
 
         // --- Filesystem & Folders (Capacitor) ---
+
         ensureProfileFolders: async (profileName) => {
             if (!isAndroid) return true;
             try {
@@ -768,6 +700,22 @@
                 return true;
             } catch (err) {
                 console.error('[Bridge] Filesystem setup failed:', err);
+                return false;
+            }
+        },
+
+        renameProfileFolders: async (oldName, newName) => {
+            if (!isAndroid) return true;
+            try {
+                const { Filesystem } = window.Capacitor.Plugins;
+                await Filesystem.rename({
+                    from: `MediaVault/${oldName}`,
+                    to: `MediaVault/${newName}`,
+                    directory: 'DOCUMENTS'
+                });
+                return true;
+            } catch (err) {
+                console.warn('[Bridge] Rename folders failed:', err.message);
                 return false;
             }
         },
@@ -831,8 +779,29 @@
             if (channel === 'start-download') return window.api.startDownload(args[0]);
             if (channel === 'play-native') return window.api.playNative(args[0]);
             if (channel === 'play-external') return window.api.playExternal(args[0], args[1] || {});
-            if (channel === 'open-external-url') return window.api.openExternalUrl(args[0]);
+            if (channel === 'select-files') return window.api.selectFiles(args[0]);
+            if (channel === 'move-file') return window.api.moveFile(args[0]);
+            if (channel === 'create-folder') return window.api.createFolder(args[0]);
+            if (channel === 'open-external' || channel === 'open-external-url') {
+                const url = args[0];
+                if (isAndroid) {
+                    if (LocalServer) {
+                        LocalServer.openUrl({ url });
+                    } else {
+                        window.open(url, '_system');
+                    }
+                } else {
+                    window.open(url, '_blank');
+                }
+                return { success: true };
+            }
             if (channel === 'request-filesystem-permissions') return window.api.requestFileSystemPermissions();
+            if (channel === 'get-default-library-root') return window.api.getDefaultLibraryRoot();
+            
+            // Map common channels to bridge methods
+            const method = channel.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+            if (window.api[method]) return window.api[method](...args);
+            if (window.api[channel]) return window.api[channel](...args);
             if (channel === 'cancel-download') return { success: true };
             if (channel === 'start-torrent-stream' || channel === 'stream-torrent') {
                 return window.api.streamTorrent(args[0], args[1]);
@@ -859,6 +828,12 @@
             if (channel.startsWith('tmdb-')) {
                 const methodName = channel.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
                 if (window.api[methodName]) return window.api[methodName](...args);
+            }
+            if (channel === 'fetch-proxy') {
+                try {
+                    const resp = await fetch(args[0], args[1]);
+                    return await resp.json();
+                } catch (e) { return { error: e.message }; }
             }
             return null;
         },
@@ -994,27 +969,155 @@
                 return true;
             } catch (e) { return false; }
         },
-        getProfileMediaPaths: async (profileId) => {
-             // Return paths relative to Documents or Data based on where they were created
-             // For now, return standard layout
+        getProfileMediaPaths: async (profileName) => {
+             const base = `MediaVault/${profileName || 'Default'}`;
              return {
-                 movies: 'MediaVault/Movies',
-                 series: 'MediaVault/Series',
-                 social: 'MediaVault/Social',
-                 music: 'MediaVault/Music'
+                 movies: `${base}/Movies`,
+                 series: `${base}/Series`,
+                 social: `${base}/Social`,
+                 music: `${base}/Music`,
+                 downloads: `${base}/Downloads`
              };
         },
         // streamTorrent implementation moved above for consistency
         findSubtitles: async (filePath) => [],
         updateDiscordActivity: (data) => {},
-        scanLibrary: async (path) => ({ movies: [], shows: [] }),
+        scanLibrary: async (libPath) => {
+            if (!isAndroid) return { movies: [], shows: [] };
+            try {
+                const { Filesystem } = window.Capacitor.Plugins;
+                const outMovies = [];
+                const outShows = [];
+
+                const isMoviesFolder = libPath.toLowerCase().endsWith('movies');
+                const isSeriesFolder = libPath.toLowerCase().endsWith('series');
+
+                async function walk(dirPath, isRoot = false) {
+                    let results = { files: [], dirs: [] };
+                    try {
+                        const { files } = await Filesystem.readdir({ path: dirPath, directory: 'DOCUMENTS' });
+                        for (const f of files) {
+                            if (f.type === 'directory') results.dirs.push(f);
+                            else if (f.type === 'file' && /\.(mp4|mkv|avi|webm|mov|m4v)$/i.test(f.name)) results.files.push(f);
+                        }
+                    } catch (e) {}
+                    return results;
+                }
+
+                const rootFiles = await walk(libPath, true);
+
+                if (isMoviesFolder) {
+                    for (const f of rootFiles.files) {
+                        const cleanName = f.name.replace(/\.[^/.]+$/, '');
+                        outMovies.push({ id: `${libPath}/${f.name}`, title: cleanName, filename: f.name, path: `${libPath}/${f.name}`, type: 'movie' });
+                    }
+                    for (const d of rootFiles.dirs) {
+                        const sub = await walk(`${libPath}/${d.name}`);
+                        for (const sf of sub.files) {
+                            const cleanName = d.name; // Folder name is movie name
+                            outMovies.push({ id: `${libPath}/${d.name}/${sf.name}`, title: cleanName, filename: sf.name, path: `${libPath}/${d.name}/${sf.name}`, type: 'movie' });
+                        }
+                    }
+                } else if (isSeriesFolder) {
+                    for (const d of rootFiles.dirs) {
+                        const showName = d.name;
+                        const episodes = [];
+                        const sub1 = await walk(`${libPath}/${d.name}`);
+                        
+                        // Flat episodes
+                        for (const f of sub1.files) {
+                            let s = 1, ep = 1;
+                            const m = f.name.match(/[Ss](\d{1,2})\s*[Ee](\d{1,3})/);
+                            if (m) { s = +m[1]; ep = +m[2]; }
+                            else { const m2 = f.name.match(/(\d{1,3})/); if (m2) ep = +m2[1]; }
+                            episodes.push({ id: `${libPath}/${d.name}/${f.name}`, filename: f.name, title: f.name, path: `${libPath}/${d.name}/${f.name}`, season: s, episode: ep });
+                        }
+
+                        // Subfolders (seasons)
+                        for (const sd of sub1.dirs) {
+                            let s = 1;
+                            const sm = sd.name.match(/season\s*(\d+)/i) || sd.name.match(/^(\d{1,2})$/i);
+                            if (sm) s = +sm[1];
+                            const sub2 = await walk(`${libPath}/${d.name}/${sd.name}`);
+                            for (const f of sub2.files) {
+                                let ep = 1;
+                                const em = f.name.match(/[Ee](\d{1,3})/i) || f.name.match(/(\d{1,3})/);
+                                if (em) ep = +em[1];
+                                episodes.push({ id: `${libPath}/${d.name}/${sd.name}/${f.name}`, filename: f.name, title: f.name, path: `${libPath}/${d.name}/${sd.name}/${f.name}`, season: s, episode: ep });
+                            }
+                        }
+
+                        if (episodes.length > 0) {
+                            episodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
+                            outShows.push({ id: `${libPath}/${d.name}`, title: showName, type: 'show', episodes });
+                        }
+                    }
+                }
+
+                return { movies: outMovies, shows: outShows };
+            } catch (e) {
+                console.error('[Bridge] scanLibrary Error:', e);
+                return { movies: [], shows: [] };
+            }
+        },
         downloadImage: async (url, id) => null,
         cleanMissingDownloads: async (history) => history || [],
         renameFile: async (oldPath, newName) => ({ success: false, error: 'Renaming not supported on mobile' }),
         fetchUrlMetadata: async (url) => ({ success: false }),
         clearCache: async () => true,
         setFullScreen: async (flag) => false,
-        scanYoutube: async (path) => [],
+        scanYoutube: async (path) => {
+            if (!isAndroid) return [];
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const { files } = await fs.readdir({ path, directory: 'DOCUMENTS' });
+                const videos = [];
+                for (const f of files) {
+                    if (f.type === 'file' && /\.(mp4|mkv|avi|webm|mov|m4v)$/i.test(f.name)) {
+                        const name = f.name.replace(/\.[^/.]+$/, '');
+                        const imgName = name + '.jpg';
+                        const hasImg = files.some(ef => ef.name === imgName);
+                        let imgUri = null;
+                        if (hasImg) {
+                            try {
+                                const uriRes = await fs.getUri({ path: `${path}/${imgName}`, directory: 'DOCUMENTS' });
+                                imgUri = uriRes.uri;
+                            } catch(e) {}
+                        }
+                        videos.push({
+                            id: `${path}/${f.name}`,
+                            name: name,
+                            title: name,
+                            path: `${path}/${f.name}`,
+                            type: 'social',
+                            isLocal: true,
+                            image: imgUri
+                        });
+                    }
+                }
+                return videos;
+            } catch (e) { return []; }
+        },
+        selectFiles: async () => {
+            console.warn('[Bridge] selectFiles not implemented on mobile. Use file input.');
+            return [];
+        },
+        moveFile: async ({ src, dest }) => {
+            if (!isAndroid) return { success: false };
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                await fs.rename({ from: src, to: dest, directory: 'DOCUMENTS' });
+                return { success: true };
+            } catch (e) { return { success: false, error: e.message }; }
+        },
+        createFolder: async (folderPath) => {
+            if (!isAndroid) return false;
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                await fs.mkdir({ path: folderPath, directory: 'DOCUMENTS', recursive: true });
+                return true;
+            } catch (e) { return false; }
+        },
         tmdbSeasonDetails: (id, sn) => tmdbFetch(`tv/${id}/season/${sn}`),
         tmdbDiscoverByGenre: (id) => tmdbFetch('discover/movie', { with_genres: id }),
         // --- REAL KITSU LOGIC ---
@@ -1037,14 +1140,114 @@
         },
         setZoom: (f) => {},
         openInExternalPlayer: async (path) => {
-            if (isAndroid) return PlayMediaService.play(path, { title: 'External Player' });
+            if (isAndroid) return PlayMediaService.play(path, { title: 'MediaVault Player' });
             return window.api.openInVlc(path);
         },
         downloadFile: async (url, name) => window.api.startDownload({ url, name }),
 
         // Invoke Mappings for specific channels that aren't dynamic
-        getAppVersion: async () => '8.5.4',
+        getAppVersion: async () => '11.2.0',
         checkForUpdates: async () => ({ available: false }),
+        
+        requestFileSystemPermissions: async () => {
+            if (!isAndroid) return true;
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const status = await fs.requestPermissions();
+                return status.publicStorage === 'granted';
+            } catch (e) { return false; }
+        },
+
+        getDefaultLibraryRoot: async () => {
+            return isAndroid ? 'MediaVault' : 'C:/MediaVault';
+        },
+        
+        // --- NEW MOBILE HANDLERS ---
+        'list-profile-subtitles': async ({ profileName, libraryRoot, subDir }) => {
+            if (!isAndroid) return [];
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const path = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}`;
+                const result = await fs.readdir({ path, directory: 'DOCUMENTS' });
+                return result.files.map(f => ({
+                    name: f.name,
+                    isDir: f.type === 'directory',
+                    size: f.size || 0
+                }));
+            } catch (e) { return []; }
+        },
+        'save-subtitle-local': async ({ profileName, fileName, content, subDir }) => {
+            if (!isAndroid) return { success: false };
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const path = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${fileName}`;
+                await fs.writeFile({ path, data: content, directory: 'DOCUMENTS', encoding: 'utf8' });
+                return { success: true };
+            } catch (e) { return { success: false, error: e.message }; }
+        },
+        'move-subtitle-local': async ({ profileName, fileName, fromDir, toDir }) => {
+            if (!isAndroid) return { success: false };
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const from = `MediaVault/${profileName}/Subtitles${fromDir ? '/' + fromDir : ''}/${fileName}`;
+                const to = `MediaVault/${profileName}/Subtitles${toDir ? '/' + toDir : ''}/${fileName}`;
+                await fs.rename({ from, to, directory: 'DOCUMENTS' });
+                return { success: true };
+            } catch (e) { return { success: false, error: e.message }; }
+        },
+        'rename-subtitle-local': async ({ profileName, oldName, newName, subDir }) => {
+            if (!isAndroid) return { success: false };
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const from = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${oldName}`;
+                const to = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${newName}`;
+                await fs.rename({ from, to, directory: 'DOCUMENTS' });
+                return { success: true };
+            } catch (e) { return { success: false, error: e.message }; }
+        },
+        'delete-subtitle-local': async ({ profileName, fileName, subDir }) => {
+            if (!isAndroid) return { success: false };
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const path = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${fileName}`;
+                await fs.deleteFile({ path, directory: 'DOCUMENTS' });
+                return { success: true };
+            } catch (e) { return { success: false, error: e.message }; }
+        },
+        'read-subtitle-file': async (path) => {
+            if (!isAndroid) return '';
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const result = await fs.readFile({ path, directory: 'DOCUMENTS', encoding: 'utf8' });
+                return result.data;
+            } catch (e) { return ''; }
+        },
+        'delete-file': async (path) => {
+            if (!isAndroid) return { success: false };
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                await fs.deleteFile({ path, directory: 'DOCUMENTS' });
+                return { success: true };
+            } catch (e) { return { success: false, error: e.message }; }
+        },
+        'scan-music': async (path) => {
+            if (!isAndroid) return [];
+            try {
+                const fs = window.Capacitor.Plugins.Filesystem;
+                const result = await fs.readdir({ path, directory: 'DOCUMENTS' });
+                return result.files.filter(f => f.type === 'file' && /\.(mp3|m4a|flac|wav)$/i.test(f.name)).map(f => ({
+                    id: 'music_' + f.name,
+                    filename: f.name,
+                    title: f.name.replace(/\.[^/.]+$/, ""),
+                    artist: 'Unknown',
+                    path: `${path}/${f.name}`
+                }));
+            } catch (e) { return []; }
+        },
+        'factory-reset': async () => {
+            localStorage.clear();
+            return true;
+        },
         
         // Kitsu/TMDB Dynamic Mapping Helpers (if needed)
         tmdbSearchDiscover: (q) => tmdbFetch('search/multi', { query: q }),
@@ -1080,29 +1283,52 @@
         tmdbExternalIds: (data) => tmdbFetch(`${data.type}/${data.id}/external_ids`),
 
 
-        // External App Launcher (for Torrents/Magnets)
+        // Magnet/Torrent URL launcher (non-player concern)
+        // Magnet/Torrent URL launcher (non-player concern)
         openExternalUrl: async (url) => {
             if (!isAndroid) return { success: false, error: 'Not on Android' };
-            return PlayMediaService.playMagnetOrStream(url);
+            
+            if (url && url.startsWith('magnet:')) {
+                try {
+                    // Force LibreTorrent directly
+                    const intentUrl = `intent://${url.replace(/^magnet:\?/, '')}#Intent;package=org.proninyaroslav.libretorrent;scheme=magnet;end;`;
+                    window.location.href = intentUrl;
+                    return { success: true, method: 'intent-scheme' };
+                } catch (e) {
+                    console.error('[Bridge] LibreTorrent intent failed:', e);
+                }
+            }
+
+            if (LocalServer) {
+                try {
+                    console.log('[Bridge] openExternalUrl via native intent:', url);
+                    await LocalServer.openUrl({ url: url });
+                    return { success: true, method: 'native-intent' };
+                } catch (e) {
+                    console.error('[Bridge] Native intent failed:', e);
+                }
+            }
+
+            window.open(url, '_system');
+            return { success: true, method: 'window.open' };
         },
 
         /**
-         * playNative — Universal External Player Handoff
-         * On mobile, ALL play actions now delegate to PlayMediaService
-         * which hands off to external players (VLC, MX Player, Stremio, etc.)
-         * via Android Intents. The internal ExoPlayer is fully abandoned.
+         * playNative — Internal Player Handoff
+         * On mobile, ALL play actions route through PlayMediaService
+         * which will serve local files via localhost and play in
+         * the built-in HTML5 Internal Player.
          */
         playNative: async (options) => {
             if (!isAndroid) return { success: false, error: 'Not on Android' };
             const { url, title } = options;
-            console.log('[Bridge] playNative → PlayMediaService (external handoff):', title, url);
+            console.log('[Bridge] playNative → Internal Player:', title, url);
             return PlayMediaService.play(url, { title: title || 'MediaVault' });
         },
 
         /**
-         * playExternal — The new canonical API for ALL mobile playback.
-         * Accepts any URL type (magnet, HTTP, local path) and hands off
-         * to the OS for an external player to handle.
+         * playMedia — The canonical API for ALL mobile playback.
+         * Routes to the Internal Player via PlayMediaService.
          */
         playExternal: async (url, meta = {}) => {
             if (!isAndroid) return { success: false, error: 'Not on Android' };

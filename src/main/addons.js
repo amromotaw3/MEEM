@@ -15,8 +15,10 @@ async function getWebTorrent() {
 }
 
 function initAddonsIpc(ipcMain, store) {
+    console.log('[Addons] Registering "search-addons" handler...');
     // IPC: Search for streams from various add-ons
     ipcMain.handle('search-addons', async (_e, { imdbId, tmdbId, type, season, episode, title }) => {
+        console.log(`[Addons] "search-addons" invoked for: ${title} (${imdbId || tmdbId})`);
         const results = [];
         const appData = store.get('appData') || {};
         const sc = appData.scraperConfig || {};

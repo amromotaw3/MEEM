@@ -1,16 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Required on Android 11+ to discover and launch external media players via intent -->
     <queries>
-        <!-- Specific apps we know about -->
-        <package android:name="org.videolan.vlc" />
-        <package android:name="com.mxtech.videoplayer.ad" />
-        <package android:name="com.mxtech.videoplayer.pro" />
-        <package android:name="com.stremio.one" />
-        <package android:name="com.delphicoder.flud" />
-
-        <!-- HTTP/HTTPS streams -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="magnet" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
@@ -19,41 +13,9 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
-
-        <!-- Magnet links (for torrent clients) -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="magnet" />
-        </intent>
-
-        <!-- Local file playback (file:// URIs) -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="file" />
-        </intent>
-
-        <!-- Content URI playback (content:// from FileProvider) -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="content" />
-        </intent>
-
-        <!-- Video MIME types -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:mimeType="video/*" />
-        </intent>
-
-        <!-- Audio MIME types -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:mimeType="audio/*" />
-        </intent>
-
-        <!-- Torrent files -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:mimeType="application/x-bittorrent" />
         </intent>
     </queries>
 
@@ -94,9 +56,11 @@
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 </manifest>
+

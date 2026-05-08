@@ -108,6 +108,51 @@ function scanFolder(libraryPath) {
     if (entry.isFile() && isVideo(entry.name)) {
       movies.push({ id: fullPath, title: path.basename(entry.name, path.extname(entry.name)), cleanTitle: extractCleanTitle(entry.name), year: extractYearFromName(entry.name), filename: entry.name, path: fullPath, type: 'movie' });
     } else if (entry.isDirectory()) {
+      const folderNameLower = entry.name.toLowerCase();
+      // Skip generic folders and profile folders from being treated as TV shows
+      const isProfile = fs.existsSync(path.join(fullPath, 'Movies')) && fs.existsSync(path.join(fullPath, 'Series'));
+      if (['movies', 'music', 'social', 'downloads', 'subtitles'].includes(folderNameLower) || isProfile) {
+        const subFiles = walkDir(fullPath);
+        for (const file of subFiles) {
+          if (!isVideo(file)) continue;
+          if (folderNameLower === 'movies' || folderNameLower === 'downloads') {
+            movies.push({ id: file, title: path.basename(file, path.extname(file)), cleanTitle: extractCleanTitle(path.basename(file)), year: extractYearFromName(path.basename(file)), filename: path.basename(file), path: file, type: 'movie' });
+          }
+        }
+        continue;
+      }
+      
+      // If the folder is specifically "Series", we should treat its children as the actual shows
+      if (folderNameLower === 'series') {
+        const seriesEntries = fs.readdirSync(fullPath, { withFileTypes: true });
+        for (const showEntry of seriesEntries) {
+          if (showEntry.isDirectory()) {
+            const showFullPath = path.join(fullPath, showEntry.name);
+            const { shows: childShows } = scanFolder(showFullPath); // Recursively scan the show folder itself
+            if (childShows && childShows.length > 0) {
+                // Because we recursively call scanFolder on the Show folder, it will fall into the else block below
+                // and return a single show. We can just push it.
+                shows.push(...childShows);
+            } else {
+                // If the recursive scan didn't handle it, do manual fallback
+                const epFiles = walkDir(showFullPath);
+                const episodes = [];
+                for (const file of epFiles) {
+                    if (!isVideo(file)) continue;
+                    const parsed = parseEpisode(file);
+                    episodes.push({ id: file, filename: path.basename(file), title: path.basename(file, path.extname(file)), path: file, season: parsed.season || 1, episode: parsed.episode });
+                }
+                if (episodes.length) {
+                    episodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
+                    shows.push({ id: showFullPath, title: showEntry.name, cleanTitle: extractCleanTitle(showEntry.name), year: extractYearFromName(showEntry.name), folder: showFullPath, path: showFullPath, filename: showEntry.name, episodes, parts: [], type: 'show' });
+                }
+            }
+          }
+        }
+        continue;
+      }
+      
+      // Regular folder parsing (Treats the folder as a SINGLE TV show)
       const folderEntries = fs.readdirSync(fullPath, { withFileTypes: true });
       const subDirs = folderEntries.filter(e => e.isDirectory());
       const episodes = [], parts = [];

@@ -1,0 +1,12 @@
+{
+  "appId": "com.mediavault.app",
+  "appName": "MediaVault",
+  "webDir": "src/renderer",
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": true,
+      "backgroundColor": "#050508"
+    }
+  }
+}

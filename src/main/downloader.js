@@ -88,9 +88,56 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
         ytPath = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
         if (isPackaged) ytPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
     } else if (process.platform === 'android') {
-        // On Android (via Capacitor/Node sidecar), we don't have yt-dlp binary easily.
-        // We fallback to direct download if possible or throw a descriptive error.
-        reject(new Error('Social media downloads are currently optimized for Desktop. Please use direct links on Mobile.'));
+        // Fallback to API for mobile because yt-dlp binary is not natively executable
+        mainWindow?.webContents?.send?.('download-progress', { id: downloadId, name: displayName, percent: 5, downloaded: 'Resolving link...', total: '...', status: 'downloading' });
+        
+        const tryCobaltAPI = async (apiUrl) => {
+            const res = await axios.post(apiUrl, { url: url }, {
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                },
+                timeout: 15000
+            });
+            return res.data;
+        };
+
+        const resolveDirectUrl = async () => {
+            // 1. TikTok specific high-success API (TikWM)
+            if (url.includes('tiktok.com')) {
+                try {
+                    const tikRes = await axios.post('https://www.tikwm.com/api/', { url: url }, { timeout: 15000 });
+                    if (tikRes.data && tikRes.data.data && tikRes.data.data.play) {
+                        return tikRes.data.data.play;
+                    }
+                } catch (e) {
+                    console.warn('[DL] TikWM API failed, falling back to Cobalt...', e.message);
+                }
+            }
+
+            // 2. Cobalt API Instances for YouTube, Instagram, and TikTok fallback
+            const instances = ['https://co.wuk.sh/api/json', 'https://api.cobalt.tools/api/json'];
+            for (let apiUrl of instances) {
+                try {
+                    const data = await tryCobaltAPI(apiUrl);
+                    if (data && data.url) return data.url;
+                } catch (e) {
+                    console.warn(`[DL] Cobalt API failed at ${apiUrl}:`, e.message);
+                }
+            }
+            throw new Error('All API instances failed to resolve the video link.');
+        };
+
+        resolveDirectUrl()
+            .then(directUrl => {
+                downloadDirect(directUrl, outputPath, downloadId, displayName)
+                    .then(resolve)
+                    .catch(reject);
+            })
+            .catch(err => {
+                reject(new Error('Mobile social download failed: ' + err.message));
+            });
         return;
     }
 
@@ -512,6 +559,9 @@ function initDownloaderIpc(ipcMain) {
     let finalDir;
     if (opts.downloadPath && opts.downloadPath.trim()) {
         finalDir = opts.downloadPath;
+    } else if (isMusicMode || category === 'Music') {
+        // Music mode: always use the profile's dedicated Music folder
+        finalDir = path.join(rootDir, profileSafe, 'Music');
     } else {
         // Default fallback path - start with root but don't commit to profile subfolder yet
         finalDir = rootDir; 
@@ -524,8 +574,6 @@ function initDownloaderIpc(ipcMain) {
                 bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('movie') || f.toLowerCase().includes('film'));
             } else if (category === 'Series') {
                 bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('tv') || f.toLowerCase().includes('series') || f.toLowerCase().includes('show') || f.toLowerCase().includes('anime'));
-            } else if (category === 'Music') {
-                bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('music') || f.toLowerCase().includes('audio'));
             } else if (category === 'Social') {
                 bestMatch = opts.libraryFolders.find(f => f.toLowerCase().includes('social') || f.toLowerCase().includes('youtube') || f.toLowerCase().includes('video'));
             }

@@ -4,6 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>MediaVault — Personal Media Library</title>
   <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,12 +12,118 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cairo:wght@400;600;700;800&display=swap"
     rel="stylesheet">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: http: data: blob: local-file:;">
+
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/layout.css">
   <link rel="stylesheet" href="css/components.css">
   <link rel="stylesheet" href="css/pages.css">
   <link rel="stylesheet" href="css/player.css">
   <link rel="stylesheet" href="css/mobile.css">
+  <style>
+    /* Premium Continue Watching Cards */
+    .continue-card {
+      flex: 0 0 280px;
+      height: 160px;
+      position: relative;
+      border-radius: 16px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      background: #111;
+      border: 1px solid rgba(255,255,255,0.05);
+      margin-right: 15px;
+    }
+
+    .continue-card:hover {
+      transform: scale(1.03) translateY(-5px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      border-color: rgba(255,255,255,0.15);
+    }
+
+    .continue-card-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.6;
+      transition: opacity 0.4s ease;
+    }
+
+    .continue-card:hover .continue-card-img {
+      opacity: 0.8;
+    }
+
+    .continue-card-info {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 15px;
+      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 50%, transparent 100%);
+      z-index: 2;
+    }
+
+    .continue-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+
+    .continue-card-subtitle {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.6);
+      margin-bottom: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .continue-card-progress {
+      height: 5px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 3px;
+      overflow: hidden;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+    }
+
+    .continue-card-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #a78bfa);
+      border-radius: 3px;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .continue-card-play {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      width: 46px;
+      height: 46px;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(8px);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 18px;
+    }
+
+    .continue-card:hover .continue-card-play {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+  </style>
   <link rel="stylesheet" href="css/space.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
@@ -93,15 +200,15 @@
 
     /* Redesigned Onboarding Elements */
     .onboarding-card {
-      background: rgba(20, 20, 20, 0.8) !important;
+      background: linear-gradient(145deg, #0f0f1a 0%, #050508 100%) !important;
       backdrop-filter: blur(25px) !important;
-      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      border: 1px solid rgba(79, 70, 229, 0.3) !important;
       text-align: center;
       max-width: 800px !important;
       width: 90% !important;
       animation: onboarding-fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-      box-shadow: 0 0 120px rgba(99, 102, 241, 0.2) !important;
-      /* Glow Shadow */
+      box-shadow: 0 0 120px rgba(79, 70, 229, 0.15) !important;
+      /* Indigo Glow Shadow */
     }
 
     @keyframes onboarding-fade-in {
@@ -206,10 +313,10 @@
     /* Setup Wizard Specifics */
     .wizard-input-group {
       width: 100%;
-      background: rgba(255, 255, 255, 0.03);
+      background: rgba(79, 70, 229, 0.05);
       padding: 20px;
       border-radius: 18px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(79, 70, 229, 0.15);
       margin-bottom: 20px;
       text-align: left;
     }
@@ -276,6 +383,39 @@
 </head>
 
 <body>
+  <!-- ═══ PREMIUM SPLASH SCREEN (MOBILE) ═══ -->
+  <div id="app-splash" style="position: fixed; inset: 0; background: #050508; z-index: 9999999; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.8s ease, visibility 0.8s; color: #fff; font-family: 'Cairo', sans-serif; overflow: hidden;">
+    <!-- Subtle & Moving Purple Aura Blobs (Reduced Brightness) -->
+    <div style="position: absolute; top: -20%; left: -20%; width: 80%; height: 80%; background: radial-gradient(circle, rgba(168, 85, 247, 0.25) 0%, transparent 70%); filter: blur(80px); animation: splashOrbit 8s infinite ease-in-out; pointer-events: none;"></div>
+    <div style="position: absolute; bottom: -20%; right: -20%; width: 80%; height: 80%; background: radial-gradient(circle, rgba(79, 70, 229, 0.2) 0%, transparent 70%); filter: blur(80px); animation: splashOrbit 12s infinite ease-in-out reverse; pointer-events: none;"></div>
+    <div style="position: absolute; top: 20%; right: -30%; width: 70%; height: 70%; background: radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, transparent 70%); filter: blur(90px); animation: splashOrbit 10s infinite linear; pointer-events: none;"></div>
+    
+    <h1 style="font-size: 3.5rem; font-weight: 900; letter-spacing: 2px; margin: 0; text-shadow: 0 10px 40px rgba(0,0,0,0.9); animation: splashFadeIn 1.2s cubic-bezier(0.16, 1, 0.3, 1); position: relative; z-index: 10;">MediaVault</h1>
+    <img src="imgs/amromotawa.svg" alt="Signature" style="width: 250px; margin-top: 15px; opacity: 0.9; filter: brightness(0) invert(1); animation: splashWrite 2.5s cubic-bezier(0.4, 0, 0.2, 1) forwards; position: relative; z-index: 10; clip-path: inset(0 100% 0 0);">
+    
+    <style>
+      @keyframes splashOrbit {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        25% { transform: translate(30%, 20%) scale(1.2); }
+        50% { transform: translate(-20%, 40%) scale(0.8); }
+        75% { transform: translate(-40%, -10%) scale(1.1); }
+      }
+      @keyframes splashFadeIn {
+        from { opacity: 0; transform: translateY(20px) scale(0.95); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes splashWrite {
+        0% { clip-path: inset(0 100% 0 0); opacity: 0; }
+        10% { opacity: 1; }
+        100% { clip-path: inset(0 0 0 0); opacity: 0.9; }
+      }
+      body.app-ready #app-splash {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+    </style>
+  </div>
 
   <!-- ═══ TITLE BAR ═══ -->
   <header id="title-bar">
@@ -291,10 +431,6 @@
           <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
         </svg>
       </button>
-      <button id="btn-theme-toggle" title="Toggle Theme"><svg viewBox="0 0 24 24" width="14" height="14" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg></button>
       <button id="btn-minimize" title="Minimize"><svg viewBox="0 0 24 24" width="14" height="14">
           <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         </svg></button>
@@ -310,6 +446,10 @@
 
   <!-- ═══ APP BODY ═══ -->
   <div id="app-body">
+    <!-- ═══ PERSISTENT SIGNATURE WATERMARK ═══ -->
+    <div style="position: fixed; bottom: 40px; right: 50px; z-index: 0; pointer-events: none; opacity: 0.4;">
+      <img src="imgs/amromotawa.svg" style="width: 170px; filter: brightness(0) invert(1);">
+    </div>
 
     <!-- Sidebar -->
     <nav id="sidebar">
@@ -368,7 +508,7 @@
             stroke-linecap="round">
             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
           </svg>
-          <span>Watchlist</span>
+          <span>My List</span>
         </button>
         <button class="nav-btn" data-view="radio" id="nav-radio">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
@@ -418,16 +558,16 @@
 
       <div class="sidebar-spacer"></div>
 
-      <div class="sidebar-group sidebar-profile-group hide-on-mobile" style="border-top: 1px solid var(--border); padding-top: 15px; margin-top: auto;">
-        <button class="btn-switch-profile-main-dynamic profile-sidebar-btn" title="Switch Profile">
-          <div class="profile-mini-avatar-box">
-             <img class="current-profile-avatar-main-dynamic" src="" alt="Profile">
+      <div class="sidebar-group sidebar-profile-group hide-on-mobile" style="border-top: 1px solid var(--border); padding: 20px 10px; margin-top: auto;">
+        <button class="btn-switch-profile-main-dynamic profile-sidebar-btn" title="Switch Profile" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 16px; padding: 12px; width: 100%; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.2s;">
+          <div class="profile-mini-avatar-box" style="width: 42px; height: 42px; border-radius: 50%; overflow: hidden; border: 2px solid var(--accent); flex-shrink: 0;">
+             <img class="current-profile-avatar-main-dynamic" src="" alt="Profile" style="width: 100%; height: 100%; object-fit: cover;">
           </div>
-          <div class="profile-mini-info">
-             <span class="profile-mini-name" id="sidebar-profile-name">Profile</span>
-             <span class="profile-mini-sub">Switch Account</span>
+          <div class="profile-mini-info" style="text-align: left; flex: 1; min-width: 0;">
+             <div class="profile-mini-name" id="sidebar-profile-name" style="font-weight: 800; font-size: 14px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Profile</div>
+             <div class="profile-mini-sub" style="font-size: 11px; color: var(--text-muted); opacity: 0.8;">Switch Account</div>
           </div>
-          <i class="fas fa-chevron-right" style="font-size: 10px; opacity: 0.5; margin-left: auto;"></i>
+          <i class="fas fa-chevron-right" style="font-size: 12px; opacity: 0.3;"></i>
         </button>
       </div>
 
@@ -439,12 +579,12 @@
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
             <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
           </svg>
-          <svg id="vault-icon-unlocked" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" style="display:none">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-            <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
-          </svg>
           <span id="vault-label">Private Vault</span>
+        </button>
+
+        <button class="nav-btn" id="btn-sync" style="margin-top: 5px; background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.1);">
+          <i class="fas fa-tower-broadcast" style="color: var(--accent); font-size: 14px;"></i>
+          <span style="font-weight: 700;">Local Sync</span>
         </button>
       </div>
 
@@ -470,7 +610,7 @@
         <i class="fas fa-tower-broadcast"></i>
         <span>Radio</span>
       </button>
-      <button class="nav-btn" onclick="switchView('settings')">
+      <button class="nav-btn" data-view="settings" onclick="switchView('settings')">
         <i class="fas fa-cog"></i>
         <span>Settings</span>
       </button>
@@ -524,7 +664,11 @@
               <input type="text" id="search-movies" placeholder="Search movies…" style="font-size: 16px; padding: 0 15px; width: 100%;">
             </div>
           </div>
-
+          <div class="view-header-right hide-on-mobile" style="display: flex; gap: 10px;">
+            <button class="btn-primary-sm" onclick="moveNewMovieDialog()" style="display:flex; align-items:center; gap:6px;">
+              <i class="fas fa-file-import"></i> Move Movie
+            </button>
+          </div>
         </div>
         <div class="card-grid" id="movies-grid"></div>
         <div class="empty-state" id="movies-empty">
@@ -542,16 +686,20 @@
       <!-- TV Shows -->
       <section id="view-shows" class="view">
         <div class="view-header">
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; flex: 1;">
-            <div class="search-box" style="width: 500px; height: 50px; background: rgba(255,255,255,0.05); border-radius: 15px; border: 1px solid rgba(255,255,255,0.1);">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0;">
+            <div class="search-box" style="flex: 1; height: 50px; background: rgba(255,255,255,0.05); border-radius: 15px; border: 1px solid rgba(255,255,255,0.1);">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 15px; opacity: 0.5;">
                 <circle cx="11" cy="11" r="8" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
-              <input type="text" id="search-shows" placeholder="Search shows…" style="font-size: 16px; padding: 0 15px;">
+              <input type="text" id="search-shows" placeholder="Search shows…" style="font-size: 16px; padding: 0 15px; width: 100%;">
             </div>
           </div>
-
+          <div class="view-header-right hide-on-mobile" style="display: flex; gap: 10px;">
+            <button class="btn-primary-sm" onclick="createSeriesFolderDialog()" style="display:flex; align-items:center; gap:6px;">
+              <i class="fas fa-folder-plus"></i> Create Folder
+            </button>
+          </div>
         </div>
         <div class="card-grid" id="shows-grid"></div>
         <div class="empty-state" id="shows-empty">
@@ -718,6 +866,7 @@
           </aside>
 
           <div class="discover-main">
+
             <div id="discover-results" style="display:none">
               <div class="card-grid" id="discover-search-grid"></div>
             </div>
@@ -734,6 +883,25 @@
               <!-- New Immersive Hero Section -->
               <div id="discover-hero" class="discover-hero">
                 <div class="discover-hero-skeleton"></div>
+              </div>
+
+              <!-- Continue Watching Shelf (Moved below Hero) -->
+              <div id="discover-continue-section" class="discover-section" style="display: none; margin-bottom: 35px;">
+                <div class="discover-section-header">
+                  <div class="section-title-icon">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                  </div>
+                  <h2>Continue Watching</h2>
+                  <button id="btn-clear-continue" class="btn-clear-minimal" onclick="clearContinueWatching()">Clear All</button>
+                  <div class="header-divider"></div>
+                  <div class="discover-header-nav">
+                    <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button>
+                    <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg></button>
+                  </div>
+                </div>
+                <div class="discover-row-wrapper">
+                  <div id="discover-continue-row" class="discover-row"></div>
+                </div>
               </div>
 
               <div class="discover-section">
@@ -827,6 +995,11 @@
               height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <polyline points="15 18 9 12 15 6" />
             </svg></button>
+           
+           <div class="dd-top-actions" style="position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; z-index: 10;">
+              <button id="dd-play-btn-top" class="dd-action-circle-btn" title="Play Now"><i class="fas fa-play" style="font-size: 14px;"></i></button>
+              <button class="dd-action-circle-btn close" onclick="switchView(prevView || 'discover')" title="Close"><i class="fas fa-times"></i></button>
+           </div>
         </div>
         <div id="dd-backdrop" class="dd-backdrop"></div>
         <div class="dd-content">
@@ -836,6 +1009,7 @@
               <h1 id="dd-title"></h1>
               <div id="dd-meta" class="dd-meta"></div>
               <p id="dd-overview" class="dd-overview"></p>
+              <div id="dd-extra-info" class="dd-extra-info"></div>
               <div id="dd-actions" class="dd-actions"></div>
               <div id="dd-providers"
                 style="display:flex; gap:10px; margin-top:20px; align-items:center; flex-wrap:wrap"></div>
@@ -872,18 +1046,23 @@
                 <circle cx="11" cy="11" r="8" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
-              <input type="text" id="search-watchlist" placeholder="Search watchlist…" style="font-size: 16px; padding: 0 15px; width: 100%;">
+              <input type="text" id="search-watchlist" placeholder="Search my list…" style="font-size: 16px; padding: 0 15px; width: 100%;">
             </div>
           </div>
 
         </div>
         <div class="card-grid" id="watchlist-grid"></div>
+        
+        <div class="space-section-title" id="watched-title" style="margin-top: 50px; margin-bottom: 25px; display: none;">
+          <h3 style="font-size: 22px; font-weight: 800; color: #fff;">Watched</h3>
+        </div>
+        <div class="card-grid" id="watched-grid"></div>
         <div class="empty-state" id="watchlist-empty">
           <div class="empty-icon"><svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="#B0B0B8"
               stroke-width="1.5">
               <path d="M38 60l-14-10-14 10V10a4 4 0 0 1 4-4h20a4 4 0 0 1 4 4z" />
             </svg></div>
-          <h2>Your watchlist is empty</h2>
+          <h2>Your list is empty</h2>
           <p>Add movies and shows from <strong>Discover</strong> to keep track of them here.</p>
         </div>
       </section>
@@ -998,6 +1177,7 @@
         </div>
       </section>
 
+
       <!-- Subtitles Management View -->
       <section id="view-subtitles" class="view">
         <div class="view-header">
@@ -1097,7 +1277,7 @@
             </div>
             <div class="myspace-stat-pill" onclick="window.switchView('watchlist')">
               <i class="fas fa-bookmark"></i>
-              <span id="watchlist-count">0</span> Watchlist
+              <span id="watchlist-count">0</span> My List
             </div>
           </div>
         </div>
@@ -1114,7 +1294,7 @@
             <i class="fas fa-music"></i> Music
           </button>
           <button class="myspace-cat-pill" onclick="window.switchView('watchlist')">
-            <i class="fas fa-bookmark"></i> Watchlist
+            <i class="fas fa-bookmark"></i> My List
           </button>
           <button class="myspace-cat-pill" onclick="window.switchView('subtitles')">
             <i class="fas fa-closed-captioning"></i> Subtitles
@@ -1235,16 +1415,45 @@
                 onclick="window.api.invoke('open-external', 'https://www.themoviedb.org/settings/api'); return false;"
                 style="color: var(--accent); cursor: pointer;">themoviedb.org/settings/api</a></p>
 
-            <h3 style="margin-top:24px">Scrapers & Streaming</h3>
-            <div class="dl-form">
-              <div class="dl-field"><label>Torrentio API</label><input type="text" id="config-torrentio"
-                  placeholder="https://torrentio.strem.fun"></div>
-              <div class="dl-field" style="margin-top:12px">
-                <label>Remote Streaming Server (PC IP)</label>
-                <input type="text" id="config-remote-server" placeholder="e.g. 192.168.1.5">
-                <p class="setting-hint">Enter your PC's IP address to stream torrents from your computer to this device.</p>
+            <!-- Scrapers Section Removed -->
+          </div>
+
+          <!-- Mobile Only: Default Actions & Recommended Apps -->
+          <div class="settings-card hide-on-pc">
+            <h3 style="display:flex; align-items:center; gap:10px;">
+              <i class="fas fa-mobile-alt" style="color:var(--accent);"></i>
+              Mobile Preferences
+            </h3>
+            <div class="dl-form" style="margin-top:15px">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                <div style="font-size: 13px; font-weight: 600; color: #fff;">Always use Internal Player</div>
+                <label class="switch">
+                  <input type="checkbox" id="mobile-internal-player" checked>
+                  <span class="slider"></span>
+                </label>
               </div>
-              <button id="btn-save-config" class="btn-primary-sm" style="margin-top:12px">Apply Changes</button>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="font-size: 13px; font-weight: 600; color: #fff;">Always use Internal Downloader</div>
+                <label class="switch">
+                  <input type="checkbox" id="mobile-internal-downloader" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <p class="setting-hint" style="margin-top:10px">If disabled, the app will ask you to choose an external app for playing and downloading.</p>
+            </div>
+          </div>
+
+          <div class="settings-card hide-on-pc">
+            <h3 style="margin-bottom:15px"><i class="fas fa-external-link-alt" style="color:var(--accent); margin-right:8px"></i>Recommended Apps</h3>
+            <div class="apps-link-grid" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:10px;">
+              <button class="btn-outline" onclick="window.api.invoke('open-external', 'https://play.google.com/store/apps/details?id=com.amnis&pcampaignid=web_share')" style="justify-content:flex-start; padding:12px; flex-direction: column; align-items: center; gap: 8px; height: auto;">
+                <i class="fas fa-play-circle" style="font-size: 24px; color:#a855f7"></i>
+                <span style="font-size: 12px; font-weight: 700;">Amnis</span>
+              </button>
+              <button class="btn-outline" onclick="window.api.invoke('open-external', 'https://play.google.com/store/apps/details?id=org.proninyaroslav.libretorrent')" style="justify-content:flex-start; padding:12px; flex-direction: column; align-items: center; gap: 8px; height: auto;">
+                <i class="fas fa-magnet" style="font-size: 24px; color:#10b981"></i>
+                <span style="font-size: 12px; font-weight: 700;">LibreTorrent</span>
+              </button>
             </div>
           </div>
           <div class="settings-card">
@@ -1309,6 +1518,52 @@
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- Local Network Sync View -->
+      <section id="view-sync" class="view">
+        <div class="view-header">
+          <div class="view-header-left">
+            <h1>Local Sync</h1>
+          </div>
+          <div class="view-header-right">
+             <button id="btn-rescan-sync" class="btn-primary-sm"><i class="fas fa-sync-alt"></i> Rescan</button>
+          </div>
+        </div>
+        
+        <div id="sync-discovery-panel" class="sync-panel" style="padding: 40px; text-align: center;">
+            <div class="sync-card discovery-card" style="background: var(--bg-surface-2); padding: 30px; border-radius: 20px; border: 1px solid var(--border);">
+                <div class="sync-icon-box" style="font-size: 3rem; color: var(--accent); margin-bottom: 20px;"><i class="fas fa-satellite-dish fa-spin"></i></div>
+                <h3 style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 10px;">Searching for PCs...</h3>
+                <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; max-width: 300px; margin: 0 auto;">Ensure MediaVault is running on your computer and both devices are on the same Wi-Fi network.</p>
+            </div>
+        </div>
+
+        <div id="sync-main-content" style="display: none; padding: 20px;">
+            <div id="sync-pc-info" class="sync-pc-banner" style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface-2); padding: 15px 20px; border-radius: 16px; border-left: 4px solid var(--accent); margin-bottom: 25px;">
+                <div class="pc-banner-info" style="display: flex; align-items: center; gap: 15px;">
+                    <i class="fas fa-laptop" style="font-size: 24px; color: var(--accent);"></i>
+                    <div>
+                        <div id="sync-pc-name" class="pc-name" style="font-weight: 800; color: #fff; font-size: 15px;">Unknown PC</div>
+                        <div id="sync-pc-ip" class="pc-ip" style="font-size: 11px; color: var(--text-muted);">192.168.1.x</div>
+                    </div>
+                </div>
+                <button id="btn-disconnect-sync" class="btn-outline-sm" style="border-radius: 8px; font-size: 11px; padding: 6px 12px;">Disconnect</button>
+            </div>
+
+            <div class="sync-library-tabs" style="display: flex; gap: 10px; margin-bottom: 25px; overflow-x: auto; padding-bottom: 5px;">
+                <button class="sync-tab active btn-primary-sm" data-type="movies" style="border-radius: 10px; white-space: nowrap;">Movies</button>
+                <button class="sync-tab btn-outline-sm" data-type="shows" style="border-radius: 10px; white-space: nowrap; border-color: rgba(255,255,255,0.05);">Series</button>
+                <button class="sync-tab btn-outline-sm" data-type="music" style="border-radius: 10px; white-space: nowrap; border-color: rgba(255,255,255,0.05);">Music</button>
+            </div>
+
+            <div id="sync-grid" class="media-grid"></div>
+            
+            <div id="sync-empty" class="empty-state" style="display: none; text-align: center; padding: 60px 20px;">
+                <i class="fas fa-folder-open" style="font-size: 3rem; opacity: 0.2; margin-bottom: 15px;"></i>
+                <p style="color: var(--text-muted);">No media found on this PC.</p>
+            </div>
         </div>
       </section>
 
@@ -1554,8 +1809,9 @@
               <div id="player-error-msg" class="error-msg-premium">
                 حدث خطأ في الاتصال. يرجى التحقق من الإنترنت أو المحاولة مرة أخرى.</div>
               <div class="error-btn-group">
-                <button class="error-btn-premium retry" onclick="location.reload()">إعادة المحاولة</button>
-                <button class="error-btn-premium exit" onclick="switchView(prevView || 'home')">رجوع</button>
+                <button class="error-btn-premium retry" onclick="location.reload()">Retry</button>
+                <button id="player-error-vlc" class="error-btn-premium vlc" style="display: none; background: #f57c00;">Play in VLC</button>
+                <button class="error-btn-premium exit" onclick="closePlayer()">Go Back</button>
               </div>
             </div>
             <div id="auto-next-overlay" class="auto-next-overlay" style="display:none">
@@ -1582,175 +1838,187 @@
                   </div>
                 </div>
                 <div class="sleep-poster-wrap">
-                  <img id="sleep-poster" class="sleep-poster" src="" style="display:none">
+                  <img id="sleep-poster" class="sleep-poster">
                 </div>
-              </div>
-              <!-- Clock Removed -->
-            </div>
-          </div>
-          <div id="player-side-panel" class="player-side-panel">
-            <div class="side-panel-header">
-              <span id="panel-show-title"
-                style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">Season 1</span>
-              <div style="display:flex; gap: 4px">
-                <button id="btn-fix-season" class="panel-close-btn" title="Fix TMDB Season Map"><svg viewBox="0 0 24 24"
-                    width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="3" />
-                    <path
-                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                  </svg></button>
-                <button id="btn-close-panel" class="panel-close-btn" title="Close Panel"><svg viewBox="0 0 24 24"
-                    width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg></button>
-              </div>
-            </div>
-            <div id="panel-episode-list" class="panel-episode-list"></div>
-          </div>
-          <div id="player-eq-panel" class="player-side-panel">
-            <div class="side-panel-header">
-              <span>Audio Equalizer</span>
-              <button id="btn-close-eq" class="panel-close-btn" title="Close"><svg viewBox="0 0 24 24" width="16"
-                  height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg></button>
-            </div>
-            <div style="padding: 18px">
-              <select id="eq-preset" class="eq-dropdown">
-                <option value="flat">Flat (Default)</option>
-                <option value="movie">Movie Mode</option>
-                <option value="voice">Voice Clarity</option>
-                <option value="bass">Bass Boost</option>
-                <option value="custom">Custom</option>
-              </select>
-
-              <div class="eq-sliders-container">
-                <div class="eq-band">
-                  <span class="eq-label">60</span>
-                  <input type="range" class="eq-slider" data-band="0" min="-12" max="12" step="1" value="0">
-                  <span class="eq-val">0</span>
-                </div>
-                <div class="eq-band">
-                  <span class="eq-label">230</span>
-                  <input type="range" class="eq-slider" data-band="1" min="-12" max="12" step="1" value="0">
-                  <span class="eq-val">0</span>
-                </div>
-                <div class="eq-band">
-                  <span class="eq-label">910</span>
-                  <input type="range" class="eq-slider" data-band="2" min="-12" max="12" step="1" value="0">
-                  <span class="eq-val">0</span>
-                </div>
-                <div class="eq-band">
-                  <span class="eq-label">3.6k</span>
-                  <input type="range" class="eq-slider" data-band="3" min="-12" max="12" step="1" value="0">
-                  <span class="eq-val">0</span>
-                </div>
-                <div class="eq-band">
-                  <span class="eq-label">14k</span>
-                  <input type="range" class="eq-slider" data-band="4" min="-12" max="12" step="1" value="0">
-                  <span class="eq-val">0</span>
-                </div>
-              </div>
-              <div style="text-align:center; margin-top:20px;">
-                <button id="btn-eq-reset" class="btn-outline"
-                  style="font-size:11px; padding: 4px 12px; background:transparent">Reset Custom</button>
-              </div>
-            </div>
-          </div>
-
-          <div id="player-subs-panel" class="player-side-panel">
-            <div class="side-panel-header">
-              <span>Subtitle Studio</span>
-              <button id="btn-close-subs" class="panel-close-btn" title="Close"><svg viewBox="0 0 24 24" width="16"
-                  height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg></button>
-            </div>
-
-            <div class="subs-studio-content"
-              style="padding: 20px; display: flex; flex-direction: column; gap: 24px; overflow-y: auto; flex: 1;">
-
-              <div class="studio-section">
-                <div
-                  style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:12px; font-weight:700;">
-                  Subtitle Source</div>
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                  <button class="btn-outline" style="flex: 1; font-size: 11px; padding: 10px;"
-                    onclick="$('#player-sub-upload').click()">
-                    <i class="fas fa-upload" style="margin-right: 6px;"></i> Upload File
-                  </button>
-                  <input type="file" id="player-sub-upload" style="display:none" accept=".srt,.vtt,.ass">
-                </div>
-                <div id="player-sub-library-list"
-                  style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;">
-                  <div class="sidebar-empty-hint" style="font-size: 11px;">Library subtitles appear here.</div>
-                </div>
-              </div>
-
-              <div class="studio-section" style="border-top: 1px solid var(--border); padding-top: 20px;">
-                <div
-                  style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:18px; font-weight:700;">
-                  Appearance</div>
-                <div class="slider-group" style="margin-bottom: 20px;">
-                  <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;">
-                    <span>Font Size</span><span id="label-sub-size">100%</span>
-                  </div>
-                  <input type="range" id="sub-style-size" min="50" max="250" step="5" value="100"
-                    style="width: 100%; accent-color: #4f46e5;">
-                </div>
-                <div class="slider-group" style="margin-bottom: 20px;">
-                  <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;">
-                    <span>Background Opacity</span><span id="label-sub-bg">50%</span>
-                  </div>
-                  <input type="range" id="sub-style-bg" min="0" max="100" step="5" value="50"
-                    style="width: 100%; accent-color: #4f46e5;">
-                </div>
-                <div style="display: flex; gap: 15px;">
-                  <button class="toggle-tool-btn" id="btn-sub-bold" title="Toggle Bold"><b>B</b></button>
-                  <button class="toggle-tool-btn" id="btn-sub-shadow" title="Toggle Text Shadow"><i
-                      class="fas fa-magic"></i></button>
-                </div>
-              </div>
-
-              <div class="studio-section" style="border-top: 1px solid var(--border); padding-top: 20px;">
-                <div
-                  style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:18px; font-weight:700;">
-                  Synchronization</div>
-                <div class="sync-controls"
-                  style="display: flex; align-items: center; gap: 15px; background: var(--bg-surface-2); padding: 10px; border-radius: 12px;">
-                  <button class="sync-btn" id="btn-sub-sync-minus"
-                    style="background: none; border: none; color: #fff; cursor: pointer;"><i
-                      class="fas fa-minus-circle"></i></button>
-                  <div style="flex: 1; text-align: center; font-family: monospace; font-size: 14px; font-weight: 700;"
-                    id="sub-sync-val">0.0s</div>
-                  <button class="sync-btn" id="btn-sub-sync-plus"
-                    style="background: none; border: none; color: #fff; cursor: pointer;"><i
-                      class="fas fa-plus-circle"></i></button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div id="player-tracks-panel" class="player-side-panel">
-            <div class="side-panel-header">
-              <span>Internal Audio Tracks</span>
-              <button id="btn-close-tracks" class="panel-close-btn" title="Close"><svg viewBox="0 0 24 24" width="16"
-                  height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg></button>
-            </div>
-            <div style="padding:15px; display:flex; flex-direction:column; gap:20px; overflow-y:auto; flex:1;">
-              <div>
-                <div id="audio-tracks-list" style="display:flex; flex-direction:column; gap:5px;"></div>
               </div>
             </div>
           </div>
         </div>
-      </section>
+
+        <div id="player-side-panel" class="player-side-panel">
+          <div class="side-panel-header">
+            <span id="panel-show-title"
+              style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">Season 1</span>
+            <div style="display:flex; gap: 4px">
+              <button id="btn-fix-season" class="panel-close-btn" title="Fix TMDB Season Map"><svg viewBox="0 0 24 24"
+                  width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg></button>
+              <button id="btn-close-panel" class="panel-close-btn" title="Close Panel"><svg viewBox="0 0 24 24"
+                  width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg></button>
+            </div>
+          </div>
+          <div id="panel-episode-list" class="panel-episode-list"></div>
+        </div>
+
+        <div id="player-eq-panel" class="player-side-panel">
+          <div class="side-panel-header">
+            <span>Audio Equalizer</span>
+            <button id="btn-close-eq" class="panel-close-btn" title="Close"><svg viewBox="0 0 24 24" width="16"
+                height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg></button>
+          </div>
+          <div style="padding: 18px">
+            <select id="eq-preset" class="eq-dropdown">
+              <option value="flat">Flat (Default)</option>
+              <option value="movie">Movie Mode</option>
+              <option value="voice">Voice Clarity</option>
+              <option value="bass">Bass Boost</option>
+              <option value="custom">Custom</option>
+            </select>
+
+            <div class="eq-sliders-container">
+              <div class="eq-band">
+                <span class="eq-label">60</span>
+                <input type="range" class="eq-slider" data-band="0" min="-12" max="12" step="1" value="0">
+                <span class="eq-val">0</span>
+              </div>
+              <div class="eq-band">
+                <span class="eq-label">230</span>
+                <input type="range" class="eq-slider" data-band="1" min="-12" max="12" step="1" value="0">
+                <span class="eq-val">0</span>
+              </div>
+              <div class="eq-band">
+                <span class="eq-label">910</span>
+                <input type="range" class="eq-slider" data-band="2" min="-12" max="12" step="1" value="0">
+                <span class="eq-val">0</span>
+              </div>
+              <div class="eq-band">
+                <span class="eq-label">3.6k</span>
+                <input type="range" class="eq-slider" data-band="3" min="-12" max="12" step="1" value="0">
+                <span class="eq-val">0</span>
+              </div>
+              <div class="eq-band">
+                <span class="eq-label">14k</span>
+                <input type="range" class="eq-slider" data-band="4" min="-12" max="12" step="1" value="0">
+                <span class="eq-val">0</span>
+              </div>
+            </div>
+            <div style="text-align:center; margin-top:20px;">
+              <button id="btn-eq-reset" class="btn-outline"
+                style="font-size:11px; padding: 4px 12px; background:transparent">Reset Custom</button>
+            </div>
+          </div>
+        </div>
+
+
+
+        <div id="player-subs-panel" class="player-side-panel">
+          <div class="side-panel-header">
+            <span>Subtitle Studio</span>
+            <button id="btn-close-subs" class="panel-close-btn" title="Close"><svg viewBox="0 0 24 24" width="16"
+                height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg></button>
+          </div>
+
+          <div class="subs-studio-content"
+            style="padding: 20px; display: flex; flex-direction: column; gap: 24px; overflow-y: auto; flex: 1;">
+
+            <div class="studio-section">
+              <div
+                style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:12px; font-weight:700;">
+                Subtitle Source</div>
+              <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button class="btn-outline" style="flex: 1; font-size: 11px; padding: 10px;"
+                  onclick="$('#player-sub-upload').click()">
+                  <i class="fas fa-upload" style="margin-right: 6px;"></i> Upload File
+                </button>
+                <input type="file" id="player-sub-upload" style="display:none" accept=".srt,.vtt,.ass">
+              </div>
+              <div id="player-sub-library-list"
+                style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;">
+                <div class="sidebar-empty-hint" style="font-size: 11px;">Library subtitles appear here.</div>
+              </div>
+            </div>
+
+            <div class="studio-section" style="border-top: 1px solid var(--border); padding-top: 20px;">
+              <div
+                style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:18px; font-weight:700;">
+                Appearance</div>
+              <div class="slider-group" style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;">
+                  <span>Font Size</span><span id="label-sub-size">100%</span>
+                </div>
+                <input type="range" id="sub-style-size" min="50" max="250" step="5" value="100"
+                  style="width: 100%; accent-color: #4f46e5;">
+              </div>
+              <div class="slider-group" style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;">
+                  <span>Background Opacity</span><span id="label-sub-bg">50%</span>
+                </div>
+                <input type="range" id="sub-style-bg" min="0" max="100" step="5" value="50"
+                  style="width: 100%; accent-color: #4f46e5;">
+              </div>
+              <div style="display: flex; gap: 15px;">
+                <button class="toggle-tool-btn" id="btn-sub-bold" title="Toggle Bold"><b>B</b></button>
+                <button class="toggle-tool-btn" id="btn-sub-shadow" title="Toggle Text Shadow"><i
+                    class="fas fa-magic"></i></button>
+              </div>
+            </div>
+
+            <div class="studio-section" style="border-top: 1px solid var(--border); padding-top: 20px;">
+              <div
+                style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:18px; font-weight:700;">
+                Synchronization</div>
+              <div class="sync-controls"
+                style="display: flex; align-items: center; gap: 15px; background: var(--bg-surface-2); padding: 10px; border-radius: 12px;">
+                <button class="sync-btn" id="btn-sub-sync-minus"
+                  style="background: none; border: none; color: #fff; cursor: pointer;"><i
+                    class="fas fa-minus-circle"></i></button>
+                <div style="flex: 1; text-align: center; font-family: monospace; font-size: 14px; font-weight: 700;"
+                  id="sub-sync-val">0.0s</div>
+                <button class="sync-btn" id="btn-sub-sync-plus"
+                  style="background: none; border: none; color: #fff; cursor: pointer;"><i
+                    class="fas fa-plus-circle"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="player-tracks-panel" class="player-side-panel">
+          <div class="side-panel-header">
+            <span>Internal Audio Tracks</span>
+            <button id="btn-close-tracks" class="panel-close-btn" title="Close"><svg viewBox="0 0 24 24" width="16"
+                height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg></button>
+          </div>
+          <div style="padding:15px; display:flex; flex-direction:column; gap:20px; overflow-y:auto; flex:1;">
+            <div>
+              <div
+                style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; font-weight:700;">
+                Audio Tracks</div>
+              <div id="audio-tracks-list" style="display:flex; flex-direction:column; gap:5px;"></div>
+            </div>
+            <div style="border-top: 1px solid var(--border); padding-top: 15px;">
+              <div
+                style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; font-weight:700;">
+                Internal Subtitles</div>
+              <div id="internal-subs-list" style="display:flex; flex-direction:column; gap:5px;"></div>
+            </div>
+        </div>
+      </div>
+    </section>
 
       <!-- Radio Page -->
       <section id="view-radio" class="view">
@@ -1842,6 +2110,10 @@
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
       </svg> Rename</button>
+    <button class="ctx-item" id="ctx-rename-tmdb" style="display:none"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+      </svg> Rename to TMDB Name</button>
     <button class="ctx-item" id="ctx-delete" style="color: #ef4444;"><svg viewBox="0 0 24 24" width="16" height="16"
         fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="3 6 5 6 21 6" />
@@ -1882,8 +2154,13 @@
   </div>
 
   <!-- Vault Modal -->
-  <div id="vault-modal" class="modal-overlay" style="display:none">
-    <div class="modal" style="width:340px; text-align:center">
+  <div id="vault-modal" class="modal-overlay" style="display:none; background:#000">
+    <div class="acoustic-waves-bg">
+      <div class="wave wave1"></div>
+      <div class="wave wave2"></div>
+      <div class="wave wave3"></div>
+    </div>
+    <div class="modal" style="width: 340px; text-align: center; position: relative; z-index: 2;">
       <div style="margin-bottom:20px">
         <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="var(--accent)" stroke-width="1.5">
           <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -1911,7 +2188,12 @@
   <!-- ═══ WELCOME / INTRO SCREEN ═══ -->
   <div id="intro-screen" class="modal-overlay"
     style="display: none; z-index: 1000000; background: #000 !important; opacity: 1 !important; backdrop-filter: none !important;">
-    <div class="intro-glass-card">
+    <div class="acoustic-waves-bg">
+      <div class="wave wave1"></div>
+      <div class="wave wave2"></div>
+      <div class="wave wave3"></div>
+    </div>
+    <div class="intro-glass-card" style="background: linear-gradient(135deg, rgba(79, 70, 229, 0.1) 0%, rgba(0,0,0,0.8) 100%); border: 1px solid rgba(79, 70, 229, 0.3); box-shadow: 0 0 80px rgba(79, 70, 229, 0.1); position: relative; z-index: 2;">
       <div class="intro-logo">MediaVault</div>
       <h1 style="font-size: 2.8rem; font-weight: 800; margin-bottom: 20px; line-height: 1.2; color: #FFFFFF;">Welcome to
         the next level</h1>
@@ -1919,6 +2201,9 @@
         never before. Private, organized, and beautifully crafted just for you.</p>
       <button id="btn-intro-start" class="btn-primary"
         style="padding: 16px 45px; font-size: 1.1rem; border-radius: 50px; font-weight: 700;">Get Started</button>
+      <div style="margin-top: 30px; text-align: center;">
+        <img src="imgs/amromotawa.svg" style="width: 150px; opacity: 0.8; filter: brightness(0) invert(1);">
+      </div>
     </div>
   </div>
 
@@ -1941,14 +2226,19 @@
         <span style="font-size: 1.2rem; font-weight: 500; color: #666;">Add Profile</span>
       </div>
     </div>
-    <div style="text-align: center; margin-top: 40px; width: 100%;">
+    <div id="edit-profiles-container" style="text-align: center; margin-top: 40px; width: 100%;">
       <button id="btn-toggle-edit-profiles" style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 10px 25px; font-size: 1rem; cursor: pointer; transition: all 0.3s;">Edit Profiles</button>
     </div>
   </div>
 
   <!-- ═══ NEW PROFILE MODAL ═══ -->
   <div id="profile-modal" class="modal-overlay"
-    style="display: none; z-index: 2000000; background: rgba(0,0,0,0.95); backdrop-filter: blur(15px);">
+    style="display: none; z-index: 2000000; background: #000;">
+    <div class="acoustic-waves-bg">
+      <div class="wave wave1"></div>
+      <div class="wave wave2"></div>
+      <div class="wave wave3"></div>
+    </div>
     <div class="modal-content"
       style="background: var(--bg-surface-1); width: 450px; padding: 40px; border-radius: 24px; text-align: center; position: relative; z-index: 30003;">
       <h2 style="margin-bottom: 10px; color: #FFFFFF;">Create Profile</h2>
@@ -2190,7 +2480,7 @@
 
     .radio-card.playing .pulse-dot {
       background: #fff;
-      box-shadow: 0 0 0 rgba(255, 255, 255, 0.4);
+      box-shadow: 0 0 0 rgba(255, 77, 77, 0.4);
       animation: pulse-white 2s infinite;
     }
 
@@ -2321,7 +2611,12 @@
 
   <!-- Edit Music Modal -->
   <div id="modal-edit-music" class="modal-overlay" style="display:none">
-    <div class="modal-card edit-media-modal">
+    <div class="acoustic-waves-bg">
+      <div class="wave wave1"></div>
+      <div class="wave wave2"></div>
+      <div class="wave wave3"></div>
+    </div>
+    <div class="modal-card edit-media-modal" style="position: relative; z-index: 2;">
       <div class="modal-header" style="justify-content: flex-start; padding-left: 10px; padding-top: 10px;">
         <h2 style="font-size: 1.4rem; letter-spacing: -0.5px; opacity: 0.9;">Edit Music Info</h2>
       </div>
@@ -2340,8 +2635,9 @@
             </button>
           </div>
         </div>
-        <button class="modal-close-custom"
-          onclick="this.closest('.modal-overlay').style.display='none'">&times;</button>
+        <button class="modal-close-custom" onclick="this.closest('.modal-overlay').style.display='none'">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
 
         <!-- Right: Metadata Forms -->
         <div class="edit-modal-right">
@@ -2384,24 +2680,77 @@
           <button id="update-btn-close" class="btn-update-ghost" onclick="hideUpdateToast()">Later</button>
         </div>
       </div>
+      <button id="update-toast-close" class="update-toast-close-btn">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- TMDB Folder Modal -->
+  <div id="modal-tmdb-folder" class="modal-overlay" style="display:none">
+    <div class="acoustic-waves-bg">
+      <div class="wave wave1"></div>
+      <div class="wave wave2"></div>
+      <div class="wave wave3"></div>
+    </div>
+    <div class="modal-card tmdb-search-modal" style="width: 100%; height: 100%; max-width: none; background: transparent; border: none; box-shadow: none; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+      <button class="modal-close-custom" onclick="$('#modal-tmdb-folder').style.display='none'" style="position: fixed; top: 40px; left: 40px; width: 50px; height: 50px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 100; transition: all 0.3s;">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+
+      <div class="search-container" style="width: 1000px; max-width: 90vw; text-align: center;">
+        <h2 id="tmdb-folder-title" style="font-size: 3rem; font-weight: 800; color: #fff; margin-bottom: 40px; letter-spacing: -1.5px;">Create Library Folder</h2>
+        
+        <div class="search-box" style="width: 100%; max-width: none; margin-bottom: 40px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.15); border-radius: 30px; height: 90px; padding: 0 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); display: flex; align-items: center;">
+          <i class="fas fa-search" style="font-size: 30px; color: var(--accent); margin-right: 20px;"></i>
+          <input type="text" id="tmdb-folder-search" placeholder="Search for movies, shows or anime..." style="font-size: 28px; font-weight: 700; width: 100%; background: transparent; border: none; outline: none; color: #fff;">
+        </div>
+
+        <div id="tmdb-folder-results" class="tmdb-result-grid" style="width: 100%; min-height: 400px; max-height: 55vh; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; padding: 30px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.15); border-radius: 30px; box-shadow: inset 0 0 50px rgba(0,0,0,0.2);">
+          <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 350px; opacity: 0.4;">
+            <i class="fas fa-search-plus" style="font-size: 4rem; margin-bottom: 20px; color: var(--accent);"></i>
+            <div style="font-size: 1.5rem; font-weight: 700; color: #fff;">Start your search</div>
+            <div style="font-size: 1rem; margin-top: 10px;">Find the perfect content for your folder</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Developer Signature (PC Only) -->
   <div id="app-signature">
-    <img id="logo-light" src="imgs/signature_b.png" alt="Signature">
-    <img id="logo-dark" src="imgs/signature_w.png" alt="Signature">
+    <img src="imgs/signature_w.png" alt="Signature">
   </div>
 
   <script>
+    // Robustly ensure splash is hidden even if errors occur in the main bundle
+    (function() {
+      const hideSplash = () => {
+        if (!document.body.classList.contains('app-ready')) {
+          document.body.classList.add('app-ready');
+          console.log('[HTML] App forced ready via watchdog.');
+        }
+      };
+      setTimeout(hideSplash, 3000); // Requested duration
+      setTimeout(hideSplash, 6000); // Hard fallback
+    })();
+
     function hideUpdateToast() {
       const toast = document.getElementById('update-toast');
-      toast.classList.remove('active');
+    const closeBtn = $('#update-toast-close');
+    if (closeBtn) {
+      closeBtn.onclick = (e) => {
+        e.stopPropagation();
+        toast.classList.remove('active');
+        setTimeout(() => toast.style.display = 'none', 500);
+      };
+    }
       setTimeout(() => toast.style.display = 'none', 400);
     }
   </script>
 
   <script src="js/bridge.js"></script>
+  <script src="TMDBService.js"></script>
   <script src="renderer.js"></script>
 </body>
 
