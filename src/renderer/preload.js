@@ -1,5 +1,16 @@
 // ─── preload.js ─── MediaVault v3.0 ──────────────────────────────────────────
 const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
+const { getSupabaseUrl, getSupabaseAnonKey, isConfigured } = require('../shared/supabaseEnv');
+
+if (isConfigured()) {
+  contextBridge.exposeInMainWorld('SUPABASE_URL', getSupabaseUrl());
+  contextBridge.exposeInMainWorld('SUPABASE_ANON_KEY', getSupabaseAnonKey());
+  contextBridge.exposeInMainWorld('MEDIAVAULT_SUPABASE_URL', getSupabaseUrl());
+  contextBridge.exposeInMainWorld('MEDIAVAULT_SUPABASE_ANON_KEY', getSupabaseAnonKey());
+  
+} else {
+  console.warn('[PRELOAD] Supabase env not configured — cloud auth may fail');
+}
 
 // Validate that we're in a secure context
 if (process.contextIsolated === false) {
@@ -22,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
   off: (channel, callback) => ipcRenderer.removeListener(channel, callback),
   setFullScreen: (flag) => ipcRenderer.invoke('set-fullscreen', flag),
   isFullScreen: () => ipcRenderer.invoke('is-fullscreen'),
+  openDevTools: () => ipcRenderer.invoke('open-devtools'),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   selectDownloadFolder: () => ipcRenderer.invoke('select-download-folder'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
@@ -46,21 +58,12 @@ contextBridge.exposeInMainWorld('api', {
   streamTorrent: (magnet, fileIdx) => ipcRenderer.invoke('stream-torrent', magnet, fileIdx),
 
 
-  // TMDB
-  tmdbSearch: (t, q) => ipcRenderer.invoke('tmdb-search', t, q),
-  tmdbDetails: (t, id) => ipcRenderer.invoke('tmdb-details', t, id),
-  tmdbTrending: () => ipcRenderer.invoke('tmdb-trending'),
-  tmdbPopular: (t) => ipcRenderer.invoke('tmdb-popular', t),
-  tmdbTopRated: (t) => ipcRenderer.invoke('tmdb-top-rated', t),
-  tmdbUpcoming: () => ipcRenderer.invoke('tmdb-upcoming'),
-  tmdbAnimeFeatured: () => ipcRenderer.invoke('tmdb-anime-featured'),
-  tmdbCredits: (t, id) => ipcRenderer.invoke('tmdb-credits', t, id),
-  tmdbVideos: (t, id) => ipcRenderer.invoke('tmdb-videos', t, id),
-  tmdbProviders: (t, id) => ipcRenderer.invoke('tmdb-providers', t, id),
-  tmdbSearchDiscover: (q) => ipcRenderer.invoke('tmdb-search-discover', q),
-  tmdbSeasonDetails: (tvId, s) => ipcRenderer.invoke('tmdb-season-details', tvId, s),
-  tmdbDiscoverByGenre: (id) => ipcRenderer.invoke('tmdb-discover-by-genre', id),
-  downloadImage: (url, id) => ipcRenderer.invoke('download-image', url, id),
+  cinemetaDetails: (type, id) => ipcRenderer.invoke('cinemeta-details', { type, id }),
+  cinemetaCatalog: (type, id) => ipcRenderer.invoke('cinemeta-catalog', { type, id }),
+  cinemetaSearch: (query) => ipcRenderer.invoke('cinemeta-search', query),
+  cinemetaDiscoverByGenre: (genre) => ipcRenderer.invoke('cinemeta-discover-by-genre', genre),
+  tmdbDiscoverByGenre: (genreId) => ipcRenderer.invoke('tmdb-discover-by-genre', genreId),
+  downloadImage: (url, id, force) => ipcRenderer.invoke('download-image', url, id, force),
 
   // Downloads
   startDownload: (opts) => ipcRenderer.invoke('start-download', opts),
@@ -71,12 +74,37 @@ contextBridge.exposeInMainWorld('api', {
   onTorrentProgress: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('torrent-progress', h); return () => ipcRenderer.removeListener('torrent-progress', h); },
   onLibraryUpdated: (cb) => { const h = () => cb(); ipcRenderer.on('library-updated', h); return () => ipcRenderer.removeListener('library-updated', h); },
   onMetadataReady: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('metadata-ready', h); return () => ipcRenderer.removeListener('metadata-ready', h); },
+  onResumeAvailable: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('resume-available', h); return () => ipcRenderer.removeListener('resume-available', h); },
+  onStreamMetadataReady: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('stream-metadata-ready', h); return () => ipcRenderer.removeListener('stream-metadata-ready', h); },
+
+  // Playback position persistence (lightweight — avoids full-data save)
+  savePlaybackPosition: (profileId, key, entry, localOnly, forceImmediate) => ipcRenderer.invoke('save-playback-position', { profileId, key, entry, localOnly, forceImmediate }),
+  getPlaybackPosition: (profileId, key) => ipcRenderer.invoke('get-playback-position', { profileId, key }),
+  getProfilePlayback: (profileId) => ipcRenderer.invoke('get-profile-playback', profileId),
+  clearProfilePlayback: (profileId) => ipcRenderer.invoke('clear-profile-playback', profileId),
+
+  // Cloud Auth & Profile wrappers
+  cloudLogin: (email, password) => ipcRenderer.invoke('cloud-login', { email, password }),
+  cloudRegister: (email, password) => ipcRenderer.invoke('cloud-register', { email, password }),
+  cloudCreateProfile: (profileData) => ipcRenderer.invoke('cloud-create-profile', profileData),
+  cloudUpdateProfile: (profileData) => ipcRenderer.invoke('cloud-update-profile', profileData),
+  cloudDeleteProfile: (id) => ipcRenderer.invoke('cloud-delete-profile', { id }),
+  cloudVerifyProfilePin: (profile_id, pin) => ipcRenderer.invoke('cloud-verify-profile-pin', { profile_id, pin }),
+  clearSession: () => ipcRenderer.invoke('clear-session'),
+
+  // Cloud Request wrappers
+  cloudCreateRequest: (user_id, title) => ipcRenderer.invoke('cloud-create-request', { user_id, title }),
+  cloudFetchRequests: (user_id) => ipcRenderer.invoke('cloud-fetch-requests', { user_id }),
+
+  // Admin
+  cloudAdminMutate: (admin_id, action, payload) => ipcRenderer.invoke('cloud-admin-mutate', { admin_id, action, payload }),
 
 
-  // TMDB Key Management
-  setTmdbKey: (key) => ipcRenderer.invoke('set-tmdb-key', key),
-  getTmdbKeyMasked: () => ipcRenderer.invoke('get-tmdb-key-masked'),
-  verifyTmdbKey: (key) => ipcRenderer.invoke('verify-tmdb-key', key),
+  // Fanart Key Management
+  setFanartKey: (key) => ipcRenderer.invoke('set-fanart-key', key),
+  getFanartKeyMasked: () => ipcRenderer.invoke('get-fanart-key-masked'),
+  verifyFanartKey: (key) => ipcRenderer.invoke('verify-fanart-key', key),
+  fanartGetImages: (imdbId, type) => ipcRenderer.invoke('fanart-get-images', { imdbId, type }),
 
   // MyAnimeList (Jikan API)
   malSearch: (q) => ipcRenderer.invoke('mal-search', q),
@@ -88,14 +116,34 @@ contextBridge.exposeInMainWorld('api', {
   // Kitsu (Anime)
   kitsuSearch: (q) => ipcRenderer.invoke('kitsu-search', q),
   kitsuTrending: () => ipcRenderer.invoke('kitsu-trending'),
+  jikanTrending: () => ipcRenderer.invoke('jikan-trending'),
+  unifiedSearch: (query) => ipcRenderer.invoke('unified-search', query),
+
+  // Manual metadata link
+  saveManualLink: (opts) => ipcRenderer.invoke('save-manual-link', opts),
+
+  // Native player (singleton window + media:// protocol)
+  playMedia: (options) => ipcRenderer.invoke('play-media', options),
+  openInVlc: (options) => ipcRenderer.invoke('open-in-vlc', options),
+  playNative: (options) => ipcRenderer.invoke('play-media', options),
+  playExternal: (url, meta) => ipcRenderer.invoke('play-media', typeof url === 'object' ? url : { url, ...meta }),
+  downloadFile: (url, name) => ipcRenderer.invoke('download-file', url, name),
+
+  // MPV Engine
+
 
   // Generic Invoke Fail-Safe
   invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+  cloudOAuthLogin: (url) => ipcRenderer.invoke('cloud-oauth', url),
+  onDeepLink: (cb) => {
+    const h = (_e, url) => cb(url);
+    ipcRenderer.on('handle-deep-link', h);
+    return () => ipcRenderer.removeListener('handle-deep-link', h);
+  },
 
   // LOG BRIDGE
   logToServer: (level, msg) => ipcRenderer.send('log-bridge', { level, msg }),
-
   // DISCORD
   updateDiscordActivity: (data) => ipcRenderer.send('discord-activity', data),
 

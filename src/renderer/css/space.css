@@ -111,3 +111,21 @@
   letter-spacing: -0.5px;
   color: #fff;
 }
+
+/* Custom Collections Hover Spread Animation */
+.myspace-collection-card .collection-poster-stack img {
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.myspace-collection-card:hover .collection-poster-stack img:nth-child(1) {
+  transform: translateX(-25px) rotate(-20deg) translateY(-5px) scale(1.05) !important;
+}
+
+.myspace-collection-card:hover .collection-poster-stack img:nth-child(2) {
+  transform: translateX(0px) rotate(0deg) translateY(-8px) scale(1.08) !important;
+  z-index: 10 !important;
+}
+
+.myspace-collection-card:hover .collection-poster-stack img:nth-child(3) {
+  transform: translateX(25px) rotate(20deg) translateY(-5px) scale(1.05) !important;
+}

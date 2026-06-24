@@ -16,7 +16,7 @@ function initDiscordRPC(ipcMain) {
     });
 
     rpc.login({ clientId }).catch(() => {
-        console.warn('[Discord RPC] Could not connect to Discord client.');
+        // Discord client is closed. Silently fail.
     });
 
     function setActivity(state, details = '') {

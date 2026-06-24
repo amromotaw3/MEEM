@@ -1,0 +1,10 @@
+node_modules/
+build_out/
+build/
+android/
+.github/
+tests/
+dist/
+.vscode/
+*.min.js
+src/renderer/LocalSyncManager.js

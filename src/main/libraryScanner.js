@@ -76,7 +76,10 @@ function walkDir(dir, maxDepth = 10, currentDepth = 0) {
   const out = [];
   if (currentDepth >= maxDepth) return out; // Prevent infinite recursion
   let entries; 
-  try { 
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     entries = fs.readdirSync(dir, { withFileTypes: true }); 
   } catch (err) { 
     console.warn(`[SCANNER] Cannot read directory ${dir}:`, err.message);
@@ -96,103 +99,194 @@ function walkDir(dir, maxDepth = 10, currentDepth = 0) {
 
 function scanFolder(libraryPath) {
   const movies = [], shows = [];
+  
+  const pathLower = libraryPath.replace(/\\/g, '/').toLowerCase();
+  const isMoviesPath = pathLower.includes('/movies') || pathLower.endsWith('/movies');
+  const isSeriesPath = pathLower.includes('/series') || pathLower.includes('/tv') || pathLower.endsWith('/series') || pathLower.includes('/shows');
+  const isDownloadsPath = pathLower.includes('/downloads') || pathLower.includes('/social') || pathLower.includes('/music');
+
   let entries; 
-  try { 
-    entries = fs.readdirSync(libraryPath, { withFileTypes: true }); 
+  try {
+    console.log(`[SCANNER] Scanning library path: ${libraryPath}`);
+    if (!fs.existsSync(libraryPath)) {
+      console.log(`[SCANNER] Library path does not exist, creating: ${libraryPath}`);
+      fs.mkdirSync(libraryPath, { recursive: true });
+    }
+    entries = fs.readdirSync(libraryPath, { withFileTypes: true });
+    console.log(`[SCANNER] Found ${entries.length} entries in ${libraryPath}`);
   } catch (err) { 
-    console.warn(`[SCANNER] Cannot scan folder ${libraryPath}:`, err.message);
+    console.error(`[SCANNER] Cannot scan folder ${libraryPath}:`, err.message);
     return { movies, shows }; 
   }
+
   for (const entry of entries) {
+    if (entry.name.toLowerCase() === 'mediavault') continue;
     const fullPath = path.join(libraryPath, entry.name);
+
     if (entry.isFile() && isVideo(entry.name)) {
-      movies.push({ id: fullPath, title: path.basename(entry.name, path.extname(entry.name)), cleanTitle: extractCleanTitle(entry.name), year: extractYearFromName(entry.name), filename: entry.name, path: fullPath, type: 'movie' });
+      const parsed = parseEpisode(entry.name);
+      if (isSeriesPath && (parsed.season !== null || parsed.episode > 0)) {
+        shows.push({
+          id: fullPath,
+          title: extractCleanTitle(entry.name),
+          cleanTitle: extractCleanTitle(entry.name),
+          year: extractYearFromName(entry.name),
+          folder: libraryPath,
+          path: fullPath,
+          filename: entry.name,
+          episodes: [{ id: fullPath, filename: entry.name, title: path.basename(entry.name, path.extname(entry.name)), path: fullPath, season: parsed.season || 1, episode: parsed.episode || 1 }],
+          type: 'show'
+        });
+      } else {
+        movies.push({ id: fullPath, title: path.basename(entry.name, path.extname(entry.name)), cleanTitle: extractCleanTitle(entry.name), year: extractYearFromName(entry.name), filename: entry.name, path: fullPath, type: 'movie' });
+      }
     } else if (entry.isDirectory()) {
       const folderNameLower = entry.name.toLowerCase();
-      // Skip generic folders and profile folders from being treated as TV shows
       const isProfile = fs.existsSync(path.join(fullPath, 'Movies')) && fs.existsSync(path.join(fullPath, 'Series'));
-      if (['movies', 'music', 'social', 'downloads', 'subtitles'].includes(folderNameLower) || isProfile) {
+      const isHidden = entry.name.startsWith('.');
+      const isIgnored = [
+        'music', 'social', 'mediavault', '.gemini', 
+        'node_modules', 'appdata', 'temp', 'tmp', 'cache', 'logs', 'system volume information', '$recycle.bin'
+      ].includes(folderNameLower);
+
+      if (isIgnored || isProfile || isHidden) {
+        continue;
+      }
+
+      if (isMoviesPath || folderNameLower === 'movies') {
         const subFiles = walkDir(fullPath);
         for (const file of subFiles) {
-          if (!isVideo(file)) continue;
-          if (folderNameLower === 'movies' || folderNameLower === 'downloads') {
-            movies.push({ id: file, title: path.basename(file, path.extname(file)), cleanTitle: extractCleanTitle(path.basename(file)), year: extractYearFromName(path.basename(file)), filename: path.basename(file), path: file, type: 'movie' });
-          }
+          if (!isVideo(file) || path.basename(file).startsWith('.')) continue;
+          movies.push({
+            id: file,
+            title: path.basename(file, path.extname(file)),
+            cleanTitle: extractCleanTitle(path.basename(file)),
+            year: extractYearFromName(path.basename(file)),
+            filename: path.basename(file),
+            path: file,
+            type: 'movie'
+          });
         }
         continue;
       }
-      
-      // If the folder is specifically "Series", we should treat its children as the actual shows
-      if (folderNameLower === 'series') {
-        const seriesEntries = fs.readdirSync(fullPath, { withFileTypes: true });
-        for (const showEntry of seriesEntries) {
-          if (showEntry.isDirectory()) {
-            const showFullPath = path.join(fullPath, showEntry.name);
-            const { shows: childShows } = scanFolder(showFullPath); // Recursively scan the show folder itself
-            if (childShows && childShows.length > 0) {
-                // Because we recursively call scanFolder on the Show folder, it will fall into the else block below
-                // and return a single show. We can just push it.
-                shows.push(...childShows);
-            } else {
-                // If the recursive scan didn't handle it, do manual fallback
-                const epFiles = walkDir(showFullPath);
-                const episodes = [];
-                for (const file of epFiles) {
-                    if (!isVideo(file)) continue;
-                    const parsed = parseEpisode(file);
-                    episodes.push({ id: file, filename: path.basename(file), title: path.basename(file, path.extname(file)), path: file, season: parsed.season || 1, episode: parsed.episode });
-                }
-                if (episodes.length) {
-                    episodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
-                    shows.push({ id: showFullPath, title: showEntry.name, cleanTitle: extractCleanTitle(showEntry.name), year: extractYearFromName(showEntry.name), folder: showFullPath, path: showFullPath, filename: showEntry.name, episodes, parts: [], type: 'show' });
-                }
+
+      if (isSeriesPath || folderNameLower === 'series' || folderNameLower === 'shows') {
+        const subEntries = fs.readdirSync(fullPath, { withFileTypes: true });
+        const subDirs = subEntries.filter(e => e.isDirectory());
+        const episodes = [];
+        const parts = [];
+
+        if (subDirs.length > 0) {
+          for (const subDir of subDirs) {
+            const subDirPath = path.join(fullPath, subDir.name);
+            const folderSeason = parseSeasonFromFolder(subDir.name);
+            const partEps = [];
+            for (const file of walkDir(subDirPath)) {
+              if (!isVideo(file)) continue;
+              const parsed = parseEpisode(file);
+              const season = folderSeason !== null ? folderSeason : (parsed.season !== null ? parsed.season : 1);
+              const ep = { id: file, filename: path.basename(file), title: path.basename(file, path.extname(file)), path: file, season, episode: parsed.episode || 1, partName: subDir.name };
+              episodes.push(ep);
+              partEps.push(ep);
             }
+            if (partEps.length) parts.push({ name: subDir.name, count: partEps.length });
           }
-        }
-        continue;
-      }
-      
-      // Regular folder parsing (Treats the folder as a SINGLE TV show)
-      const folderEntries = fs.readdirSync(fullPath, { withFileTypes: true });
-      const subDirs = folderEntries.filter(e => e.isDirectory());
-      const episodes = [], parts = [];
-      if (subDirs.length > 0) {
-        for (const subDir of subDirs) {
-          const subDirPath = path.join(fullPath, subDir.name);
-          const folderSeason = parseSeasonFromFolder(subDir.name);
-          const partEps = [];
-          for (const file of walkDir(subDirPath)) {
+          for (const f of subEntries.filter(e => e.isFile() && isVideo(e.name))) {
+            const pPath = path.join(fullPath, f.name);
+            const parsed = parseEpisode(f.name);
+            episodes.push({ id: pPath, filename: f.name, title: path.basename(f.name, path.extname(f.name)), path: pPath, season: parsed.season || 1, episode: parsed.episode || 1, partName: 'Main' });
+          }
+        } else {
+          for (const file of walkDir(fullPath)) {
             if (!isVideo(file)) continue;
             const parsed = parseEpisode(file);
-            const season = folderSeason !== null ? folderSeason : (parsed.season !== null ? parsed.season : 1);
-            const ep = { id: file, filename: path.basename(file), title: path.basename(file, path.extname(file)), path: file, season, episode: parsed.episode, partName: subDir.name };
-            episodes.push(ep); partEps.push(ep);
+            episodes.push({ id: file, filename: path.basename(file), title: path.basename(file, path.extname(file)), path: file, season: parsed.season || 1, episode: parsed.episode || 1 });
           }
-          if (partEps.length) parts.push({ name: subDir.name, count: partEps.length });
         }
-        for (const f of folderEntries.filter(e => e.isFile() && isVideo(e.name))) {
-          const pPath = path.join(fullPath, f.name);
-          const parsed = parseEpisode(f.name);
-          episodes.push({ id: pPath, filename: f.name, title: path.basename(f.name, path.extname(f.name)), path: pPath, season: parsed.season || 1, episode: parsed.episode, partName: 'Main' });
+
+        if (episodes.length > 0) {
+          episodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
+          shows.push({
+            id: fullPath,
+            title: entry.name,
+            cleanTitle: extractCleanTitle(entry.name),
+            year: extractYearFromName(entry.name),
+            folder: fullPath,
+            path: fullPath,
+            filename: entry.name,
+            episodes,
+            parts,
+            type: 'show'
+          });
         }
-      } else {
-        for (const file of walkDir(fullPath)) {
-          if (!isVideo(file)) continue;
-          const parsed = parseEpisode(file);
-          episodes.push({ id: file, filename: path.basename(file), title: path.basename(file, path.extname(file)), path: file, season: parsed.season || 1, episode: parsed.episode });
-        }
+        continue;
       }
-      if (episodes.length) {
-        episodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
-        shows.push({ id: fullPath, title: entry.name, cleanTitle: extractCleanTitle(entry.name), year: extractYearFromName(entry.name), folder: fullPath, path: fullPath, filename: entry.name, episodes, parts, type: 'show' });
+
+      if (isDownloadsPath || folderNameLower === 'downloads') {
+        const subFiles = walkDir(fullPath);
+        const detectedShows = new Map();
+
+        for (const file of subFiles) {
+          if (!isVideo(file) || path.basename(file).startsWith('.')) continue;
+
+          const parsed = parseEpisode(file);
+          const hasEpisodePattern = parsed.season !== null || parsed.episode > 0;
+
+          if (hasEpisodePattern) {
+            const showName = extractCleanTitle(path.basename(path.dirname(file))) || extractCleanTitle(path.basename(file));
+            if (!detectedShows.has(showName)) {
+              detectedShows.set(showName, []);
+            }
+            detectedShows.get(showName).push({
+              id: file,
+              filename: path.basename(file),
+              title: path.basename(file, path.extname(file)),
+              path: file,
+              season: parsed.season || 1,
+              episode: parsed.episode || 1
+            });
+          } else {
+            movies.push({
+              id: file,
+              title: path.basename(file, path.extname(file)),
+              cleanTitle: extractCleanTitle(path.basename(file)),
+              year: extractYearFromName(path.basename(file)),
+              filename: path.basename(file),
+              path: file,
+              type: 'movie'
+            });
+          }
+        }
+
+        for (const [showName, eps] of detectedShows.entries()) {
+          eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
+          shows.push({
+            id: path.join(fullPath, showName),
+            title: showName,
+            cleanTitle: showName,
+            year: extractYearFromName(eps[0].filename),
+            folder: path.dirname(eps[0].path),
+            path: path.dirname(eps[0].path),
+            filename: showName,
+            episodes: eps,
+            parts: [],
+            type: 'show'
+          });
+        }
       }
     }
   }
+
+  console.log(`[SCANNER] Scan complete: ${movies.length} movies, ${shows.length} shows from ${libraryPath}`);
   return { movies, shows };
 }
 
-async function scanMusic(musicPath) {
-  if (!musicPath || !fs.existsSync(musicPath)) return [];
+async function scanMusic(musicPath, createIfMissing = false) {
+  if (!musicPath) return [];
+  if (!fs.existsSync(musicPath)) {
+    if (!createIfMissing) return [];
+    try { fs.mkdirSync(musicPath, { recursive: true }); } catch(e) {}
+  }
   const { parseFile } = await import('music-metadata');
   
   // Include both audio and video files in the music folder
@@ -263,8 +357,8 @@ function initLibraryScannerIpc(ipcMain) {
     if (!youtubePath) { console.warn('[SCANNER-BACKEND] youtubePath is null'); return []; }
     if (!fs.existsSync(youtubePath)) { console.warn(`[SCANNER-BACKEND] path does not exist: ${youtubePath}`); return []; }
     const files = walkDir(youtubePath).filter(isVideo);
-    console.log(`[SCANNER-BACKEND] Found ${files.length} social videos in ${youtubePath}`);
-    if (files.length > 0) console.log(`[SCANNER-BACKEND] Sample file: ${files[0]}`);
+    // console.log(`[SCANNER-BACKEND] Found ${files.length} social videos in ${youtubePath}`);
+    // if (files.length > 0) console.log(`[SCANNER-BACKEND] Sample file: ${files[0]}`);
     return files.map(p => {
       const sidecarPath = p + '.metadata.json';
       const coverPath = p + '.cover.jpg';
@@ -299,7 +393,14 @@ function initLibraryScannerIpc(ipcMain) {
     });
   });
   
-  ipcMain.handle('scan-music', (_e, musicPath) => scanMusic(musicPath));
+  ipcMain.handle('scan-music', (_e, musicPath, createIfMissing) => scanMusic(musicPath, createIfMissing));
+  ipcMain.handle('dir-exists', (_e, dirPath) => {
+    try {
+      return fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory();
+    } catch (e) {
+      return false;
+    }
+  });
   
   ipcMain.handle('find-subtitles', (_e, videoPath) => {
     const dir = path.dirname(videoPath), base = path.basename(videoPath, path.extname(videoPath)).toLowerCase();
@@ -336,4 +437,4 @@ function initLibraryScannerIpc(ipcMain) {
   });
 }
 
-module.exports = { initLibraryScannerIpc, extractCleanTitle };
+module.exports = { initLibraryScannerIpc, extractCleanTitle, scanFolder };

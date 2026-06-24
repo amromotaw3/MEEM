@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MediaVault — Signing in…</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #050508;
+      color: #fff;
+      font-family: Inter, system-ui, sans-serif;
+      text-align: center;
+      padding: 24px;
+    }
+    .card {
+      max-width: 420px;
+      padding: 32px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(168,85,247,0.25);
+    }
+    a { color: #c084fc; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Signing you in…</h1>
+    <p id="status">Opening MediaVault…</p>
+    <p id="fallback" style="display:none;margin-top:16px;font-size:14px;opacity:0.85;">
+      If the app did not open, <a id="open-link" href="#">tap here to return to MediaVault</a>.
+    </p>
+  </div>
+  <script>
+    (function () {
+      var params = window.location.hash || window.location.search || '';
+      var redirect = 'com.mediavault.app://callback' + params;
+
+      function showFallback() {
+        var link = document.getElementById('open-link');
+        var fb = document.getElementById('fallback');
+        if (link) link.href = redirect;
+        if (fb) fb.style.display = 'block';
+        var status = document.getElementById('status');
+        if (status) status.textContent = 'Sign-in complete. Tap the link below to open MediaVault.';
+      }
+
+      try {
+        window.location.replace(redirect);
+      } catch (e) {
+        window.location.href = redirect;
+      }
+
+      setTimeout(function () {
+        try { window.location.href = redirect; } catch (e2) {}
+      }, 400);
+      setTimeout(showFallback, 1500);
+    })();
+  </script>
+</body>
+</html>

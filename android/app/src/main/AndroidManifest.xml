@@ -41,6 +41,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Custom Deep Link: mediavault://callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mediavault" android:host="callback" />
+            </intent-filter>
+
+            <!-- Custom Deep Link: com.mediavault.app://callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.mediavault.app" android:host="callback" />
+            </intent-filter>
+
         </activity>
 
         <provider

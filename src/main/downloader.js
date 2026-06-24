@@ -5,6 +5,7 @@ const https = require('https');
 const http = require('http');
 const axios = require('axios');
 const { TEMP_DIR, ensureDir } = require('./store');
+const adapter = require('./downloader-adapter');
 const { getMainWindow, showToastNotification } = require('./windowManager');
 
 const activeDownloads = new Map();
@@ -13,8 +14,31 @@ let wtClient = null;
 
 async function getWT() {
   if (!WebTorrent) {
-    const module = await import('webtorrent');
-    WebTorrent = module.default;
+    let firstErr;
+    try {
+      const module = await import('webtorrent');
+      WebTorrent = module.default || module;
+    } catch (e) {
+      firstErr = e;
+      try {
+        const path = require('path');
+        const fs = require('fs');
+        const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'webtorrent', 'index.js');
+        if (fs.existsSync(unpackedPath)) {
+          const module = await import('file://' + unpackedPath.replace(/\\/g, '/'));
+          WebTorrent = module.default || module;
+        } else {
+          throw new Error('Unpacked path not found');
+        }
+      } catch (e2) {
+        try {
+          const module = await import('webtorrent/index.js');
+          WebTorrent = module.default || module;
+        } catch (e3) {
+          throw new Error('Failed to import webtorrent: ' + (e3.message || e2.message || firstErr.message));
+        }
+      }
+    }
   }
   return WebTorrent;
 }
@@ -36,18 +60,7 @@ function formatBytes(bytes) {
   const i=Math.floor(Math.log(bytes)/Math.log(k)); 
   return (bytes/Math.pow(k,i)).toFixed(1)+' '+s[i]; 
 }
-let ffmpegPath = null;
-try {
-  const ffStatic = require('ffmpeg-static');
-  if (ffStatic && fs.existsSync(ffStatic)) {
-    ffmpegPath = ffStatic;
-    if (app.isPackaged || __dirname.includes('app.asar')) {
-      ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
-    }
-  }
-} catch (e) {
-  console.warn('[Downloader] Failed to find ffmpeg-static:', e.message);
-}
+let ffmpegPath = adapter.getFfmpegPath();
 
 async function extractFrame(videoPath, outputPath) {
   if (!ffmpegPath || !fs.existsSync(ffmpegPath)) return false;
@@ -157,7 +170,7 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
     
     args.push(url);
     
-    childProcess = require('child_process').spawn(ytPath, args);
+    childProcess = adapter.spawnYtDlp(args);
     
     childProcess.stdout.on('data', (d) => { 
       if (cancelled) return; 
@@ -232,14 +245,54 @@ async function downloadDirect(url, outputPath, downloadId, displayName) {
   
   activeDownloads.set(downloadId, { cancel: () => { cancelled = true; } });
 
+  let response;
+  let currentUrl = url;
+
+  // Check if host is local/private
+  const isLocalUrl = (urlStr) => {
+    try {
+      const u = new URL(urlStr);
+      const host = u.hostname.toLowerCase();
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+      if (host.startsWith('192.168.') || host.startsWith('10.')) return true;
+      if (host.startsWith('172.')) {
+        const parts = host.split('.');
+        if (parts.length >= 2) {
+          const second = parseInt(parts[1], 10);
+          if (second >= 16 && second <= 31) return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  };
+
   try {
-    const response = await axios({
-      method: 'get',
-      url: url,
-      responseType: 'stream',
-      timeout: 30000,
-      headers: { 'User-Agent': 'MediaVault/3.0' }
-    });
+    try {
+      response = await axios({
+        method: 'get',
+        url: currentUrl,
+        responseType: 'stream',
+        timeout: 30000,
+        headers: { 'User-Agent': 'MediaVault/3.0' }
+      });
+    } catch (err) {
+      if (currentUrl.startsWith('https://') && isLocalUrl(currentUrl)) {
+        console.warn(`[Downloader] HTTPS direct download failed for local URL: ${currentUrl}. Retrying with HTTP...`);
+        const fallbackUrl = currentUrl.replace(/^https:/i, 'http:');
+        currentUrl = fallbackUrl;
+        response = await axios({
+          method: 'get',
+          url: currentUrl,
+          responseType: 'stream',
+          timeout: 30000,
+          headers: { 'User-Agent': 'MediaVault/3.0' }
+        });
+      } else {
+        throw err;
+      }
+    }
 
     const totalBytes = parseInt(response.headers['content-length']) || 0;
     let downloadedBytes = 0;
@@ -276,17 +329,22 @@ async function downloadDirect(url, outputPath, downloadId, displayName) {
   }
 }
 
-async function downloadTorrent(magnet, outputPath, downloadId, displayName) {
+async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts = {}) {
   const WT = await getWT();
-  if (!wtClient) wtClient = new WT({
-    maxConns: 1000,
-    maxWebConns: 250,
-    dht: true,
-    lsd: true,
-    pex: true,
-    tracker: true,
-    utp: true // Enable uTP for better performance on restrictive networks
-  });
+  if (!wtClient) {
+    wtClient = new WT({
+      maxConns: 1000,
+      maxWebConns: 250,
+      dht: true,
+      lsd: true,
+      pex: true,
+      tracker: true,
+      utp: true // Enable uTP for better performance on restrictive networks
+    });
+    wtClient.on('error', (err) => {
+      console.error('[Downloader] wtClient error:', err.message || err);
+    });
+  }
 
   const bestTrackers = [
     'udp://tracker.opentrackr.org:1337/announce',
@@ -379,8 +437,14 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName) {
     let torrent;
     try {
       // Re-initialize client if needed with robust options
-      if (!wtClient) wtClient = new WT({ dht: true, pex: true, lpd: true });
+      if (!wtClient) {
+        wtClient = new WT({ dht: true, pex: true, lpd: true });
+        wtClient.on('error', (err) => {
+          console.error('[Downloader] wtClient error:', err.message || err);
+        });
+      }
       torrent = wtClient.add(magnetWithTrackers, { path: path.dirname(outputPath) });
+      torrent.fileIdx = opts.fileIdx; // Explicitly attach for reliable access
     } catch (e) {
       clearInterval(heartbeatInterval);
       clearTimeout(discoveryTimeout);
@@ -395,18 +459,41 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName) {
       clearTimeout(discoveryTimeout);
       
       if (torrent.files && torrent.files.length > 0) {
-        const videoFiles = torrent.files.filter(f => f.name.match(/\.(mp4|mkv|avi|webm|mov)$/i));
-        const largeVideos = videoFiles.filter(f => f.length > 50 * 1024 * 1024);
+        // SMART FILE SELECTION:
+        // Handle single index, comma-separated index string, or array of indexes
+        let selectedIdxs = [];
+        if (torrent.fileIdx !== undefined && torrent.fileIdx !== null) {
+          if (Array.isArray(torrent.fileIdx)) {
+            selectedIdxs = torrent.fileIdx.map(x => parseInt(x, 10));
+          } else if (typeof torrent.fileIdx === 'string') {
+            selectedIdxs = torrent.fileIdx.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+          } else if (typeof torrent.fileIdx === 'number') {
+            selectedIdxs = [torrent.fileIdx];
+          }
+        }
+        selectedIdxs = selectedIdxs.filter(x => x >= 0 && x < torrent.files.length);
 
-        if (largeVideos.length > 1) {
-          // Season Pack: Deselect everything except the actual video episodes
-          torrent.files.forEach(f => { if (!largeVideos.includes(f)) f.deselect(); });
-          torrent.targetFile = null; // null implies batch mode
+        if (selectedIdxs.length > 0) {
+          torrent.files.forEach((f, idx) => {
+            if (!selectedIdxs.includes(idx)) {
+              f.deselect();
+            }
+          });
+          torrent.targetFile = selectedIdxs.length === 1 ? torrent.files[selectedIdxs[0]] : null;
         } else {
-          // Single Movie: Select only the largest file definitively
-          const targetFile = torrent.files.reduce((prev, curr) => (prev.length > curr.length) ? prev : curr);
-          torrent.files.forEach(f => { if (f !== targetFile) f.deselect(); });
-          torrent.targetFile = targetFile;
+          const videoFiles = torrent.files.filter(f => f.name.match(/\.(mp4|mkv|avi|webm|mov)$/i));
+          const largeVideos = videoFiles.filter(f => f.length > 50 * 1024 * 1024);
+
+          if (largeVideos.length > 1) {
+            // Season Pack: Deselect everything except the actual video episodes
+            torrent.files.forEach(f => { if (!largeVideos.includes(f)) f.deselect(); });
+            torrent.targetFile = null; // null implies batch mode
+          } else {
+            // Single Movie: Select only the largest file definitively
+            const targetFile = torrent.files.reduce((prev, curr) => (prev.length > curr.length) ? prev : curr);
+            torrent.files.forEach(f => { if (f !== targetFile) f.deselect(); });
+            torrent.targetFile = targetFile;
+          }
         }
       }
       
@@ -455,14 +542,33 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName) {
       if (cancelled) return;
       clearTimeout(discoveryTimeout);
       try {
-        if (torrent.targetFile) {
-          // Single file move
-          const srcPath = path.join(path.dirname(outputPath), torrent.targetFile.path);
-          if (fs.existsSync(srcPath) && srcPath !== outputPath) fs.copyFileSync(srcPath, outputPath);
-        } else {
-          // Season Pack: No renaming needed, keep the folder structure as is
+        let fileToMove = torrent.targetFile;
+        // If no specific target was set (batch mode), pick the largest file
+        if (!fileToMove && torrent.files && torrent.files.length > 0) {
+          fileToMove = torrent.files.reduce((prev, curr) => (prev.length > curr.length) ? prev : curr);
+        }
+        if (fileToMove) {
+          const srcPath = path.join(path.dirname(outputPath), fileToMove.path);
+          // Determine proper output path with correct extension
+          const actualExt = path.extname(fileToMove.name);
+          const targetPath = actualExt ? outputPath.replace(/\.mp4$/i, actualExt) : outputPath;
+          if (fs.existsSync(srcPath) && srcPath !== targetPath) {
+            try { fs.renameSync(srcPath, targetPath); } catch(e) { 
+              try { fs.copyFileSync(srcPath, targetPath); } catch(e2) { 
+                console.warn('[Downloader] File copy also failed:', e2.message); 
+              }
+            }
+          }
+          console.log(`[Downloader] Torrent done. Moved: "${fileToMove.name}" -> "${path.basename(targetPath)}"`);
         }
       } catch(e) { console.warn('[Downloader] File move error:', e.message); }
+      // Clean up the torrent's temp directory structure
+      try {
+        const torrentDir = path.join(path.dirname(outputPath), torrent.name);
+        if (fs.existsSync(torrentDir) && fs.statSync(torrentDir).isDirectory()) {
+          fs.rmSync(torrentDir, { recursive: true, force: true });
+        }
+      } catch(e) { /* ignore cleanup errors */ }
       resolve();
     });
 
@@ -489,18 +595,20 @@ function initDownloaderIpc(ipcMain) {
     if (isPackaged) ytPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
     if (!fs.existsSync(ytPath)) ytPath = 'yt-dlp';
 
-    const fetchInfo = (args) => new Promise((resolve, reject) => {
-      const { exec } = require('child_process');
-      exec(`"${ytPath}" ${args} "${url}"`, { maxBuffer: 1024 * 1024 * 50 }, (err, stdout) => {
-        if (err) reject(err); else resolve(stdout.trim());
-      });
-    });
+    const fetchInfo = (args) => adapter.execYtDlp(`${args} "${url}"`);
 
     // START METADATA FETCH IN BACKGROUND (NON-BLOCKING)
     let metadataPromise = null;
     if (url && (isMusicMode || (!name || name === ''))) {
       metadataPromise = (async () => {
         try {
+          if (url.startsWith('magnet:')) {
+            const m = url.match(/[?&]dn=([^&]+)/);
+            if (m) {
+              try { return { title: decodeURIComponent(m[1]).replace(/\+/g, ' ') }; } catch(e){}
+            }
+            return { title: 'Torrent Download' };
+          }
           if (isMusicMode) {
             const jsonInfo = await fetchInfo('--print-json --skip-download --no-warnings');
             const info = JSON.parse(jsonInfo);
@@ -590,7 +698,12 @@ function initDownloaderIpc(ipcMain) {
         if (useProfileFolder && profileSafe !== 'Default') {
             finalDir = path.join(finalDir, profileSafe, category);
         } else {
-            finalDir = path.join(finalDir, category);
+            // Even in custom library folders, respect profile separation if not Default
+            if (profileSafe !== 'Default') {
+                finalDir = path.join(finalDir, profileSafe, category);
+            } else {
+                finalDir = path.join(finalDir, category);
+            }
         }
     }
     let finalName = `${safeName}.mp4`;
@@ -627,11 +740,11 @@ function initDownloaderIpc(ipcMain) {
         if (!showTitle) showTitle = safeName;
         showTitle = showTitle.replace(/[<>:"/\\|?*]/g, '_');
         
-        if (!(opts.downloadPath && opts.downloadPath.trim())) {
+        if (category === 'Series') {
             // Append show structure to the properly resolved base directory
             finalDir = path.join(finalDir, showTitle, `Season ${pSeason}`);
         }
-        finalName = `${showTitle} - S${sNum}E${eNum}.mp4`;
+        finalName = opts.type === 'torrent' ? safeName : `${showTitle} - S${sNum}E${eNum}.mp4`;
         
     } else if (category === 'Movies') {
         // Movie -> \Movies\Movie Title (Year)\Movie Title.mp4
@@ -640,11 +753,9 @@ function initDownloaderIpc(ipcMain) {
         movieTitle = movieTitle.replace(/[<>:"/\\|?*]/g, '_');
         const yearTxt = opts.year ? ` (${opts.year})` : '';
         
-        if (!(opts.downloadPath && opts.downloadPath.trim())) {
-            // Append movie folder to the properly resolved base directory
-            finalDir = path.join(finalDir, `${movieTitle}${yearTxt}`);
-        }
-        finalName = `${movieTitle}.mp4`;
+        // Append movie folder to the properly resolved base directory
+        finalDir = path.join(finalDir, `${movieTitle}${yearTxt}`);
+        finalName = opts.type === 'torrent' ? safeName : `${movieTitle}.mp4`;
     }
 
     ensureDir(TEMP_DIR);
@@ -659,7 +770,7 @@ function initDownloaderIpc(ipcMain) {
     
     try {
       if (url.startsWith('magnet:') || (url.length === 40 && !url.includes(':'))) { 
-        await downloadTorrent(url, tempPath, id, finalName); 
+        await downloadTorrent(url, tempPath, id, finalName, opts); 
       } else {
         // RADICAL FIX: Try Native Direct Download first for speed and reliability
         // Only use yt-dlp if it's a known social media / video site that requires extraction
@@ -690,8 +801,18 @@ function initDownloaderIpc(ipcMain) {
       
       if (!fs.existsSync(path.dirname(finalPath))) fs.mkdirSync(path.dirname(finalPath), { recursive: true });
       
-      // Use move instead of copy for speed
-      fs.renameSync(sourceFile, finalPath);
+      // Use move instead of copy for speed, with robust fallback for cross-device moves
+      try {
+        fs.renameSync(sourceFile, finalPath);
+      } catch (renameErr) {
+        if (renameErr.code === 'EXDEV') {
+          console.warn('[Downloader] Cross-device link rename failed, falling back to copy...');
+          fs.copyFileSync(sourceFile, finalPath);
+          try { fs.unlinkSync(sourceFile); } catch (unlinkErr) { console.warn('[Downloader] Failed to clean up temp file:', unlinkErr.message); }
+        } else {
+          throw renameErr;
+        }
+      }
       
       mainWindow?.webContents?.send?.('download-complete', { id, name: finalName, path: finalPath, url });
       showToastNotification('Download Complete', finalName);
@@ -724,23 +845,51 @@ function initDownloaderIpc(ipcMain) {
 
   ipcMain.handle('fetch-url-metadata', async (_e, url) => {
     return new Promise((resolve) => {
+      if (url.startsWith('magnet:')) {
+        const m = url.match(/[?&]dn=([^&]+)/);
+        if (m) {
+          try { return resolve({ success: true, title: decodeURIComponent(m[1]).replace(/\+/g, ' ') }); } catch(e) {}
+        }
+        return resolve({ success: true, title: 'Torrent Download' });
+      }
+
       const isPackaged = app.isPackaged || __dirname.includes('app.asar');
       let ytPath = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
       if (isPackaged) ytPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
       if (!fs.existsSync(ytPath)) ytPath = 'yt-dlp';
 
-      const cp = require('child_process').spawn(ytPath, ['--get-title', '--no-playlist', '--quiet', '--no-warnings', url]);
+      const cp = adapter.spawnYtDlp(['--get-title', '--no-playlist', '--quiet', '--no-warnings', url]);
       let title = '';
       cp.stdout.on('data', d => title += d.toString());
       cp.on('close', (code) => {
         if (code === 0 && title.trim()) resolve({ success: true, title: title.trim() });
-        else resolve({ success: false });
+        else resolve({ success: true, title: 'Media File' });
       });
-      cp.on('error', () => resolve({ success: false }));
+      cp.on('error', () => resolve({ success: true, title: 'Media File' }));
       // Timeout after 5 seconds to avoid hanging the UI
-      setTimeout(() => { try { cp.kill(); } catch(e){} resolve({ success: false }); }, 5000);
+      setTimeout(() => { try { cp.kill(); } catch(e){} resolve({ success: true, title: 'Media File' }); }, 5000);
     });
   });
 }
 
-module.exports = { initDownloaderIpc };
+function cleanupActiveDownloads() {
+  for (const [id, dl] of activeDownloads.entries()) {
+    try {
+      if (dl && typeof dl.cancel === 'function') dl.cancel();
+    } catch (e) {
+      console.warn('[Downloader] cleanup failed for', id, e.message);
+    }
+  }
+  activeDownloads.clear();
+}
+
+module.exports = { initDownloaderIpc, cleanupActiveDownloads };
+
+// Ensure downloads are cleaned up on unexpected process exit signals
+try {
+  process.on('exit', () => {
+    try { cleanupActiveDownloads(); } catch (e) {}
+  });
+  process.on('SIGINT', () => { try { cleanupActiveDownloads(); } catch (e) {} process.exit(0); });
+  process.on('SIGTERM', () => { try { cleanupActiveDownloads(); } catch (e) {} process.exit(0); });
+} catch (e) {}

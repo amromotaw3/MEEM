@@ -1,0 +1,29 @@
+{
+  "root": true,
+  "env": {
+    "es2021": true,
+    "node": true,
+    "browser": true
+  },
+  "extends": ["eslint:recommended"],
+  "parserOptions": {
+    "ecmaVersion": 2021,
+    "sourceType": "module"
+  },
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": "off",
+    "no-undef": "off",
+    "camelcase": "off",
+    "no-global-assign": "off",
+    "no-dupe-keys": "off",
+    "no-redeclare": "off",
+    "no-inner-declarations": "off",
+    "no-misleading-character-class": "off",
+    "no-case-declarations": "off",
+    "no-useless-escape": "off",
+    "no-empty": "off",
+    "no-constant-condition": "off",
+    "no-async-promise-executor": "off"
+  }
+}

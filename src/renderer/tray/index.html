@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="tray-container">
+        <!-- Header -->
+        <header class="tray-header">
+            <div class="header-info">
+                <span class="app-name">MediaVault</span>
+            </div>
+        </header>
+
+        <!-- Main Action -->
+        <div class="tray-section">
+            <button class="tray-btn primary" id="btn-show-app">Open Library</button>
+        </div>
+
+        <!-- Now Playing Section -->
+        <div class="tray-section" id="now-playing-section">
+            <img id="current-image" src="" alt="" style="display:none">
+            <div class="section-overlay"></div>
+            <div class="section-content">
+                <span class="item-label">Currently Playing</span>
+                <div class="media-info-row">
+                    <div class="item-value" id="current-title">Nothing playing</div>
+                </div>
+                
+                <div class="playback-controls">
+                    <button class="control-btn" id="btn-prev" title="Previous">
+                        <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                    </button>
+                    <button class="control-btn" id="btn-play-pause" title="Play/Pause">
+                        <svg id="svg-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </button>
+                    <button class="control-btn" id="btn-next" title="Next">
+                        <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                    </button>
+                </div>
+
+                <div class="tray-progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Volume Section -->
+        <div class="tray-volume-wrap" style="display: none;">
+            <button class="vol-step-btn" id="btn-vol-down" title="Volume Down">
+                <svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg>
+            </button>
+            <div class="slider-container">
+                <input type="range" id="volume-slider" min="0" max="100" value="100">
+            </div>
+            <button class="vol-step-btn" id="btn-vol-up" title="Volume Up">
+                <svg viewBox="0 0 24 24"><path d="M19 13h-6V7h-2v6H5v2h6v6h2v-6h6v-2z"/></svg>
+            </button>
+        </div>
+
+        <!-- Idle Placeholder -->
+        <div class="tray-section" id="idle-placeholder">
+            <div class="placeholder-box">
+                <span class="placeholder-text">Your media library is idle</span>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="tray-footer">
+            <button class="footer-btn" id="btn-settings-app">Settings</button>
+            <button class="footer-btn quit" id="btn-quit">Quit</button>
+        </footer>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

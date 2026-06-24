@@ -1,8 +1,12 @@
 package com.mediavault.app;
 
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.database.Cursor;
 import android.webkit.MimeTypeMap;
 
@@ -19,6 +23,9 @@ import java.io.InputStream;
 import java.net.URLDecoder;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import fi.iki.elonen.NanoHTTPD;
 
@@ -48,11 +55,28 @@ public class LocalServerPlugin extends Plugin {
             server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
 
             JSObject ret = new JSObject();
-            ret.put("url", "http://localhost:" + port);
+            ret.put("url", "http://127.0.0.1:" + port);
             ret.put("port", port);
             ret.put("running", true);
             call.resolve(ret);
         } catch (IOException e) {
+            // If port is taken, try a random port
+            if (e.getMessage() != null && e.getMessage().contains("already in use")) {
+                try {
+                    server = new VideoServer(0, getContext());
+                    server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+                    activePort = server.getListeningPort();
+                    JSObject ret = new JSObject();
+                    ret.put("url", "http://127.0.0.1:" + activePort);
+                    ret.put("port", activePort);
+                    ret.put("running", true);
+                    call.resolve(ret);
+                    return;
+                } catch (IOException ex) {
+                    call.reject("Failed to start on any port: " + ex.getMessage(), ex);
+                    return;
+                }
+            }
             call.reject("Failed to start local server: " + e.getMessage(), e);
         }
     }
@@ -136,11 +160,12 @@ public class LocalServerPlugin extends Plugin {
         server.setActiveMedia(filePath, isContentUri, fileSize, mimeType);
 
         JSObject ret = new JSObject();
-        ret.put("url", "http://localhost:" + activePort + "/video");
+        ret.put("url", "http://127.0.0.1:" + activePort + "/video");
         ret.put("path", filePath);
         ret.put("size", fileSize);
         ret.put("mimeType", mimeType);
         ret.put("running", true);
+        android.util.Log.d("LocalServer", "Serving file: " + filePath + " at http://127.0.0.1:" + activePort + "/video");
         call.resolve(ret);
     }
 
@@ -150,6 +175,40 @@ public class LocalServerPlugin extends Plugin {
         ret.put("running", server != null && server.isAlive());
         ret.put("port", activePort);
         call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openInExternalPlayer(PluginCall call) {
+        String path = call.getString("path");
+        if (path == null) {
+            call.reject("Must provide a path");
+            return;
+        }
+
+        try {
+            Uri uri;
+            if (path.startsWith("http")) {
+                uri = Uri.parse(path);
+            } else if (path.startsWith("content://")) {
+                uri = Uri.parse(path);
+            } else {
+                // For file paths, we need to use the LocalServer URL if it's running
+                // or just try to expose it if we have permissions.
+                // Best way on Android is to send the stream URL from LocalServer
+                uri = Uri.parse("http://localhost:" + activePort);
+            }
+
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "video/*");
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            
+            android.content.Intent chooser = android.content.Intent.createChooser(intent, "Play with...");
+            chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(chooser);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Failed to open external player: " + e.getMessage());
+        }
     }
 
     @PluginMethod
@@ -227,6 +286,131 @@ public class LocalServerPlugin extends Plugin {
         return "video/mp4";
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    //  FILESYSTEM ACCESS — Bypass Scoped Storage for Library Scanning
+    // ══════════════════════════════════════════════════════════════════
+
+    @PluginMethod
+    public void checkAllFilesAccess(PluginCall call) {
+        JSObject ret = new JSObject();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            ret.put("granted", Environment.isExternalStorageManager());
+        } else {
+            ret.put("granted", true); // Pre-Android 11, standard perms suffice
+        }
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestAllFilesAccess(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Environment.isExternalStorageManager()) {
+                JSObject ret = new JSObject();
+                ret.put("granted", true);
+                call.resolve(ret);
+                return;
+            }
+            try {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+                getActivity().startActivity(intent);
+                JSObject ret = new JSObject();
+                ret.put("launched", true);
+                call.resolve(ret);
+            } catch (Exception e) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                    getActivity().startActivity(intent);
+                    JSObject ret = new JSObject();
+                    ret.put("launched", true);
+                    call.resolve(ret);
+                } catch (Exception e2) {
+                    call.reject("Failed to open settings: " + e2.getMessage());
+                }
+            }
+        } else {
+            JSObject ret = new JSObject();
+            ret.put("granted", true);
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
+    public void getDocumentsPath(PluginCall call) {
+        JSObject ret = new JSObject();
+        File docs = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+        ret.put("path", docs.getAbsolutePath());
+        ret.put("exists", docs.exists());
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void listFiles(PluginCall call) {
+        String path = call.getString("path");
+        if (path == null || path.isEmpty()) {
+            call.reject("Must provide a path");
+            return;
+        }
+
+        // If path is relative (e.g. "MediaVault/Default/Movies"), resolve against Documents
+        File dir;
+        if (path.startsWith("/")) {
+            dir = new File(path);
+        } else {
+            File docs = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+            dir = new File(docs, path);
+        }
+
+        JSObject ret = new JSObject();
+        ret.put("path", dir.getAbsolutePath());
+
+        if (!dir.exists()) {
+            ret.put("exists", false);
+            ret.put("files", new JSONArray());
+            call.resolve(ret);
+            return;
+        }
+
+        if (!dir.isDirectory()) {
+            ret.put("exists", true);
+            ret.put("isFile", true);
+            ret.put("files", new JSONArray());
+            call.resolve(ret);
+            return;
+        }
+
+        File[] children = dir.listFiles();
+        JSONArray arr = new JSONArray();
+
+        if (children == null) {
+            ret.put("exists", true);
+            ret.put("error", "Permission Denied or Not a Directory");
+            ret.put("files", new JSONArray());
+            ret.put("count", 0);
+            android.util.Log.e("LocalServer", "listFiles returned null for: " + dir.getAbsolutePath());
+            call.resolve(ret);
+            return;
+        }
+
+        for (File child : children) {
+            try {
+                JSONObject item = new JSONObject();
+                item.put("name", child.getName());
+                item.put("type", child.isDirectory() ? "directory" : "file");
+                item.put("size", child.isFile() ? child.length() : 0);
+                item.put("uri", Uri.fromFile(child).toString());
+                arr.put(item);
+            } catch (Exception e) {
+                android.util.Log.w("LocalServer", "Error listing child: " + e.getMessage());
+            }
+        }
+
+        ret.put("exists", true);
+        ret.put("files", arr);
+        ret.put("count", arr.length());
+        call.resolve(ret);
+    }
+
     @Override
     protected void handleOnDestroy() {
         if (server != null) {
@@ -276,6 +460,7 @@ public class LocalServerPlugin extends Plugin {
             }
 
             String rangeHeader = session.getHeaders().get("range");
+            android.util.Log.d("LocalServer", "Request received: " + session.getUri() + " (Range: " + rangeHeader + ")");
 
             try {
                 if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
@@ -284,6 +469,7 @@ public class LocalServerPlugin extends Plugin {
                     return serveFull(corsHeaders);
                 }
             } catch (Exception e) {
+                android.util.Log.e("LocalServer", "Error serving: " + e.getMessage(), e);
                 return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: " + e.getMessage());
             }
         }
@@ -319,16 +505,36 @@ public class LocalServerPlugin extends Plugin {
 
             if (start < 0) start = 0;
             if (end >= activeSize) end = activeSize - 1;
-            if (start > end) start = end;
+            if (start > end) {
+                return newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "");
+            }
 
             long contentLength = end - start + 1;
-            InputStream is = getInputStream();
-            is.skip(start);
+            InputStream is;
+            
+            if (isContentUri) {
+                is = context.getContentResolver().openInputStream(Uri.parse(activePath));
+                if (start > 0) {
+                    long skipped = 0;
+                    while (skipped < start) {
+                        long s = is.skip(start - skipped);
+                        if (s <= 0) break;
+                        skipped += s;
+                    }
+                }
+            } else {
+                // Efficiently seek using FileInputStream
+                File file = new File(activePath);
+                FileInputStream fis = new FileInputStream(file);
+                if (start > 0) fis.skip(start);
+                is = fis;
+            }
 
             Response resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, activeMime, is, contentLength);
             resp.addHeader("Accept-Ranges", "bytes");
             resp.addHeader("Content-Length", String.valueOf(contentLength));
             resp.addHeader("Content-Range", "bytes " + start + "-" + end + "/" + activeSize);
+            resp.addHeader("Cache-Control", "no-cache");
             for (Map.Entry<String, String> h : corsHeaders.entrySet()) {
                 resp.addHeader(h.getKey(), h.getValue());
             }

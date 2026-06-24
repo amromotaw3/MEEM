@@ -1,0 +1,48 @@
+/* Dedicated detached chat window (?mvWindow=chat) */
+body.mv-chat-window #app-splash,
+body.mv-chat-window #profile-picker,
+body.mv-chat-window #auth-overlay,
+body.mv-chat-window #intro-screen,
+body.mv-chat-window #sidebar,
+body.mv-chat-window #title-bar,
+body.mv-chat-window #mini-player,
+body.mv-chat-window #app-body,
+body.mv-chat-window #content,
+body.mv-chat-window .view {
+  display: none !important;
+}
+
+body.mv-chat-window,
+body.mv-chat-window #app-body,
+body.mv-chat-window #content {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #0d0d18 !important;
+}
+
+body.mv-chat-window .vault-chat-backdrop {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+body.mv-chat-window .vault-chat-drawer {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  right: 0 !important;
+  transform: none !important;
+  border-left: none !important;
+  box-shadow: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: linear-gradient(135deg, #0d0d18 0%, #080810 100%) !important;
+}
+
+body.mv-chat-window .vault-chat-fullscreen-btn {
+  display: none !important;
+}

@@ -8,5 +8,24 @@
       "launchAutoHide": true,
       "backgroundColor": "#050508"
     }
+  },
+  "server": {
+    "cleartext": true,
+    "allowNavigation": [
+      "localhost",
+      "127.0.0.1",
+      "*.supabase.co",
+      "accounts.google.com",
+      "*.google.com",
+      "discord.com",
+      "*.discord.com",
+      "*.strem.io",
+      "*.elfhosted.com",
+      "kitsu.io",
+      "*.anilist.co",
+      "api.themoviedb.org",
+      "api.subdl.com",
+      "*.trakt.tv"
+    ]
   }
 }

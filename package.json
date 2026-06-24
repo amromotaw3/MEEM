@@ -1,7 +1,7 @@
 {
   "name": "mediavault",
-  "version": "11.3.0",
-  "description": "MediaVault — A smart local media library, video player & downloader",
+  "version": "30.0.0",
+  "description": "MediaVault — Own Your Stream",
   "main": "main.js",
   "repository": {
     "type": "git",
@@ -10,13 +10,20 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "test:ci": "jest --ci",
+    "lint": "eslint \"src/**/*.{js,mjs}\" --ext .js --color",
+    "lint:fix": "eslint \"src/**/*.{js,mjs}\" --ext .js --fix",
     "prebuild": "node -e \"try { require('fs').rmSync('build_out', {recursive:true, force:true}); } catch(e) {}\"",
     "build": "electron-builder --win",
     "build:portable": "electron-builder --win portable",
-    "release": "electron-builder --win -p always",
+    "release": "node scripts/run-release.js",
+    "release:ci": "npm run release",
     "mobile:dev": "npx cap run android -l",
     "mobile:sync": "npx cap sync",
     "mobile:open": "npx cap open android",
+    "mobile:build": "npx cap sync && cd android && gradlew.bat assembleRelease",
     "web:preview": "npx http-server src/renderer"
   },
   "keywords": [
@@ -30,13 +37,22 @@
   "author": "MediaVault",
   "license": "MIT",
   "devDependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
     "app-builder-bin": "^4.2.0",
-    "electron": "^33.0.0",
+    "electron": "^30.1.0",
     "electron-builder": "^26.8.1",
+    "electron-rebuild": "^3.2.9",
+    "eslint": "^8.48.0",
+    "jest": "^29.6.1",
     "jimp": "^1.6.1",
     "png-to-ico": "^3.0.1",
+    "shaka-player": "^5.1.5",
     "sharp": "^0.34.5"
   },
   "build": {
@@ -47,7 +63,8 @@
       "output": "build_out"
     },
     "asarUnpack": [
-      "**/node_modules/youtube-dl-exec/bin/**/*"
+      "**/node_modules/youtube-dl-exec/bin/**/*",
+      "**/node_modules/webtorrent/**/*"
     ],
     "files": [
       "main.js",
@@ -59,9 +76,8 @@
       "ico/**/*",
       "src/**/*",
       "package.json",
-      "node_modules/**/*",
-      "src/renderer/imgs/**/*",
-      "dist/**/*"
+      ".env",
+      "src/renderer/imgs/**/*"
     ],
     "win": {
       "target": [
@@ -83,27 +99,34 @@
       "shortcutName": "MediaVault",
       "installerIcon": "src/renderer/imgs/appicon.ico",
       "uninstallerIcon": "src/renderer/imgs/appicon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "include": "build_assets/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
     }
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.1",
-    "@capacitor/filesystem": "^8.1.2",
-    "@capacitor/share": "^8.0.1",
+    "@supabase/supabase-js": "^2.106.1",
     "adm-zip": "^0.5.17",
-    "axios": "^1.15.0",
+    "axios": "^1.18.0",
+    "bcryptjs": "^3.0.3",
     "bonjour": "^3.5.1",
     "cheerio": "^1.2.0",
     "discord-rpc": "^4.0.1",
+    "dotenv": "^16.6.1",
     "electron-updater": "^6.8.3",
+    "ffmpeg-cli": "^2.7.5",
     "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "*",
     "ip": "^2.0.1",
     "mime-types": "^3.0.2",
     "music-metadata": "^10.0.0",
-    "node-mpv": "^2.0.0-beta.2",
+    "node-machine-id": "^1.1.12",
     "opensubtitles-api": "^5.1.2",
+    "torrent-stream": "^1.2.1",
     "webtorrent": "^2.8.5",
     "youtube-dl-exec": "^3.1.4"
   }
