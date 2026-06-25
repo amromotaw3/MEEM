@@ -1416,9 +1416,20 @@ function initStoreIpc(ipcMain) {
 
       inMemorySession = null;
       _cachedSupabaseSession = null;
-      const clearedData = { authenticated: false, user: null, profiles: [], activeProfileId: null };
+      // Preserve device-level app config that is NOT tied to the account so that
+      // logging out (or switching accounts) does not wipe the user's installed
+      // Stremio addons — previously the clean object dropped installedAddons,
+      // forcing the user to re-add every addon after each logout/login.
+      const existing = readLocalAppData() || {};
+      const clearedData = {
+        authenticated: false,
+        user: null,
+        profiles: [],
+        activeProfileId: null,
+        installedAddons: Array.isArray(existing.installedAddons) ? existing.installedAddons : []
+      };
       writeLocalAppData(clearedData, true);
-      console.log('[STORE] Session cleared successfully');
+      console.log('[STORE] Session cleared successfully (installed addons preserved)');
       return { success: true };
     } catch (err) {
       console.error('[STORE] clear-session failed:', err.message);

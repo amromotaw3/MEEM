@@ -227,7 +227,7 @@ img {
 }
 
 .global-search-box {
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease, color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
   flex: 0 1 450px;
 }
 
@@ -305,4 +305,15 @@ img {
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
+}
+
+/* Respect the OS "reduce motion" setting: minimize animations/transitions for
+   users who enable it (accessibility + battery saving, especially on Android). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -96,7 +96,7 @@
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
   font-family: inherit;
 }
 
@@ -136,7 +136,7 @@
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.3);
   cursor: pointer;
-  transition: all 0.3s;
+  transition: transform 0.3s, opacity 0.3s, color 0.3s, background-color 0.3s, border-color 0.3s, box-shadow 0.3s, filter 0.3s, fill 0.3s, stroke 0.3s;
 }
 
 .home-hero-dot.active {
@@ -162,7 +162,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
 }
 
 .stat-box:hover {
@@ -261,7 +261,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
 }
 
 .hr-scroll-btn:hover {
@@ -293,7 +293,7 @@
   background: var(--bg-surface-1);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
   cursor: pointer;
-  transition: all 0.3s;
+  transition: transform 0.3s, opacity 0.3s, color 0.3s, background-color 0.3s, border-color 0.3s, box-shadow 0.3s, filter 0.3s, fill 0.3s, stroke 0.3s;
   position: relative;
 }
 
@@ -350,7 +350,7 @@
   /* Increased height to fit cards better */
   display: flex;
   flex-direction: column;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), filter 0.25s cubic-bezier(0.4, 0, 0.2, 1), fill 0.25s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
 }
@@ -401,7 +401,7 @@
   overflow: hidden;
   background: var(--bg-surface-2);
   cursor: pointer;
-  transition: all 0.25s;
+  transition: transform 0.25s, opacity 0.25s, color 0.25s, background-color 0.25s, border-color 0.25s, box-shadow 0.25s, filter 0.25s, fill 0.25s, stroke 0.25s;
   position: relative;
 }
 
@@ -478,7 +478,7 @@
   background: var(--bg-surface-2);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
   scroll-snap-align: none;
 }
 
@@ -587,7 +587,7 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
 }
 
 .filter-btn:hover {
@@ -647,7 +647,7 @@
   border: 1px solid var(--border);
   border-radius: 16px;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   position: relative;
 }
@@ -752,7 +752,7 @@
   justify-content: center;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
   z-index: 5;
 }
 
@@ -790,7 +790,7 @@
   font-weight: 700;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
 }
 
 .detail-tab.active {
@@ -1015,7 +1015,7 @@
   padding: 12px;
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--t);
+  transition: transform var(--t), opacity var(--t), color var(--t), background-color var(--t), border-color var(--t), box-shadow var(--t), filter var(--t), fill var(--t), stroke var(--t);
   background: var(--bg-card);
   border: 1px solid transparent;
   animation: dd-fade-in 0.5s ease backwards;
@@ -1289,7 +1289,7 @@
   justify-content: center;
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s cubic-bezier(0.4, 0, 0.2, 1), fill 0.2s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 0.8;
 }
 
@@ -1310,7 +1310,7 @@
   width: 18px;
   height: 18px;
   stroke-width: 3px;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
 }
 
 .discover-row {
@@ -1554,7 +1554,7 @@
   background-position: center;
   box-shadow: 0 4px 12px rgba(99,102,241,0.2);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease, color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
   margin-right: -12px;
   position: relative;
 }
@@ -1658,7 +1658,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
   cursor: pointer;
   border: none;
 }
@@ -1707,7 +1707,7 @@
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.2);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease, color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
 }
 
 .hero-dot.active {
@@ -1798,7 +1798,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, fill 0.2s ease, stroke 0.2s ease;
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
 }
 
@@ -1824,7 +1824,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, fill 0.2s ease, stroke 0.2s ease;
 }
 
 .stream-btn-download:hover {
@@ -1844,7 +1844,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, fill 0.2s ease, stroke 0.2s ease;
 }
 
 .stream-btn-vlc:hover {
@@ -1935,7 +1935,7 @@
   border: 1px solid var(--border);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .dd-cast-card:hover {
@@ -2002,7 +2002,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: all var(--t);
+  transition: transform var(--t), opacity var(--t), color var(--t), background-color var(--t), border-color var(--t), box-shadow var(--t), filter var(--t), fill var(--t), stroke var(--t);
 }
 
 .dl-type-btn:hover {
@@ -2030,7 +2030,7 @@
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--t);
+  transition: transform var(--t), opacity var(--t), color var(--t), background-color var(--t), border-color var(--t), box-shadow var(--t), filter var(--t), fill var(--t), stroke var(--t);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2228,7 +2228,7 @@
   background: var(--bg-surface);
   cursor: pointer;
   position: relative;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
   flex-shrink: 0;
   accent-color: var(--accent); /* fallback */
 }
@@ -2309,7 +2309,7 @@
   border-radius: 18px;
   padding: 6px 6px 6px 18px;
   box-shadow: var(--shadow-lg);
-  transition: all .3s;
+  transition: transform .3s, opacity .3s, color .3s, background-color .3s, border-color .3s, box-shadow .3s, filter .3s, fill .3s, stroke .3s;
 }
 
 .hub-search-bar:focus-within {
@@ -2342,7 +2342,7 @@
   border-radius: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: all .2s;
+  transition: transform .2s, opacity .2s, color .2s, background-color .2s, border-color .2s, box-shadow .2s, filter .2s, fill .2s, stroke .2s;
 }
 
 #btn-hub-go:hover {
@@ -2375,7 +2375,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), fill 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), stroke 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
@@ -2438,7 +2438,7 @@
   align-items: center;
   gap: 14px;
   cursor: pointer;
-  transition: all .2s;
+  transition: transform .2s, opacity .2s, color .2s, background-color .2s, border-color .2s, box-shadow .2s, filter .2s, fill .2s, stroke .2s;
   box-shadow: var(--shadow-sm);
 }
 
@@ -2657,7 +2657,7 @@
   border: 1px solid var(--border);
   cursor: pointer;
   margin-top: 15px;
-  transition: all 0.2s;
+  transition: transform 0.2s, opacity 0.2s, color 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s, filter 0.2s, fill 0.2s, stroke 0.2s;
 }
 
 .profile-btn-sidebar:hover {
@@ -2685,7 +2685,7 @@
   border-radius: 50%;
   cursor: pointer;
   border: 3px solid transparent;
-  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), fill 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), stroke 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   overflow: hidden;
   object-fit: cover;
 }
@@ -2893,7 +2893,7 @@
 /* ── Intro Glass Card ────────────────────────────────────────────────────── */
 .intro-glass-card {
   background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(30px);
+  backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   padding: 80px 60px;
   border-radius: 40px;
@@ -2968,7 +2968,7 @@
 
 /* ── Profile Selection Animation ─────────────────────────────────────────── */
 .profile-card {
-  transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), color 0.7s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.7s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.7s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.7s cubic-bezier(0.16, 1, 0.3, 1), filter 0.7s cubic-bezier(0.16, 1, 0.3, 1), fill 0.7s cubic-bezier(0.16, 1, 0.3, 1), stroke 0.7s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .profile-card.selected {
@@ -3005,7 +3005,7 @@
   text-transform: uppercase;
   padding: 6px 0;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 7px;
   z-index: 1;
 }
@@ -3050,7 +3050,7 @@
   font-size: 13px !important;
   cursor: pointer !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), color 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background-color 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), border-color 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), filter 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), fill 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), stroke 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
   min-height: 38px !important;
   white-space: nowrap !important;
   flex-shrink: 0 !important;
@@ -3095,7 +3095,7 @@
   justify-content: center;
   cursor: pointer;
   border-radius: 12px;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), color 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s cubic-bezier(0.16, 1, 0.3, 1), fill 0.3s cubic-bezier(0.16, 1, 0.3, 1), stroke 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   margin-left: 4px;
 }
 
@@ -3123,7 +3123,7 @@
   background: var(--bg-card);
   border-radius: 16px;
   overflow: hidden;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1), filter 0.4s cubic-bezier(0.4, 0, 0.2, 1), fill 0.4s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid var(--border);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
 }
@@ -3252,7 +3252,7 @@
   border-radius: 18px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid rgba(255, 255, 255, 0.05);
   flex-shrink: 0;
 }
@@ -3330,7 +3330,7 @@
   color: #fff;
   font-size: 16px;
   opacity: 0;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
 }
 
@@ -3371,7 +3371,7 @@
 }
 
 .sync-tab {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s cubic-bezier(0.4, 0, 0.2, 1), fill 0.2s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 10px 20px;
   font-size: 13px;
   font-weight: 700;
@@ -3447,7 +3447,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .dd-action-circle-btn:hover {
@@ -3499,7 +3499,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease, color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
 }
 
 .btn-slate:hover {

@@ -2236,6 +2236,29 @@
             if (channel === 'cloud-login') return window.api.cloudLogin(args[0]?.email, args[0]?.password);
             if (channel === 'cloud-register') return window.api.cloudRegister(args[0]?.email, args[0]?.password);
             if (channel === 'cloud-sync-user-session') return window.api.cloudSyncUserSession(args[0]?.userId, args[0]?.email, args[0]?.username, args[0]?.session);
+            if (channel === 'clear-session') {
+                // Log out across ALL storage layers (memory + localStorage + Preferences),
+                // otherwise the persisted session in Preferences would survive logout.
+                // Preserve installedAddons so the user keeps their Stremio addons.
+                try {
+                    let existing = {};
+                    try { const raw = await storageGet(STORAGE_KEY); if (raw) existing = JSON.parse(raw); } catch (_) {}
+                    const cleared = {
+                        authenticated: false,
+                        user: null,
+                        profiles: [],
+                        activeProfileId: null,
+                        installedAddons: Array.isArray(existing.installedAddons) ? existing.installedAddons : []
+                    };
+                    await storageSet(STORAGE_KEY, JSON.stringify(cleared));
+                    cloudSession = null;
+                    window.cloudSession = null;
+                    return { success: true };
+                } catch (e) {
+                    console.warn('[Bridge] clear-session failed:', e.message);
+                    return { success: false, error: e.message };
+                }
+            }
             if (channel === 'cloud-create-profile') return window.api.cloudCreateProfile(args[0]);
             if (channel === 'cloud-update-profile') return window.api.cloudUpdateProfile(args[0]);
             if (channel === 'cloud-delete-profile') return window.api.cloudDeleteProfile(args[0]);

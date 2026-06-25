@@ -105,8 +105,8 @@
         max-width: 520px; /* Increased to fit 7 buttons comfortably */
         height: var(--dock-h);
         background: rgba(18, 18, 28, 0.95) !important; 
-        backdrop-filter: blur(40px) saturate(210%);
-        -webkit-backdrop-filter: blur(40px) saturate(210%);
+        backdrop-filter: blur(24px) saturate(210%);
+        -webkit-backdrop-filter: blur(24px) saturate(210%);
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 22px;
         z-index: 100001; /* Above the detail view which uses 99999 */
@@ -136,13 +136,13 @@
         color: rgba(255, 255, 255, 0.4);
         width: 62px; /* Smaller width */
         height: 100%;
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), fill 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), stroke 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         position: relative;
     }
 
     #mobile-dock .nav-btn i, .mobile-dock-contextual .nav-btn i {
         font-size: 22px; /* Smaller icons */
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), fill 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), stroke 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         z-index: 2;
     }
 
@@ -276,7 +276,7 @@
         cursor: pointer;
         z-index: 100000;
         box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4), 0 0 15px var(--accent-glow);
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), fill 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), stroke 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         animation: fabPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
@@ -562,7 +562,7 @@
         color: rgba(255, 255, 255, 0.6) !important;
         white-space: nowrap;
         flex-shrink: 0;
-        transition: all 0.2s ease;
+        transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, fill 0.2s ease, stroke 0.2s ease;
     }
 
     .myspace-cat-pill.active {
@@ -811,7 +811,7 @@
         max-width: 400px !important;
         margin: 0 auto !important;
         background: rgba(15, 15, 25, 0.8) !important;
-        backdrop-filter: blur(30px) !important;
+        backdrop-filter: blur(24px) !important;
         border-radius: 25px !important;
         padding: 15px !important;
         min-height: 40vh !important;
@@ -1337,7 +1337,7 @@
             overflow: hidden !important;
             padding: 8px !important;
             gap: 12px !important;
-            transition: all 0.3s ease;
+            transition: transform 0.3s ease, opacity 0.3s ease, color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
         }
 
         .panel-ep-item.active {
@@ -1458,7 +1458,7 @@
         font-weight: 700 !important;
         font-size: 14px !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        transition: all 0.2s ease !important;
+        transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, fill 0.2s ease, stroke 0.2s ease !important;
     }
 
     .error-btn-premium.retry {
@@ -1683,7 +1683,7 @@
         border-radius: 14px !important;
         height: 48px !important;
         margin: 0 !important; /* Fixed huge gap */
-        transition: all 0.3s ease;
+        transition: transform 0.3s ease, opacity 0.3s ease, color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
     }
 
     .discover-search-box:focus-within {
@@ -1762,7 +1762,7 @@
     #btn-rescan-mobile-quick {
         background: linear-gradient(135deg, var(--accent) 0%, #4338ca 100%) !important;
         border: none !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     #btn-rescan-mobile-quick:active {
@@ -2046,7 +2046,7 @@
         justify-content: center !important;
         color: #fff !important;
         cursor: pointer !important;
-        transition: all 0.3s ease !important;
+        transition: transform 0.3s ease, opacity 0.3s ease, color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease, fill 0.3s ease, stroke 0.3s ease !important;
         position: relative !important;
         z-index: 1100 !important;
     }
