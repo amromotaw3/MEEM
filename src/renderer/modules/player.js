@@ -124,8 +124,13 @@
       return;
     }
     if (item?.path && isStaleStreamUrl(item.path) && !item.torrentMagnet) {
-      const resolved = findLibraryItemForPlayback(item);
-      if (resolved.item?.path && isLocalFilePath(resolved.item.path)) {
+      // Guarded: findLibraryItemForPlayback is an optional resolver (maps a stale
+      // stream URL back to its local library item). If it isn't available, skip the
+      // remap instead of throwing a ReferenceError and aborting playback.
+      const resolved = (typeof findLibraryItemForPlayback === 'function')
+        ? findLibraryItemForPlayback(item)
+        : null;
+      if (resolved?.item?.path && isLocalFilePath(resolved.item.path)) {
         item = { ...item, ...resolved.item, path: resolved.item.path };
         show = show || resolved.show;
       }
@@ -1187,7 +1192,7 @@
             $('#btn-subtitle')?.classList.remove('subtitle-on');
             $('#btn-subtitle')?.classList.add('subtitle-off');
             showToast('Subtitles disabled');
-            searchSubdlPlayerSubtitles(queryOverride);
+            searchSubdlPlayerSubtitles();
             return;
           }
 
@@ -1202,7 +1207,7 @@
           }
 
           if (currentMediaMetadata) renderTracksPanel(currentMediaMetadata);
-          searchSubdlPlayerSubtitles(queryOverride); // Re-render to show active state
+          searchSubdlPlayerSubtitles(); // Re-render to show active state
         };
 
         listContainer.appendChild(el);

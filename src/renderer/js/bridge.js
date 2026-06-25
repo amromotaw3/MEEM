@@ -508,102 +508,80 @@
     // In-memory session cache (populated from cloud on boot)
     let cloudSession = null;
 
-    // Cross-platform storage helpers — Capacitor Storage on mobile; in-memory fallback on Web (NO localStorage usage)
+    // Cross-platform storage helpers. Persistence layers, in order:
+    //   1. @capacitor/preferences (native, survives restart) — best on Android
+    //   2. localStorage — also survives restart in the Capacitor Android WebView and
+    //      in the browser, so the app stays logged in even before the native plugin is
+    //      installed via `npx cap sync`
+    //   3. in-memory Map — last resort, keeps values stable within the session
     const _memoryStore = new Map();
+    // Prefer @capacitor/preferences (Capacitor 4+), fall back to the legacy
+    // @capacitor/storage plugin name if present.
+    function _nativeStore() {
+        return window.Capacitor?.Plugins?.Preferences || window.Capacitor?.Plugins?.Storage || null;
+    }
+    function _lsGet(key) {
+        try { return (typeof localStorage !== 'undefined') ? localStorage.getItem(key) : null; } catch (_) { return null; }
+    }
+    function _lsSet(key, value) {
+        try { if (typeof localStorage !== 'undefined') localStorage.setItem(key, value); } catch (_) { /* quota/disabled */ }
+    }
+    function _lsRemove(key) {
+        try { if (typeof localStorage !== 'undefined') localStorage.removeItem(key); } catch (_) { /* ignore */ }
+    }
     async function storageGet(key) {
         try {
-            const Storage = window.Capacitor?.Plugins?.Storage;
-            if (isAndroid) {
-                if (Storage && Storage.get) {
-                    const res = await Storage.get({ key });
-                    return res ? res.value : null;
-                }
-                console.warn('[Bridge] Capacitor Storage not available on Android');
-                return null;
-            }
-
+            const Storage = _nativeStore();
             if (Storage && Storage.get) {
                 const res = await Storage.get({ key });
-                return res ? res.value : null;
+                if (res && res.value != null) return res.value;
             }
-
-            // Web: in-memory only (do not persist to localStorage)
-            return _memoryStore.has(key) ? _memoryStore.get(key) : null;
         } catch (e) {
-            console.warn('[Bridge] storageGet failed:', e.message);
+            console.warn('[Bridge] storageGet (native) failed:', e.message);
         }
-        return null;
+        const ls = _lsGet(key);
+        if (ls != null) return ls;
+        return _memoryStore.has(key) ? _memoryStore.get(key) : null;
     }
     async function storageSet(key, value) {
+        // Always keep an in-memory + localStorage copy so values survive within the
+        // session and across restarts even if the native plugin is unavailable.
+        _memoryStore.set(key, value);
+        _lsSet(key, value);
         try {
-            const Storage = window.Capacitor?.Plugins?.Storage;
-            if (isAndroid) {
-                if (Storage && Storage.set) {
-                    await Storage.set({ key, value });
-                    return true;
-                }
-                console.warn('[Bridge] Capacitor Storage.set not available on Android');
-                return false;
-            }
-
+            const Storage = _nativeStore();
             if (Storage && Storage.set) {
                 await Storage.set({ key, value });
-                return true;
             }
-
-            // Web: store in-memory only (do NOT use localStorage)
-            _memoryStore.set(key, value);
             return true;
         } catch (e) {
-            console.warn('[Bridge] storageSet failed:', e.message);
-            return false;
+            console.warn('[Bridge] storageSet (native) failed:', e.message);
+            return true; // localStorage/memory copy already written
         }
     }
     async function storageRemove(key) {
+        _memoryStore.delete(key);
+        _lsRemove(key);
         try {
-            const Storage = window.Capacitor?.Plugins?.Storage;
-            if (isAndroid) {
-                if (Storage && Storage.remove) {
-                    await Storage.remove({ key });
-                    return true;
-                }
-                console.warn('[Bridge] Capacitor Storage.remove not available on Android');
-                return false;
-            }
-
+            const Storage = _nativeStore();
             if (Storage && Storage.remove) {
                 await Storage.remove({ key });
-                return true;
             }
-
-            // Web: in-memory only
-            _memoryStore.delete(key);
             return true;
         } catch (e) {
-            console.warn('[Bridge] storageRemove failed:', e.message);
-            return false;
+            console.warn('[Bridge] storageRemove (native) failed:', e.message);
+            return true;
         }
     }
 
     async function storageClear() {
+        _memoryStore.clear();
+        try { if (typeof localStorage !== 'undefined') localStorage.clear(); } catch (_) { /* ignore */ }
         try {
-            const Storage = window.Capacitor?.Plugins?.Storage;
-            if (isAndroid) {
-                if (Storage && Storage.clear) {
-                    await Storage.clear();
-                    return true;
-                }
-                console.warn('[Bridge] Capacitor Storage.clear not available on Android');
-                return false;
-            }
-
+            const Storage = _nativeStore();
             if (Storage && Storage.clear) {
                 await Storage.clear();
-                return true;
             }
-
-            // Web: clear in-memory only
-            _memoryStore.clear();
             return true;
         } catch (e) {
             console.warn('[Bridge] storageClear failed:', e.message);
@@ -676,13 +654,20 @@
     // Kick off session init (async IIFE)
     (async () => { await initCloudSession(); })();
 
-    // Get Android device hardware ID — persistent across app restarts
+    // Get Android device hardware ID — persistent across app restarts.
+    // Cached in-memory so it stays IDENTICAL for every call within a session even if
+    // the persistent store is unavailable. Without this, a missing storage/Device
+    // plugin produced a brand-new random ID on each call, registering a new device
+    // every time and quickly hitting DEVICE_LIMIT_REACHED.
+    let _cachedHardwareId = null;
     async function getHardwareId() {
         if (!isAndroid) return 'web-unknown';
+        if (_cachedHardwareId) return _cachedHardwareId;
 
         let storedId = await storageGet('mediavault_device_id');
         if (storedId && String(storedId).trim()) {
-            return String(storedId).trim();
+            _cachedHardwareId = String(storedId).trim();
+            return _cachedHardwareId;
         }
 
         try {
@@ -693,6 +678,7 @@
                 if (nativeId && String(nativeId).trim()) {
                     storedId = 'android-' + String(nativeId).trim();
                     await storageSet('mediavault_device_id', storedId);
+                    _cachedHardwareId = storedId;
                     return storedId;
                 }
             }
@@ -703,6 +689,7 @@
         const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString();
         storedId = 'android-' + uuid;
         await storageSet('mediavault_device_id', storedId);
+        _cachedHardwareId = storedId;
         return storedId;
     }
 

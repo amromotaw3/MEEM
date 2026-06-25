@@ -1464,7 +1464,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       this._muted = false;
       this._loadId = 0;
       this._initialized = false;
-      
+      this._url = null;
+
       this._onLoadedListener = null;
       this._onErrorListener = null;
       this._shakaPlayer = null;
@@ -1502,6 +1503,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       return { audio: [], video: [], subtitle: [] };
     }
     get isUsingMpv() { return false; }
+    get url() { return this._url; }
 
     async init() {
       if (!this._video) return false;
@@ -1542,6 +1544,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         this._emit('pausechange', true);
       });
 
+      // Forward the native 'ended' event so series auto-next / exit-on-end work.
+      this._video.addEventListener('ended', () => {
+        this._paused = true;
+        this._emit('ended');
+      });
+
       return true;
     }
 
@@ -1579,6 +1587,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
       }
 
+      this._url = url;
       this._cleanupListeners();
 
       try {
@@ -5403,7 +5412,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           track.mode = 'hidden';
           track.mode = 'disabled';
         });
-        video.querySelectorAll('track').forEach(t => t.remove());
+        video.querySelectorAll('track').forEach(t => { if (t.src && t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch (_) {} } t.remove(); });
         try { removeSubtitleOverlay(); } catch (e) { }
         subtitlesEnabled = false;
         window.activeSubtitlePath = null;
@@ -9533,7 +9542,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             window.activeSubtitleUrl = null;
             window.activeSubtitlePath = null;
             currentInternalSubIndex = 'no';
-            video.querySelectorAll('track').forEach(t => t.remove());
+            video.querySelectorAll('track').forEach(t => { if (t.src && t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch (_) {} } t.remove(); });
             subtitlesEnabled = false;
             $('#btn-subtitle')?.classList.remove('subtitle-on');
             $('#btn-subtitle')?.classList.add('subtitle-off');
@@ -9770,7 +9779,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             window.activeSubtitleUrl = null;
             window.activeSubtitlePath = null;
             currentInternalSubIndex = 'no';
-            video.querySelectorAll('track').forEach(t => t.remove());
+            video.querySelectorAll('track').forEach(t => { if (t.src && t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch (_) {} } t.remove(); });
             subtitlesEnabled = false;
             $('#btn-subtitle')?.classList.remove('subtitle-on');
             $('#btn-subtitle')?.classList.add('subtitle-off');
@@ -12368,7 +12377,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const blob = new Blob([processedContent], { type: 'text/vtt' });
       const url = URL.createObjectURL(blob);
 
-      video.querySelectorAll('track').forEach(t => t.remove());
+      video.querySelectorAll('track').forEach(t => { if (t.src && t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch (_) {} } t.remove(); });
       const track = document.createElement('track');
       track.kind = 'subtitles';
       track.label = 'Local Subtitle';
@@ -12461,7 +12470,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
       }
       
-      video.querySelectorAll('track').forEach(t => t.remove());
+      video.querySelectorAll('track').forEach(t => { if (t.src && t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch (_) {} } t.remove(); });
       const track = document.createElement('track');
       track.kind = 'subtitles';
       track.label = label;
@@ -12526,7 +12535,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         finalUrl = URL.createObjectURL(blob);
       }
 
-      video.querySelectorAll('track').forEach(t => t.remove());
+      video.querySelectorAll('track').forEach(t => { if (t.src && t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch (_) {} } t.remove(); });
       const track = document.createElement('track');
       track.kind = 'subtitles';
       track.label = label;

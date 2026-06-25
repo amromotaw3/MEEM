@@ -669,17 +669,6 @@
           <button type="submit" id="auth-submit" class="auth-submit">Sign in</button>
         </form>
         <div id="auth-msg" class="auth-msg" role="alert"></div>
-        <form id="auth-otp-form" novalidate style="display: none;">
-          <div class="auth-field">
-            <label class="auth-label" for="auth-otp-code">Verification Code</label>
-            <div class="auth-input-wrap">
-              <i class="fa-solid fa-key" aria-hidden="true"></i>
-              <input id="auth-otp-code" class="auth-input" type="text" autocomplete="one-time-code" placeholder="Verification code" maxlength="8" required>
-            </div>
-            <p style="font-size:12px;color:var(--text-muted);margin-top:8px;">Enter the code we sent to your email.</p>
-          </div>
-          <button type="submit" id="auth-otp-submit" class="auth-submit">Verify & Login</button>
-        </form>
         <div class="auth-separator" aria-hidden="true"><span>or</span></div>
         <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
           <button id="oauth-google" class="auth-oauth btn google-btn"><svg aria-hidden="true" style="width:18px;height:18px;margin-right:6px;vertical-align:middle;" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24c0-1.55-.15-3.24-.47-4.78H24v9.03h12.72c-.55 2.87-2.22 5.3-4.72 6.96l7.33 5.68C43.6 36.42 46.5 30.73 46.5 24z"/><path fill="#FBBC05" d="M10.54 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.33-5.68c-2.11 1.42-4.8 2.3-8.56 2.3-6.26 0-11.57-4.22-13.46-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Continue with Google</button>
@@ -691,7 +680,6 @@
 
     const msgEl = overlay.querySelector('#auth-msg');
     const form = overlay.querySelector('#auth-form');
-    const otpForm = overlay.querySelector('#auth-otp-form');
     const tabsContainer = overlay.querySelector('.auth-tabs');
     const tabs = overlay.querySelectorAll('.auth-tab');
     const submitBtn = overlay.querySelector('#auth-submit');
@@ -772,11 +760,6 @@
       else handleAuthLogin();
     };
 
-    otpForm.onsubmit = (e) => {
-      e.preventDefault();
-      handleAuthVerifyOtp();
-    };
-
     if (window.hideSplash) window.hideSplash();
   }
 
@@ -809,8 +792,12 @@
       }
 
       if (result.error) {
-        console.error('[AUTH] Login failed:', result.error);
-        throw new Error(result.error);
+        // The RPCs return the underlying cause in `details` (SQLERRM). Surface it to
+        // the console for debugging while keeping the user-facing message clean.
+        console.error('[AUTH] Login failed:', result.error, result.details ? '| details: ' + result.details : '');
+        const loginErr = new Error(result.error);
+        if (result.details) loginErr.details = result.details;
+        throw loginErr;
       }
       
       console.log('[AUTH] API login success. User ID:', result.user?.id);
@@ -896,138 +883,47 @@
     if (password.length < 6) { setAuthMessage(msgEl, 'Password must be at least 6 characters'); return; }
     setAuthSubmitLoading(overlay, true);
     try {
-      const client = getSupabaseRendererClient();
-      console.log('[AUTH] Attempting sign up with email...');
-      
-      const { data, error } = await client.auth.signUp({
-        email: email,
-        password: password,
-        options: {
-          data: {
-            username: username
-          }
-        }
-      });
-      if (error) {
-        console.error('[AUTH] Supabase sign up failed:', error);
-        throw error;
-      }
-      
-      console.log('[AUTH] Supabase sign up success');
-      
-      if (data?.session) {
-        console.log('[AUTH] Session auto-created. Auto-logging in...');
-        setAuthMessage(msgEl, 'Account created — signing you in…', true);
-        authMode = 'login';
-        await handleAuthLogin();
+      // Register through the SAME backend that login uses: handle_register ->
+      // public.users_accounts with a bcrypt password_hash. Previously this used
+      // client.auth.signUp(), which created the account in auth.users ONLY, so the
+      // subsequent login (handle_secure_login, which checks users_accounts) failed
+      // with "Invalid email or password" — the user could never sign in after
+      // creating an account (notably on Android). cloudRegister keeps both the
+      // register and login paths consistent on Windows and Android.
+      console.log('[AUTH] Attempting registration via cloudRegister...');
+
+      let result;
+      if (window.api && typeof window.api.cloudRegister === 'function') {
+        result = await window.api.cloudRegister(email, password);
       } else {
-        console.log('[AUTH] No auto-session. Waiting for email confirmation...');
-        setAuthMessage(msgEl, 'Code sent! Please check your email.', true);
-        const form = overlay.querySelector('#auth-form');
-        const otpForm = overlay.querySelector('#auth-otp-form');
-        const tabsContainer = overlay.querySelector('.auth-tabs');
-        
-        if (form) form.style.display = 'none';
-        if (tabsContainer) tabsContainer.style.display = 'none';
-        if (otpForm) otpForm.style.display = 'block';
+        const backend = (window.MEDIAVAULT_BACKEND_URL || 'https://mediavault-five.vercel.app').replace(/\/$/, '');
+        const response = await fetch(`${backend}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, username })
+        });
+        result = await response.json();
+        if (!response.ok && !result.error) {
+          throw new Error(`Registration failed (HTTP ${response.status})`);
+        }
       }
+
+      if (result && result.error) {
+        console.error('[AUTH] Registration failed:', result.error, result.details ? '| details: ' + result.details : '');
+        const regErr = new Error(result.error);
+        if (result.details) regErr.details = result.details;
+        throw regErr;
+      }
+
+      console.log('[AUTH] Registration success. Auto-logging in...');
+      setAuthMessage(msgEl, 'Account created — signing you in…', true);
+      authMode = 'login';
+      await handleAuthLogin();
     } catch (e) {
       console.error('[AUTH] Register error', e);
-      setAuthMessage(msgEl, e.message || 'Registration failed');
+      setAuthMessage(msgEl, formatAuthMessage(e) || 'Registration failed');
     } finally {
       setAuthSubmitLoading(overlay, false);
-    }
-  }
-
-  async function handleAuthVerifyOtp() {
-    const overlay = document.getElementById('auth-overlay');
-    const email = overlay.querySelector('#auth-email').value.trim();
-    const code = overlay.querySelector('#auth-otp-code').value.trim();
-    const msgEl = overlay.querySelector('#auth-msg');
-    const submitBtn = overlay.querySelector('#auth-otp-submit');
-    
-    clearAuthMessage(msgEl);
-    if (!code || code.length < 6) { setAuthMessage(msgEl, 'Please enter a valid verification code'); return; }
-    
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = '<span class="auth-spinner"></span>Verifying...'; }
-    try {
-      const client = getSupabaseRendererClient();
-      console.log('[AUTH] Verifying OTP code...');
-      
-      const { data, error } = await client.auth.verifyOtp({
-        email,
-        token: code,
-        type: 'signup'
-      });
-      
-      if (error) {
-        console.error('[AUTH] OTP verification failed:', error);
-        throw error;
-      }
-      
-      console.log('[AUTH] OTP verification success. User ID:', data.session?.user?.id);
-      
-      if (data?.session) {
-        setAuthMessage(msgEl, 'Verified successfully! Logging in...', true);
-        console.log('[AUTH] Syncing session with main process...');
-        
-        const syncResult = await window.api.invoke('cloud-sync-user-session', { 
-           userId: data.session.user.id, 
-           email: email, 
-           username: overlay.querySelector('#auth-username')?.value.trim() || '',
-           session: {
-             access_token: data.session.access_token,
-             refresh_token: data.session.refresh_token
-           }
-        });
-        
-        console.log('[AUTH] Sync result:', syncResult);
-        
-        if (syncResult && syncResult.success) {
-          console.log('[AUTH] Sync session success. Fetching full profiles from main process...');
-          const onlineData = await window.api.loadData().catch(() => null);
-          if (onlineData && onlineData.authenticated) {
-            appData = { ...appData, ...onlineData };
-          } else {
-            appData.user = syncResult.user || data.session.user;
-            appData.profiles = normalizeProfiles(syncResult.profiles || []);
-          }
-        } else {
-          console.warn('[AUTH] OTP sync session failed, proceeding with local session:', syncResult?.error);
-          appData.user = data.session.user;
-          appData.profiles = [];
-        }
-
-        appData.authenticated = true;
-        ensureDefaultAddons();
-        persist();
-        if (overlay) overlay.remove();
-        
-        if (checkSubscriptionStatus()) return;
-        startPeriodicSessionCheck();
-        
-        if (appData.profiles.length === 1) {
-          selectProfile(appData.profiles[0].id);
-        } else if (appData.profiles.length > 1) {
-          document.getElementById('profile-picker').style.display = 'flex';
-          document.getElementById('profile-picker').classList.add('modal-active');
-          try { document.body.classList.add('modal-open'); } catch (e) { }
-          renderProfilePicker();
-        } else {
-          // No profiles exist yet - open create profile modal
-          console.log('[AUTH] No profiles found. Opening create profile modal...');
-          document.getElementById('profile-picker').style.display = 'flex';
-          document.getElementById('profile-picker').classList.add('modal-active');
-          try { document.body.classList.add('modal-open'); } catch (e) { }
-          renderProfilePicker();
-          window.openProfileModal();
-        }
-      }
-    } catch (e) {
-      console.error('[AUTH] OTP error', e);
-      setAuthMessage(msgEl, e.message || 'Verification failed');
-    } finally {
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Verify & Login'; }
     }
   }
 
