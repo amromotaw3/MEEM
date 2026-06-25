@@ -309,7 +309,8 @@
     if (oauthDeepLinkInFlight) return true;
 
     oauthDeepLinkInFlight = true;
-    console.log('[AUTH] Processing OAuth callback:', urlStr);
+    // Redact auth secrets — the callback URL carries access_token / refresh_token / provider_token.
+    console.log('[AUTH] Processing OAuth callback:', String(urlStr).replace(/((?:access|refresh|provider|provider_refresh)_token|code|id_token)=[^&#\s]+/gi, '$1=***'));
 
     try {
       await closeOAuthBrowser();

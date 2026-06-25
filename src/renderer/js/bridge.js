@@ -51,9 +51,16 @@
     const pendingDeepLinkUrls = [];
     let activeDeepLinkHandler = null;
 
+    // Strip auth secrets before logging URLs (deep links carry access_token,
+    // refresh_token and the Google provider_token in the fragment/query).
+    function redactUrl(u) {
+        if (!u || typeof u !== 'string') return u;
+        return u.replace(/((?:access|refresh|provider|provider_refresh)_token|code|id_token)=[^&#\s]+/gi, '$1=***');
+    }
+
     function dispatchDeepLink(url) {
         if (!url) return;
-        console.log('[Bridge] Dispatching deep link:', url);
+        console.log('[Bridge] Dispatching deep link:', redactUrl(url));
         if (activeDeepLinkHandler) {
             activeDeepLinkHandler(url);
         } else {
@@ -651,9 +658,6 @@
         }
     }
 
-    // Kick off session init (async IIFE)
-    (async () => { await initCloudSession(); })();
-
     // Get Android device hardware ID — persistent across app restarts.
     // Cached in-memory so it stays IDENTICAL for every call within a session even if
     // the persistent store is unavailable. Without this, a missing storage/Device
@@ -692,6 +696,12 @@
         _cachedHardwareId = storedId;
         return storedId;
     }
+
+    // Kick off session init (async IIFE).
+    // NOTE: must run AFTER getHardwareId / _cachedHardwareId are declared above,
+    // otherwise initCloudSession() hits the temporal-dead-zone error
+    // "Cannot access '_cachedHardwareId' before initialization".
+    (async () => { await initCloudSession(); })();
 
 
     // --- Filesystem Helpers ---
@@ -852,28 +862,81 @@
                     console.warn('[Bridge] device_session failed:', e.message); 
                 }
 
-                const sessionRow = unwrapRpcRow(cloudData);
+                let sessionRow = unwrapRpcRow(cloudData);
                 if (sessionRow && !sessionRow.authenticated) {
-                    console.warn('[Bridge] Server explicitly returned authenticated: false. Invalidating session.');
-                    let banState = {};
-                    if (sessionRow.user && (sessionRow.user.is_banned === true || sessionRow.user.is_banned === 'true')) {
+                    const isBanned = sessionRow.user &&
+                        (sessionRow.user.is_banned === true || sessionRow.user.is_banned === 'true');
+
+                    if (isBanned) {
+                        // Account is banned — block regardless of any local session.
                         console.warn('[Bridge] User is banned:', sessionRow.user.email);
                         await storageSet('mediavault_device_banned', 'true');
-                        banState = { banned: true, banReason: 'Your account has been suspended.' };
+                        const cleared = {
+                            ...(localData || {}),
+                            authenticated: false, user: null, profiles: [], activeProfileId: null,
+                            banned: true, banReason: 'Your account has been suspended.'
+                        };
+                        await storageSet(STORAGE_KEY, JSON.stringify(cleared));
+                        return { ...cleared, hardwareId: hwId };
                     }
-                    const cleared = {
-                        ...(localData || {}),
-                        authenticated: false,
-                        user: null,
-                        profiles: [],
-                        activeProfileId: null,
-                        ...banState
-                    };
-                    await storageSet(STORAGE_KEY, JSON.stringify(cleared));
-                    return {
-                        ...cleared,
-                        hardwareId: hwId
-                    };
+
+                    // Not banned: device_session only said "no" because this device isn't
+                    // bound yet (typical for Google/Discord OAuth users). If a VALID
+                    // Supabase Auth session exists, the user IS logged in — bind the device
+                    // and continue instead of destroying the session. This is the login-loop fix.
+                    let supaUser = null;
+                    try {
+                        const client = getSupabaseClient();
+                        if (client) {
+                            const { data: ures } = await client.auth.getUser();
+                            supaUser = ures?.user || null;
+                        }
+                    } catch (e) { /* no valid Supabase session */ }
+
+                    if (supaUser && supaUser.id) {
+                        console.log('[Bridge] device_session=false but valid Supabase session present — recovering instead of wiping.');
+
+                        // Best-effort: bind this device so device_session works next launch.
+                        // (Skipped silently if the register_device RPC isn't deployed yet.)
+                        try {
+                            const reg = unwrapRpcRow(await supabaseRpc('register_device', { p_user_id: supaUser.id, p_hardware_id: hwId }));
+                            if (reg && reg.error === 'DEVICE_LIMIT_REACHED') {
+                                const cleared = {
+                                    ...(localData || {}),
+                                    authenticated: false, user: null, profiles: [], activeProfileId: null,
+                                    deviceLimit: true, banReason: reg.message || 'Device limit reached.'
+                                };
+                                await storageSet(STORAGE_KEY, JSON.stringify(cleared));
+                                return { ...cleared, hardwareId: hwId };
+                            }
+                        } catch (e) { console.warn('[Bridge] register_device during load failed:', e.message); }
+
+                        // The valid Supabase session is the source of truth — build an
+                        // authenticated row directly so a logged-in user is never wiped
+                        // (works even before the register_device migration is deployed).
+                        // Shape matches device_session: raw users_accounts + account_profiles rows.
+                        sessionRow = { authenticated: true, user: { id: supaUser.id, email: supaUser.email }, profiles: [] };
+                        try {
+                            const client = getSupabaseClient();
+                            const { data: accData } = await client.from('users_accounts').select('*').eq('id', supaUser.id).maybeSingle();
+                            const { data: profData } = await client.from('account_profiles').select('*').eq('user_id', supaUser.id);
+                            if (accData) sessionRow.user = accData;
+                            if (profData) sessionRow.profiles = profData;
+                        } catch (e) {
+                            console.warn('[Bridge] Supabase recovery fetch failed (continuing with session user):', e.message);
+                        }
+                    }
+
+                    // Still not authenticated (no valid Supabase session) → genuine logout.
+                    if (sessionRow && !sessionRow.authenticated) {
+                        console.warn('[Bridge] No valid session — clearing local auth state.');
+                        const cleared = {
+                            ...(localData || {}),
+                            authenticated: false, user: null, profiles: [], activeProfileId: null
+                        };
+                        await storageSet(STORAGE_KEY, JSON.stringify(cleared));
+                        return { ...cleared, hardwareId: hwId };
+                    }
                 }
                 if (sessionRow && sessionRow.authenticated) {
                     await storageRemove('mediavault_device_banned');
@@ -1335,7 +1398,24 @@
                     });
                 }
                 const hwId = await getHardwareId();
-                
+
+                // Bind this device to the account so device_session() recognises it on
+                // subsequent launches. Without this, OAuth (Google/Discord) devices were
+                // never registered in user_devices → device_session returned
+                // authenticated:false → the client wiped the valid session → login loop.
+                try {
+                    const reg = unwrapRpcRow(await supabaseRpc('register_device', { p_user_id: userId, p_hardware_id: hwId }));
+                    if (reg && reg.error === 'DEVICE_LIMIT_REACHED') {
+                        return { error: 'DEVICE_LIMIT_REACHED', message: reg.message };
+                    }
+                    if (reg && (reg.error === 'HARDWARE_BANNED' || reg.error === 'ACCOUNT_BANNED')) {
+                        await storageSet('mediavault_device_banned', 'true');
+                        return { error: reg.error, message: reg.message };
+                    }
+                } catch (e) {
+                    console.warn('[Bridge] register_device failed (continuing):', e.message);
+                }
+
                 // Fetch the actual record from Supabase public.users_accounts directly
                 let subExpiresAt = null;
                 let tmdbKeyVal = null;
@@ -1498,7 +1578,7 @@
             };
 
             const listener = App.addListener('appUrlOpen', (data) => {
-                console.log('[Bridge] Deep link received (appUrlOpen):', data?.url);
+                console.log('[Bridge] Deep link received (appUrlOpen):', redactUrl(data?.url));
                 if (data && data.url) {
                     dispatchDeepLink(data.url);
                 }
