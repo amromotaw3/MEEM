@@ -15367,7 +15367,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
     // Create beautiful cinematic skeleton grid cards
     let skeletonHTML = '';
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 20; i++) {
       skeletonHTML += `
         <div class="discover-card search-skeleton-card" style="pointer-events: none; position: relative; overflow: hidden; border-radius: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); padding: 8px;">
           <div class="discover-poster-wrap" style="aspect-ratio: 2/3; width: 100%; border-radius: 12px; background: rgba(255, 255, 255, 0.06); position: relative; overflow: hidden;"></div>

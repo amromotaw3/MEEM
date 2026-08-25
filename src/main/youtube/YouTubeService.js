@@ -199,15 +199,16 @@ class YouTubeService {
       }
 
       const results = [];
-      const items = searchRes?.results || searchRes?.videos || [];
+      const items = searchRes?.results || searchRes?.videos || searchRes?.content || [];
       for (const item of items) {
         if (!item) continue;
-        if (item.id || item.videoId) {
+        const vId = item.id || item.videoId || item.video_id || item.endpoint?.payload?.videoId || (typeof item.id === 'string' ? item.id : null);
+        if (vId) {
           results.push(this._formatVideoItem(item));
-        } else if (item.type === 'Channel' || item.id?.channel_id) {
+        } else if (item.type === 'Channel' || item.id?.channel_id || item.author?.id) {
           results.push({
             type: 'channel',
-            id: item.id || item.author?.id,
+            id: item.id || item.author?.id || '',
             title: item.author?.name || item.title?.text || item.title?.toString() || 'Channel',
             thumbnail: item.author?.thumbnails?.[0]?.url || item.thumbnails?.[0]?.url || '',
             subscribers: item.subscribers?.text || ''

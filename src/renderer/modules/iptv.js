@@ -18,63 +18,8 @@
   let hlsInstance = null;
   let worker = null;
 
-  // ─── Default Built-In Public IPTV Source ────────────────────────────────────
-  // ─── Default Built-In Public IPTV Source (IPTV-Org) ──────────────────────────
-  // ─── Default Built-In IPTV-Org Public Sources (GitHub: iptv-org/iptv) ──────
-  // ─── Default Built-In IPTV-Org Public Source ─────────────────────────────────
-  const DEFAULT_PUBLIC_SOURCES = [
-    {
-      id: 'src_iptv_org_ara',
-      name: 'Default Channels',
-      type: 'url',
-      url: 'https://iptv-org.github.io/iptv/languages/ara.m3u',
-      channelCount: 5,
-      lastSync: Date.now()
-    }
-  ];
-
-  const DEFAULT_CHANNELS = [
-    {
-      id: 'ch_aljazeera_ara',
-      name: 'Al Jazeera Arabic',
-      logo: 'https://upload.wikimedia.org/wikipedia/en/7/7b/Al_Jazeera_Arabic_logo.svg',
-      category: 'News',
-      groupTitle: 'News',
-      url: 'https://live-hls-web-aje.akamaized.net/hls/live/2010165/aje/index.m3u8'
-    },
-    {
-      id: 'ch_trt_world',
-      name: 'TRT World',
-      logo: 'https://upload.wikimedia.org/wikipedia/commons/f/f6/TRT_World_logo.svg',
-      category: 'News',
-      groupTitle: 'News',
-      url: 'https://trtworld.akamaized.net/hls/live/2018260/trtworld/master.m3u8'
-    },
-    {
-      id: 'ch_euronews_en',
-      name: 'Euronews English',
-      logo: 'https://upload.wikimedia.org/wikipedia/commons/7/77/Euronews_2016_logo.svg',
-      category: 'News',
-      groupTitle: 'News',
-      url: 'https://euronews-euronews-world-1-us.samsung.wurl.tv/manifest/playlist.m3u8'
-    },
-    {
-      id: 'ch_france24_en',
-      name: 'France 24 English',
-      logo: 'https://upload.wikimedia.org/wikipedia/commons/e/e0/France_24_logo.svg',
-      category: 'News',
-      groupTitle: 'News',
-      url: 'https://static.france24.com/live/F24_EN_LO_HLS/live_tv.m3u8'
-    },
-    {
-      id: 'ch_skynews_news',
-      name: 'Sky News Live',
-      logo: 'https://upload.wikimedia.org/wikipedia/commons/8/87/Sky_News_logo_2020.svg',
-      category: 'News',
-      groupTitle: 'News',
-      url: 'https://skynews-live.wf.news.sky.com/playlist.m3u8'
-    }
-  ];
+  const DEFAULT_PUBLIC_SOURCES = [];
+  const DEFAULT_CHANNELS = [];
 
   // Helper with timeout to prevent IndexedDB from hanging the UI
   function withStorageTimeout(promise, ms = 1500, fallback = null) {

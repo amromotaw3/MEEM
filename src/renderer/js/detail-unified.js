@@ -1918,7 +1918,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                                 }
                             }
                         } else {
-                            const tmdbKey = window.appData?.tmdbKey;
+                            const tmdbKey = window.appData?.tmdbKey || window.TMDB_API_KEY || 'a3c751221b6d0efdb621869e9fc13c02';
                             const tmdbEnabled = window.appData?.tmdbEnabled !== false;
 
                             if (tmdbKey && tmdbEnabled && (imdbId || tmdbId)) {

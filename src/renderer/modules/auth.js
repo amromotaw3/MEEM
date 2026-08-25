@@ -15,32 +15,9 @@
   let oauthCompletionLocked = false;
 
   const supabaseStorage = {
-    getItem: async (key) => {
-      try {
-        if (window.api && typeof window.api.storageGet === 'function') {
-          return await window.api.storageGet(key);
-        }
-      } catch (e) { console.warn('[SupabaseStorage] getItem failed:', e); }
-      return window.localStorage.getItem(key);
-    },
-    setItem: async (key, value) => {
-      try {
-        if (window.api && typeof window.api.storageSet === 'function') {
-          await window.api.storageSet(key, value);
-          return;
-        }
-      } catch (e) { console.warn('[SupabaseStorage] setItem failed:', e); }
-      window.localStorage.setItem(key, value);
-    },
-    removeItem: async (key) => {
-      try {
-        if (window.api && typeof window.api.storageRemove === 'function') {
-          await window.api.storageRemove(key);
-          return;
-        }
-      } catch (e) { console.warn('[SupabaseStorage] removeItem failed:', e); }
-      window.localStorage.removeItem(key);
-    }
+    getItem: (key) => window.localStorage.getItem(key),
+    setItem: (key, value) => window.localStorage.setItem(key, value),
+    removeItem: (key) => window.localStorage.removeItem(key)
   };
 
   function getSupabaseRendererClient() {

@@ -487,15 +487,14 @@ function initMediaPlayIpc(ipcMain) {
     }
 
     // 3. FALLBACK 2: Native player window
-    console.warn('[PLAY] VLC unavailable or failed to launch, falling back to native player window:', vlcResult?.error);
     return playNativeWindow(args);
   }
 
-  ipcMain.handle('play-media', async (_e, args) => playMedia(args));
-  ipcMain.handle('open-in-meem-player', async (_e, args) => openInMeemPlayer(args));
-  ipcMain.handle('open-in-external-player', async (_e, args) => playMedia(args));
-  ipcMain.handle('open-in-vlc', async (_e, args) => playMedia(args));
-  ipcMain.handle('play-external', async (_e, args) => playMedia(args));
+  ipcMain.handle('play-media', async (_e, args) => playNativeWindow(args));
+  ipcMain.handle('open-in-meem-player', async (_e, args) => playNativeWindow(args));
+  ipcMain.handle('open-in-external-player', async (_e, args) => playNativeWindow(args));
+  ipcMain.handle('open-in-vlc', async (_e, args) => playNativeWindow(args));
+  ipcMain.handle('play-external', async (_e, args) => playNativeWindow(args));
   ipcMain.handle('play-native', async (_e, args) => playNativeWindow(args));
 
   ipcMain.handle('get-meem-player-status', async () => {
