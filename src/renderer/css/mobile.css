@@ -29,10 +29,10 @@
         --text-primary: #ffffff !important;
         --text-secondary: #a0aec0 !important;
         --text-muted: #718096 !important;
-        --border: rgba(255, 255, 255, 0.12) !important; 
+        --border: rgba(255, 255, 255, 0.18) !important; 
         --accent: #ffffff !important;
-        --accent-light: rgba(255, 255, 255, 0.12) !important;
-        --accent-glow: rgba(255, 255, 255, 0.2) !important;
+        --accent-light: rgba(255, 255, 255, 0.14) !important;
+        --accent-glow: rgba(255, 255, 255, 0.25) !important;
     }
 
     body {
@@ -65,7 +65,7 @@
         padding: 10px 15px 30px !important;
     }
 
-    .card-grid .discover-card, .mal-grid .discover-card {
+    .card-grid > .discover-card, .mal-grid .discover-card {
         width: 100% !important;
         max-width: none !important;
         min-width: 0 !important;
@@ -1599,10 +1599,19 @@
         color: #fff !important;
     }
 
+    .discover-sticky-bar {
+        margin-left: -20px !important;
+        margin-right: -20px !important;
+        padding-left: 20px !important;
+        padding-right: 20px !important;
+    }
+
     .discover-main {
         width: 100% !important;
         margin: 0 !important;
         padding: 0 !important; /* Alignment synced with parent padding */
+        height: auto !important;
+        overflow-y: visible !important;
     }
 
     #discover-content {
@@ -1657,7 +1666,7 @@
     }
 
     /* Fix Mobile Grid and Scroll List Cards */
-    .card-grid .discover-card {
+    .card-grid > .discover-card {
         width: 100% !important;
         min-width: 0 !important;
         max-width: none !important;

@@ -62,7 +62,7 @@ function initFileManageIpc(ipcMain) {
     if (!profileName) return false;
     try {
       const videosPath = app.getPath('videos');
-      const profilePath = path.join(videosPath, 'MediaVault', profileName);
+      const profilePath = path.join(videosPath, 'MEEM', profileName);
       if (fs.existsSync(profilePath)) {
         fs.rmSync(profilePath, { recursive: true, force: true });
       }

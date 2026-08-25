@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">MediaVault</string>
-    <string name="title_activity_main">MediaVault</string>
-    <string name="package_name">com.mediavault.app</string>
-    <string name="custom_url_scheme">com.mediavault.app</string>
+    <string name="app_name">MEEM</string>
+    <string name="title_activity_main">MEEM</string>
+    <string name="package_name">com.meem.app</string>
+    <string name="custom_url_scheme">com.meem.app</string>
 </resources>

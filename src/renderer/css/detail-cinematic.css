@@ -132,6 +132,14 @@
 }
 
 
+.dd-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
 .dd-backdrop-wrap {
     position: absolute;
     inset: 0;
@@ -147,6 +155,12 @@
     object-position: center top;
     opacity: 0.95;
     filter: contrast(1.05) saturate(1.1); /* Subtle vibrance boost */
+    transition: opacity 260ms ease, filter 260ms ease;
+}
+
+.dd-backdrop-img.dd-backdrop-loading {
+    filter: blur(16px) contrast(1.05) saturate(1.1);
+    opacity: 0.7;
 }
 
 .dd-backdrop-overlay {
@@ -159,7 +173,7 @@
 }
 
 /* ═══════════════════════════════════════════
-   PC SIDE PANEL (Hyper-Glassmorphism)
+   PC SIDE PANEL (Pure Black Cinema)
    ═══════════════════════════════════════════ */
 
 .dd-side-panel {
@@ -168,17 +182,15 @@
     bottom: 20px;
     right: -500px;
     width: 380px;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #000000 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
     border-radius: 24px;
     z-index: 1000;
     transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), color 0.6s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.6s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s cubic-bezier(0.16, 1, 0.3, 1), fill 0.6s cubic-bezier(0.16, 1, 0.3, 1), stroke 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: -20px 0 50px rgba(0, 0, 0, 0.5);
+    box-shadow: -20px 0 60px rgba(0, 0, 0, 0.95);
 }
 
 .dd-side-panel.active {
@@ -190,8 +202,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: linear-gradient(to bottom, rgba(255,255,255,0.03), transparent);
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: #000000 !important;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
     border-radius: 24px 24px 0 0;
 }
 
@@ -200,10 +212,8 @@
     font-size: 1.7rem;
     font-weight: 900;
     letter-spacing: -0.8px;
-    background: linear-gradient(135deg, #fff 0%, #aaa 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
 }
 
 .dd-panel-close {
@@ -221,8 +231,9 @@
 }
 
 .dd-panel-close:hover {
-    background: var(--accent-red);
-    border-color: var(--accent-red);
+    background: #ffffff;
+    color: #000000;
+    border-color: #ffffff;
     transform: rotate(90deg);
 }
 
@@ -230,6 +241,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 20px;
+    background: #000000 !important;
 }
 
 /* ═══════════════════════════════════════════
@@ -240,9 +252,7 @@
     position: fixed;
     inset: 0;
     height: 100vh;
-    background: radial-gradient(circle at 20% 0%, #1a1a3a 0%, #0a0a14 85%, #050508 100%);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    background: #000000 !important;
     z-index: 2000;
     display: none;
     flex-direction: column;
@@ -262,8 +272,7 @@
     padding: 20px;
     display: flex;
     align-items: center;
-    background: rgba(0, 0, 0, 0.3);
-    backdrop-filter: blur(20px);
+    background: #000000 !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     position: sticky;
     top: 0;
@@ -278,14 +287,15 @@
     align-items: center;
     gap: 14px;
     padding: 14px 18px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #050508 !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 16px;
     cursor: pointer;
     transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s cubic-bezier(0.4, 0, 0.2, 1), fill 0.2s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     margin-bottom: 10px;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
 }
 
 .dd-stream-card::before {
@@ -407,17 +417,17 @@
 }
 
 .dd-stream-card:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: #0e0e14 !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.6) !important;
 }
 
 .dd-stream-card:hover .dd-stream-play-icon {
     background: #fff;
-    color: #E50914; /* Vibrant Red Icon on White */
-    transform: scale(1.1) rotate(5deg);
-    box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+    color: #0A0E17;
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
 }
 
 .dd-mobile-panel-back {
@@ -464,8 +474,8 @@
 .dd-ep-card {
     display: flex;
     gap: 18px;
-    background: rgba(255,255,255,0.05); /* Lighter Glass */
-    border: 1px solid rgba(255,255,255,0.1);
+    background: #050508 !important; /* Pure Dark/Black Theme */
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 20px;
     padding: 14px;
     cursor: pointer;
@@ -473,20 +483,21 @@
     position: relative;
     overflow: hidden;
     animation: dd-fade-in 0.5s ease backwards;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
 }
 
 .dd-ep-card:hover {
-    background: rgba(255,255,255,0.15);
-    border-color: rgba(255,255,255,0.4);
-    transform: translateX(-5px) scale(1.03);
-    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    background: #0e0e14 !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+    transform: translateX(-5px) scale(1.02);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.6);
 }
 
 .dd-ep-card::before {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(45deg, transparent, rgba(255,255,255,0.05), transparent);
+    background: linear-gradient(45deg, transparent, rgba(255,255,255,0.03), transparent);
     transform: translateX(-100%);
     transition: 0.6s;
 }
@@ -502,7 +513,7 @@
     border-radius: 12px;
     overflow: hidden;
     flex-shrink: 0;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.7);
 }
 
 .dd-ep-img img {
@@ -524,10 +535,8 @@
     width: 100%;
     -webkit-appearance: none;
     appearance: none;
-    background: rgba(255, 255, 255, 0.07);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #050508 !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
     color: #ffffff;
     padding: 12px 18px;
     padding-right: 45px; /* Space for custom arrow */
@@ -537,20 +546,20 @@
     cursor: pointer;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     color-scheme: dark;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 }
 
 .dd-season-select:hover {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.25);
+    background: #0e0e14 !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
     transform: translateY(-1px);
 }
 
 .dd-season-select:focus {
     outline: none;
-    background: rgba(255, 255, 255, 0.15);
-    border-color: var(--accent);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(255, 255, 255, 0.05);
+    background: #0e0e14 !important;
+    border-color: #ffffff !important;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6), 0 0 0 3px rgba(255, 255, 255, 0.1);
 }
 
 .dd-season-select-wrap::after {
@@ -569,11 +578,11 @@
 
 .dd-season-select-wrap:focus-within::after {
     transform: translateY(-50%) rotate(180deg);
-    color: var(--accent);
+    color: #ffffff;
 }
 
 .dd-season-select option {
-    background: #12121a;
+    background: #000000 !important;
     color: #fff;
     padding: 12px;
 }
@@ -696,11 +705,11 @@
 
 .dd-main-info {
     flex: 1;
-    padding: clamp(40px, 4vh + 10px, 80px) clamp(40px, 5vw + 10px, 120px);
+    padding: 0 clamp(40px, 5vw + 10px, 120px);
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    align-items: flex-start; /* Default for PC */
+    justify-content: flex-start;
+    align-items: flex-start;
     max-width: clamp(55%, 3vw + 50%, 75%);
     overflow-y: auto;
     scrollbar-width: none;
@@ -708,6 +717,14 @@
 .dd-main-info::-webkit-scrollbar {
     display: none;
 }
+/* Use flex spacers to center content vertically without clipping overflow */
+.dd-main-info::before,
+.dd-main-info::after {
+    content: '';
+    flex: 1;
+    min-height: clamp(40px, 4vh + 10px, 80px);
+}
+
 
 /* ═══════════════════════════════════════════
    BACK BUTTON (Premium Glassmorphic)
@@ -881,6 +898,43 @@
     line-clamp: 4;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.dd-overview-text.expanded {
+    display: block !important;
+    -webkit-line-clamp: unset !important;
+    line-clamp: unset !important;
+    overflow-y: auto !important;
+    max-height: 320px !important;
+    padding-right: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.dd-read-more-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #00adb5;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    margin-top: 10px;
+    cursor: pointer;
+    padding: 7px 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.25s ease;
+    backdrop-filter: blur(8px);
+}
+
+.dd-read-more-btn:hover {
+    background: rgba(0, 173, 181, 0.15);
+    border-color: #00adb5;
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(0, 173, 181, 0.25);
 }
 
 /* ═══════════════════════════════════════════
@@ -913,11 +967,12 @@
 
 .dd-bottom-actions .dd-btn-main {
     width: 100%;
-    padding: 13px 10px;
+    padding: 8px 18px;
+    height: 42px;
     justify-content: center;
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     box-sizing: border-box;
-    gap: 6px;
+    gap: 8px;
 }
 
 .dd-list-dropdown {
@@ -1004,72 +1059,95 @@
 }
 
 .dd-btn-main {
-    padding: 12px 20px;
-    border-radius: 18px !important; /* Premium rounded edges override base.css */
-    font-weight: 800;
-    font-size: 0.88rem;
-    display: flex;
+    padding: 0 20px;
+    height: 38px;
+    border-radius: 9999px !important; /* Perfect pill shape like Install button */
+    font-weight: 600;
+    font-size: 13.5px;
+    display: inline-flex;
     align-items: center;
     justify-content: center; /* Center content perfectly */
     gap: 8px;
     cursor: pointer;
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), fill 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), stroke 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    text-transform: none; /* Sentence case like Install button */
+    letter-spacing: -0.1px;
     white-space: nowrap;
-    min-width: 140px; /* Guarantee a premium, elegant minimum width */
-    flex-shrink: 0; /* Prevent squishing */
+    min-width: 110px;
+    flex-shrink: 0;
+    box-sizing: border-box;
 }
 
 .dd-btn-main.dd-btn-square {
     min-width: 0 !important;
-    width: 40px !important;
-    height: 40px !important;
-    border-radius: 10px !important;
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 50% !important;
     padding: 0 !important;
 }
 
 .primary-premium {
-    background: #ffffff;
-    color: #000000;
-    border: none;
-    box-shadow: 0 15px 35px rgba(255, 255, 255, 0.15);
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #ffffff !important;
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.28), 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .primary-premium i {
-    color: #000;
+    color: #000000 !important;
 }
 
 .primary-premium:hover {
-    background: #f0f0f0;
-    transform: scale(1.05) translateY(-2px);
-    box-shadow: 0 20px 45px rgba(255, 255, 255, 0.25);
+    background: #f2f2f2 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 12px 30px rgba(255, 255, 255, 0.38), 0 4px 10px rgba(0, 0, 0, 0.3);
 }
 
 .glass-premium {
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: #ffffff;
+    background: rgba(255, 255, 255, 0.06) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #ffffff !important;
 }
 
 .glass-premium:hover {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.3);
-    transform: scale(1.05) translateY(-2px);
+    background: rgba(255, 255, 255, 0.12) !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+    transform: translateY(-1px);
 }
 
+/* Active My List state: Green border highlight */
 .in-library {
-    background: rgba(74, 222, 128, 0.15) !important;
-    border-color: rgba(74, 222, 128, 0.4) !important;
-    color: #4ade80 !important;
+    background: #ffffff !important;
+    border: 2.5px solid #22c55e !important;
+    color: #16a34a !important;
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.4), 0 8px 24px rgba(255, 255, 255, 0.28) !important;
+}
+
+.in-library i {
+    color: #16a34a !important;
 }
 
 .in-library:hover {
-    background: rgba(74, 222, 128, 0.25) !important;
-    border-color: rgba(74, 222, 128, 0.6) !important;
+    background: #f0fdf4 !important;
+    border-color: #15803d !important;
+    transform: translateY(-1px);
+    box-shadow: 0 0 25px rgba(34, 197, 94, 0.5) !important;
+}
+
+/* Hover on Go Back button: Red border highlight */
+#dd-go-back-btn:hover {
+    background: #ffffff !important;
+    border: 2.5px solid #ef4444 !important;
+    color: #dc2626 !important;
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.4), 0 8px 24px rgba(255, 255, 255, 0.28) !important;
+    transform: translateY(-1px);
+}
+
+#dd-go-back-btn:hover i {
+    color: #dc2626 !important;
 }
 
 /* ═══════════════════════════════════════════
@@ -1210,8 +1288,8 @@
 
 /* ── Streaming Links (Vibrant Premium) ── */
 .dd-streams-list-unified .stream-card-v2 {
-    background: rgba(255, 255, 255, 0.08) !important;
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    background: #050508 !important; /* Pure Black Theme */
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 20px !important;
     padding: 22px !important;
     margin-bottom: 18px !important;
@@ -1224,14 +1302,14 @@
     transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), fill 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), stroke 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
 }
 
 .dd-streams-list-unified .stream-card-v2:hover {
-    background: rgba(255, 255, 255, 0.18) !important;
-    border-color: #E50914 !important;
-    transform: scale(1.04) !important;
-    box-shadow: 0 20px 50px rgba(229, 9, 20, 0.2);
+    background: #0e0e14 !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
+    transform: scale(1.02) !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
 }
 
 .dd-streams-list-unified .stream-provider-name {
@@ -1300,7 +1378,7 @@
     position: absolute;
     inset: 0;
     z-index: 10000;
-    background: radial-gradient(circle at 30% 20%, #2a1a4a 0%, #0a0a14 70%, #050508 100%);
+    background: #000000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1347,6 +1425,12 @@
 @keyframes ddFadeUp {
     from { opacity: 0; transform: translateY(15px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+/* Alias for inline stream-search spinner */
+@keyframes ddLoaderSpin {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* ── Short Window Optimization ── */
@@ -1404,45 +1488,43 @@
     opacity: 1.0 !important; /* Full brightness */
 }
 
-/* Exit Fullscreen Button Style */
+/* Exit Fullscreen Button Style: Pure White Pill Button matching Install button */
 .dd-exit-fullscreen-btn {
     position: absolute;
     top: max(24px, calc(env(safe-area-inset-top, 0px) + 12px));
     right: 24px;
     z-index: 10000;
-    padding: 12px 24px;
-    border-radius: 14px;
-    background: rgba(10, 10, 16, 0.65);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
-    font-weight: 800;
-    font-size: 13px;
-    letter-spacing: 0.5px;
+    padding: 0 20px;
+    height: 38px;
+    border-radius: 9999px !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #ffffff !important;
+    font-weight: 600;
+    font-size: 13.5px;
+    letter-spacing: -0.1px;
     cursor: pointer;
-    display: none; /* Hidden by default */
+    display: none !important; /* Hidden by default */
     align-items: center;
     gap: 8px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), color 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s cubic-bezier(0.16, 1, 0.3, 1), fill 0.3s cubic-bezier(0.16, 1, 0.3, 1), stroke 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dd-exit-fullscreen-btn i {
     font-size: 14px;
-    color: var(--accent);
+    color: #000000 !important;
 }
 
 .dd-exit-fullscreen-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: var(--accent);
-    transform: translateY(-2px);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    background: #f2f2f2 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 12px 30px rgba(255, 255, 255, 0.45);
 }
 
 #view-discover-detail.trailer-fullscreen-mode .dd-exit-fullscreen-btn {
-    display: flex !important;
-    animation: ddFadeUp 0.5s ease forwards;
+    display: inline-flex !important;
+    animation: ddFadeUp 0.3s ease forwards;
 }
 
 /* Premium Panel Collection Cards (Manage Lists) */

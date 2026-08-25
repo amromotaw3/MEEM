@@ -1,0 +1,46 @@
+/**
+ * chat-media-renderer.css
+ * Styling for the rich media share cards in chat bubbles.
+ */
+
+.media-share-card {
+  display: inline-block;
+  background: transparent;
+  border: none;
+  border-radius: 16px;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  max-width: 180px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.media-share-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
+}
+
+.media-share-poster-wrapper {
+  width: 100%;
+  border-radius: 18px;
+  overflow: hidden;
+  background-color: #111;
+}
+
+.media-share-poster {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+}
+
+.message-text-bubble {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  font-size: 13.5px;
+  line-height: 1.4;
+  word-wrap: break-word;
+}

@@ -1,22 +1,52 @@
+// Renderer console log interceptor
+(function() {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+
+  function safeLogBridge(level, ...args) {
+    try {
+      const msg = args.map(arg => {
+        if (arg instanceof Error) return arg.message + '\n' + arg.stack;
+        return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
+      }).join(' ');
+      if (window.api && typeof window.api.logToServer === 'function') {
+        window.api.logToServer(level, msg);
+      }
+    } catch (e) {}
+  }
+
+  console.log = function(...args) {
+    originalLog.apply(console, args);
+    safeLogBridge('info', ...args);
+  };
+  console.error = function(...args) {
+    originalError.apply(console, args);
+    safeLogBridge('error', ...args);
+  };
+  console.warn = function(...args) {
+    originalWarn.apply(console, args);
+    safeLogBridge('warn', ...args);
+  };
+
+  window.addEventListener('error', (event) => {
+    safeLogBridge('error', 'Uncaught window error: ' + event.message + ' at ' + event.filename + ':' + event.lineno);
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    safeLogBridge('error', 'Unhandled rejection: ' + event.reason);
+  });
+})();
+
 // State declarations for MediaVault
 var appData = {
   libraryFolders: [], libraryPath: '', movies: [], shows: [], music: [],
   thumbnails: {}, banners: {}, pinned: [], lastView: 'movies',
-  tmdbCache: {}, downloadHistory: [], theme: 'dark', downloadPath: '',
+  tmdbCache: {}, downloadHistory: [], theme: 'minimalist', downloadPath: '',
+  notifications: [],
   enableVideoTrailers: true,
   youtubeFolder: '', youtubeVideos: [], socialVideos: [], uiState: { collapsedGroups: [] },
   tmdbKey: null, searchHistory: [],
-  installedAddons: [
-    {
-      id: "com.rpdb.cinemeta",
-      name: "Cinemeta (with ratings)",
-      url: "https://cinemeta.ratingposterdb.com",
-      manifestUrl: "https://cinemeta.ratingposterdb.com/manifest.json",
-      icon: "🎬",
-      types: ["movie", "series"],
-      isCustom: true
-    }
-  ],
+  installedAddons: [],
   profiles: [], // { id, name, avatar, playback: {}, watchlist: [], pinned: [], vaultPin: null, lockedItems: [] }
   activeProfileId: null,
   musicMetadata: {}, // { itemId: { title, artist, album, cover } }
@@ -27,7 +57,8 @@ var appData = {
   activeDownloads: new Map(),
   remoteStreamingServer: '192.168.31.125', // Default PC IP for mobile streaming
   mobileInternalPlayer: true,
-  mobileInternalDownloader: true,
+  autoChooseBestStream: false,
+  autoChooseMaxRes: '1080p',
   authenticated: false,
   user: null,
   subscription_expires_at: null
@@ -93,13 +124,7 @@ var $ = s => document.querySelector(s);
 var $$ = s => Array.from(document.querySelectorAll(s));
 
 var AVATARS = [
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Jack',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Sasha',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Bubba',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Midnight',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Shadow'
+  'imgs/avatars/default.jpg'
 ];
 
 var DEFAULT_AVATAR_SVG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="%23333"><circle cx="12" cy="12" r="10" fill="%23222"/><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="%23666"/></svg>';
@@ -133,31 +158,12 @@ function normalizeProfiles(profiles) {
 }
 
 function ensureDefaultAddons() {
+  // MediaVault is a neutral media player. No addons are pre-installed by default.
+  // Content-discovery features (Cinemeta, Torrentio, TMDB, Trakt) are opt-in Mods
+  // that users install manually. This ensures the app has zero default
+  // content-discovery footprint and the user bears full responsibility for any
+  // addons they choose to install.
   if (!appData.installedAddons) appData.installedAddons = [];
-  const hasTorrentio = appData.installedAddons.some((a) => (a.url || '').includes('torrentio'));
-  if (!hasTorrentio) {
-    appData.installedAddons.unshift({
-      id: 'torrentio',
-      name: 'Torrentio',
-      url: 'https://torrentio.strem.fun',
-      manifestUrl: 'https://torrentio.strem.fun/manifest.json',
-      icon: '⚡',
-      types: ['movie', 'series', 'anime'],
-      isCustom: true
-    });
-  }
-  const hasCinemeta = appData.installedAddons.some((a) => (a.url || '').includes('cinemeta'));
-  if (!hasCinemeta) {
-    appData.installedAddons.push({
-      id: 'com.rpdb.cinemeta',
-      name: 'Cinemeta (with ratings)',
-      url: 'https://cinemeta.ratingposterdb.com',
-      manifestUrl: 'https://cinemeta.ratingposterdb.com/manifest.json',
-      icon: '🎬',
-      types: ["movie", "series"],
-      isCustom: true
-    });
-  }
 }
 
 // Global scope declarations for modularized functions
@@ -170,7 +176,9 @@ var adjustSubSync, getPlaybackKey, ensureSeasonMetadata, isNativePlayerWindow, e
 
 function isStaleStreamUrl(p) {
   if (!p || !/^https?:\/\//i.test(p)) return false;
-  return /\/stream\?path=/i.test(p) || /:1147\d\//.test(p) || /localhost|127\.0\.0\.1/i.test(p);
+  // If the stream URL is currently active in the running session, it's not stale
+  if (window._activeStreamUrl && window._activeStreamUrl === p) return false;
+  return /\/stream\?path=/i.test(p);
 }
 
 function toMediaPlayUrl(filePath) {
@@ -204,12 +212,114 @@ function cleanTechnicalTitle(t) {
 async function requestNativePlayback(item, show, extra = {}) {
   if (!window.api?.playMedia) return { success: false, error: 'playMedia unavailable' };
   
-  // Prioritize torrentMagnet if present to avoid using expired local HTTP stream URLs
-  let pathUrl = item.torrentMagnet || item.path || item.url || item.streamUrl || item.mediaUrl || item.sourceUrl || item.id;
+  // Prefer active stream URL if available, fallback to torrentMagnet or media path
+  let pathUrl = item.path || item.url || item.torrentMagnet || item.streamUrl || item.mediaUrl || item.sourceUrl || item.videoId || item.id;
+  if ((item.isYoutube || item.type === 'youtube') && (item.videoId || item.id) && (!pathUrl || !pathUrl.startsWith('http'))) {
+    pathUrl = `https://www.youtube.com/watch?v=${item.videoId || item.id}`;
+  }
   const pbKey = typeof getPlaybackKey === 'function' ? getPlaybackKey(item) : null;
   const pb = currentProfile?.playback?.[pbKey];
-  const startTime = extra.startTime ?? ((pb && pb.time > 2) ? pb.time : 0);
+  const startTime = extra.startTime ?? ((pb && pb.time > 2 && !pb.watched) ? pb.time : 0);
   
+  // ── Smart Playlist Construction for TV Shows & Multi-Item Series ──
+  let playlist = null;
+  let playlistIndex = 0;
+
+  const rawEpisodes = show?.episodes || window.currentEpisodes || window.currentDetailEpisodes || (item.episodes || null);
+  if (Array.isArray(rawEpisodes) && rawEpisodes.length > 1) {
+    const showObj = show || window.currentShow || window.currentDetailItem || item;
+    
+    // Comprehensive Metadata Lookup across TMDB, Cinemeta, and Local Banners
+    let tmdbMeta = null;
+    if (typeof getMetadataForItem === 'function') {
+      tmdbMeta = getMetadataForItem(showObj) || getMetadataForItem(item);
+    }
+    if (!tmdbMeta && window.appData) {
+      const keys = [
+        showObj?.id, showObj?.imdb_id, showObj?.imdbId, showObj?.tmdbId, showObj?.tmdb_id, showObj?.cinemetaId,
+        showObj?.title, showObj?.name, showObj?.cleanTitle,
+        item?.id, item?.showId, item?.showTitle, item?.title
+      ].filter(Boolean);
+      for (const k of keys) {
+        if (window.appData.tmdbCache && window.appData.tmdbCache[k]) {
+          tmdbMeta = window.appData.tmdbCache[k];
+          break;
+        }
+        if (window.appData.cinemetaCache && window.appData.cinemetaCache[k]) {
+          tmdbMeta = window.appData.cinemetaCache[k];
+          break;
+        }
+      }
+    }
+
+    const tmdbSeasons = tmdbMeta?.seasons || {};
+    const showTitle = showObj?.title || showObj?.name || tmdbMeta?.title || item.showTitle || '';
+    
+    // General Show Fallback Image (Poster / Backdrop / Local Banner)
+    let showFallbackImage = tmdbMeta?.backdrop || tmdbMeta?.backdrop_path || tmdbMeta?.poster || tmdbMeta?.poster_path ||
+                            showObj?.backdrop || showObj?.backdrop_path || showObj?.poster || showObj?.poster_path ||
+                            showObj?.cover || showObj?.banner || '';
+    
+    if (!showFallbackImage && window.appData?.banners) {
+      showFallbackImage = window.appData.banners[showObj?.id] || window.appData.banners[item?.id] || '';
+    }
+
+    if (showFallbackImage && showFallbackImage.startsWith('/') && !showFallbackImage.startsWith('//') && !showFallbackImage.includes(':')) {
+      showFallbackImage = `https://image.tmdb.org/t/p/w500${showFallbackImage}`;
+    }
+
+    playlist = rawEpisodes.map((ep, idx) => {
+      const epNum = ep.episode != null ? parseInt(ep.episode, 10) : (ep.episode_number != null ? parseInt(ep.episode_number, 10) : (idx + 1));
+      const snNum = ep.season != null ? parseInt(ep.season, 10) : (ep.season_number != null ? parseInt(ep.season_number, 10) : 1);
+      const tE = (tmdbSeasons[snNum] && (tmdbSeasons[snNum][epNum] || tmdbSeasons[snNum][String(epNum)])) || null;
+
+      // Extract high-resolution still thumbnail
+      let thumb = ep.thumbnail || ep.still_path || ep.still || '';
+      if (!thumb && tE) {
+        thumb = tE.local_still || tE.still_path || tE.still || tE.thumbnail || '';
+      }
+      if (!thumb && window.appData?.banners) {
+        thumb = window.appData.banners[ep.id] || window.appData.banners[ep.path] || '';
+      }
+      if (!thumb) {
+        thumb = showFallbackImage;
+      }
+
+      if (thumb && thumb.startsWith('/') && !thumb.startsWith('//') && !thumb.includes(':')) {
+        thumb = `https://image.tmdb.org/t/p/w500${thumb}`;
+      }
+      if (thumb && thumb.startsWith('file:///')) {
+        thumb = thumb.replace('file:///', '');
+      }
+
+      const epTitle = ep.title || ep.name || tE?.name || `Episode ${epNum}`;
+      const epPath = ep.path || ep.url || ep.sourceUrl || '';
+
+      return {
+        path: epPath,
+        url: epPath,
+        title: epTitle,
+        season: snNum,
+        episode: epNum,
+        thumbnail: thumb || '',
+        showTitle: showTitle,
+        duration_ms: (typeof ep.duration === 'number') ? ep.duration * 1000 : 0
+      };
+    }).filter(p => p.path); // keep only playable items
+
+    // Determine the index of the currently requested episode in the playlist
+    const foundIdx = playlist.findIndex(p => {
+      if (item.path && p.path === item.path) return true;
+      if (item.id && p.path === item.id) return true;
+      if (item.episode != null && p.episode === parseInt(item.episode, 10) && (item.season == null || p.season === parseInt(item.season, 10))) return true;
+      return false;
+    });
+
+    if (foundIdx >= 0) {
+      playlistIndex = foundIdx;
+    }
+  }
+
   return window.api.playMedia({
     path: pathUrl,
     url: pathUrl,
@@ -219,6 +329,8 @@ async function requestNativePlayback(item, show, extra = {}) {
     profileId: currentProfile?.id,
     item,
     show,
+    playlist,
+    playlistIndex,
     fileIdx: item.fileIdx ?? (pb ? pb.fileIdx : null)
   });
 }

@@ -47,7 +47,7 @@ function initUtilityIpc(ipcMain) {
   });
 
   ipcMain.handle('get-default-library-root', () => {
-    return path.join(app.getPath('videos'), 'MediaVault');
+    return path.join(app.getPath('videos'), 'MEEM');
   });
 
   if (!ipcMain.eventNames().includes('fetch-proxy')) {

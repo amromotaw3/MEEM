@@ -4,17 +4,36 @@ const fs = require('fs');
 const { BANNERS_DIR, ensureDir } = require('../store');
 const { getMainWindow } = require('../windowManager');
 
+function getMeemVideosRoot() {
+  const videosDir = app.getPath('videos');
+  const meemDir = path.join(videosDir, 'MEEM');
+  const legacyDir = path.join(videosDir, 'MediaVault');
+  
+  // Auto-migrate legacy folder if MEEM doesn't exist
+  if (!fs.existsSync(meemDir) && fs.existsSync(legacyDir)) {
+    try {
+      fs.renameSync(legacyDir, meemDir);
+      console.log('[MIGRATION] Migrated Videos/MediaVault to Videos/MEEM');
+    } catch (e) {
+      console.warn('[MIGRATION] Could not rename legacy folder:', e.message);
+    }
+  }
+  return meemDir;
+}
+
 function initProfileConfigIpc(ipcMain) {
   ipcMain.handle('get-profile-media-paths', (_e, profileName) => {
     if (!profileName) return null;
-    const p = (sub) => path.join(app.getPath('videos'), 'MediaVault', profileName, sub);
+    const root = getMeemVideosRoot();
+    const p = (sub) => path.join(root, profileName, sub);
     return { movies: p('Movies'), series: p('Series'), social: p('Social'), music: p('Music') };
   });
 
   ipcMain.handle('ensure-profile-folders', (_e, profileName) => {
     if (!profileName) return false;
     try {
-      const basePath = path.join(app.getPath('videos'), 'MediaVault', profileName);
+      const root = getMeemVideosRoot();
+      const basePath = path.join(root, profileName);
       const subDirs = ['Movies', 'Series', 'Social', 'Music'];
       subDirs.forEach(sub => {
         const fullPath = path.join(basePath, sub);
@@ -29,8 +48,9 @@ function initProfileConfigIpc(ipcMain) {
 
   ipcMain.handle('rename-profile-folders', async (_e, oldName, newName) => {
     if (!oldName || !newName || oldName === newName) return false;
-    const oldPath = path.join(app.getPath('videos'), 'MediaVault', oldName);
-    const newPath = path.join(app.getPath('videos'), 'MediaVault', newName);
+    const root = getMeemVideosRoot();
+    const oldPath = path.join(root, oldName);
+    const newPath = path.join(root, newName);
     try {
       if (fs.existsSync(oldPath)) {
         if (fs.existsSync(newPath)) return false;

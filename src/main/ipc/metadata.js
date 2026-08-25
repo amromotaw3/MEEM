@@ -51,6 +51,23 @@ async function fetchCinemetaUrl(url, timeout = 10000) {
   throw lastErr || new Error(`Failed to fetch from all Cinemeta endpoints for ${url}`);
 }
 
+/**
+ * Sanitize a poster/backdrop URL coming from Cinemeta API responses.
+ * v3-cinemeta.strem.io never serves image files — it only serves JSON metadata.
+ * Any image URL pointing there will return 404. We convert them to images.metahub.space
+ * which is the actual working CDN for IMDb-ID-based posters.
+ */
+function sanitizePosterUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  // Pattern: https://v3-cinemeta.strem.io/poster/<size>/<imdbId>/<filename>
+  if (url.includes('cinemeta.strem.io') && url.includes('/poster/')) {
+    const m = url.match(/\/poster\/\w+\/(tt\d+)\//);
+    if (m) return `https://images.metahub.space/poster/medium/${m[1]}/img`;
+    return ''; // Can't salvage without an IMDb ID
+  }
+  return url;
+}
+
 function cleanMediaName(filename) {
   if (!filename) return "";
   let name = filename.split(/[/\\]/).pop();
@@ -317,6 +334,13 @@ async function getWesternMedia({ id, type }) {
     const cinemetaResp = await fetchCinemetaUrl(cinemetaUrl).catch(() => null);
     const cinemetaMeta = cinemetaResp?.data?.meta || cinemetaResp?.data || null;
 
+    // Sanitize poster/background URLs from Cinemeta — the cinemeta.strem.io domain
+    // only serves JSON, not images. Fix them to use images.metahub.space instead.
+    if (cinemetaMeta) {
+      if (cinemetaMeta.poster) cinemetaMeta.poster = sanitizePosterUrl(cinemetaMeta.poster);
+      if (cinemetaMeta.background) cinemetaMeta.background = sanitizePosterUrl(cinemetaMeta.background);
+      if (cinemetaMeta.thumbnail) cinemetaMeta.thumbnail = sanitizePosterUrl(cinemetaMeta.thumbnail);
+    }
     const result = {
       id: id || cinemetaMeta?.id || null,
       type: type === 'tv' ? 'tv' : 'movie',
@@ -588,7 +612,31 @@ function initMetadataIpc(ipcMain) {
       const catalogId = id || 'top';
       const url = `https://v3-cinemeta.strem.io/catalog/${cinemetaType}/${catalogId}.json`;
       const resp = await fetchCinemetaUrl(url);
-      return resp.data;
+      const data = resp.data || { metas: [] };
+      if (Array.isArray(data.metas)) {
+        data.metas = data.metas.map(m => {
+          let poster = m.poster || '';
+          if (poster.startsWith('/tt') || poster.startsWith('tt')) {
+            const cleanId = poster.replace(/^\//, '').split('/')[0];
+            poster = `https://images.metahub.space/poster/medium/${cleanId}/img`;
+          } else if (poster === 'img' || poster === '/img' || poster === 'poster.jpg' || poster === '/poster.jpg' || !poster) {
+            poster = m.id ? `https://images.metahub.space/poster/medium/${m.id}/img` : '';
+          }
+          let bg = m.background || '';
+          if (bg.startsWith('/tt') || bg.startsWith('tt')) {
+            const cleanId = bg.replace(/^\//, '').split('/')[0];
+            bg = `https://images.metahub.space/background/large/${cleanId}/img`;
+          } else if (bg === 'img' || bg === '/img' || !bg) {
+            bg = m.id ? `https://images.metahub.space/background/large/${m.id}/img` : '';
+          }
+          return {
+            ...m,
+            poster,
+            background: bg
+          };
+        });
+      }
+      return data;
     } catch (err) {
       console.error('[Cinemeta] catalog error:', err.message);
       return { metas: [] };
@@ -600,12 +648,15 @@ function initMetadataIpc(ipcMain) {
     ensureDir(BANNERS_DIR);
     let url = imgPath;
     if (!imgPath.startsWith('http')) {
-      // If the path looks like a Cinemeta/metahub IMDB path (/tt...), use the Cinemeta host
-      if (imgPath.startsWith('/tt')) {
-        url = `https://v3-cinemeta.strem.io${imgPath}`;
+      // If the path looks like a Cinemeta/metahub IMDB path (/tt...), use images.metahub.space
+      if (imgPath.startsWith('/tt') || imgPath.startsWith('tt')) {
+        const imdbMatch = imgPath.match(/tt\d+/);
+        const imdbId = imdbMatch ? imdbMatch[0] : imgPath.replace(/^\//, '');
+        url = `https://images.metahub.space/poster/medium/${imdbId}/img`;
+
       // If it's a TMDB-style relative path (starts with / and not an IMDB path), assume it's a TMDB image path
       } else if (imgPath.startsWith('/')) {
-        url = `https://image.tmdb.org/t/p/original${imgPath}`;
+        url = `https://image.tmdb.org/t/p/w500${imgPath}`;
       } else {
         url = imgPath;
       }
@@ -618,34 +669,53 @@ function initMetadataIpc(ipcMain) {
         if (stats.size > 0) return dest;
       } catch (e) { /* ignore */ }
     }
-    return new Promise((resolve) => {
-      const file = fs.createWriteStream(dest);
-      const proto = url.startsWith('https') ? https : require('http');
-      const req = proto.get(url, { headers: { 'User-Agent': 'MediaVault/3.0' }, timeout: 10000 }, (res) => {
-        if (res.statusCode !== 200) {
-          file.close();
-          try { fs.unlinkSync(dest); } catch (e) { /* ignore */ }
+
+    const downloadWithRedirects = (targetUrl, redirectsLeft = 5) => {
+      return new Promise((resolve) => {
+        if (redirectsLeft < 0) return resolve(null);
+        try {
+          const parsed = new URL(targetUrl);
+          const proto = parsed.protocol === 'https:' ? https : require('http');
+          const req = proto.get(targetUrl, { headers: { 'User-Agent': 'MediaVault/3.0' }, timeout: 10000 }, (res) => {
+            // Follow 301, 302, 307, 308 redirects automatically
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+              let redirectUrl = res.headers.location;
+              if (!redirectUrl.startsWith('http')) {
+                redirectUrl = new URL(redirectUrl, targetUrl).href;
+              }
+              res.resume();
+              return resolve(downloadWithRedirects(redirectUrl, redirectsLeft - 1));
+            }
+
+            if (res.statusCode !== 200) {
+              res.resume();
+              return resolve(null);
+            }
+
+            const file = fs.createWriteStream(dest);
+            res.pipe(file);
+            file.on('finish', () => {
+              file.close(() => resolve(dest));
+            });
+            file.on('error', () => {
+              file.close();
+              try { fs.unlinkSync(dest); } catch (_) {}
+              resolve(null);
+            });
+          });
+
+          req.on('error', () => resolve(null));
+          req.on('timeout', () => {
+            req.destroy();
+            resolve(null);
+          });
+        } catch (e) {
           resolve(null);
-          return;
         }
-        res.pipe(file);
-        file.on('finish', () => {
-          file.close();
-          resolve(dest);
-        });
       });
-      req.on('error', (err) => {
-        file.close();
-        try { fs.unlinkSync(dest); } catch (e) { /* ignore */ }
-        resolve(null);
-      });
-      req.on('timeout', () => {
-        req.destroy();
-        file.close();
-        try { fs.unlinkSync(dest); } catch (e) { /* ignore */ }
-        resolve(null);
-      });
-    });
+    };
+
+    return downloadWithRedirects(url);
   });
 
   ipcMain.handle('get-metadata-provider', () => metadataProvider);
@@ -718,45 +788,93 @@ function initMetadataIpc(ipcMain) {
 
   ipcMain.handle('resolve-trailer-stream', async (_e, youtubeUrl) => {
     if (!youtubeUrl) return null;
-    try {
-      const { execYtDlp } = require('../downloader-adapter');
-      // Try HLS manifest first (Shaka Player can select highest quality from it),
-      // then fall back to best combined format up to 1080p
-      const directUrl = await execYtDlp(
-        `--js-runtimes node -g -f "hls-1080/hls-720/best[height<=1080][ext=mp4]/best[height<=1080]/best" "${youtubeUrl}"`,
-        { timeout: 15000 }
-      );
-      if (directUrl && directUrl.startsWith('http')) {
-        console.log('[YTDLP] Successfully resolved trailer stream:', directUrl.slice(0, 60) + '...');
-        return directUrl;
+
+    const vMatch = youtubeUrl.match(/(?:v=|\/embed\/|\/1.1\/|v\/|https:\/\/youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+    const videoId = vMatch ? vMatch[1] : null;
+
+    // 1. Primary: Use YouTubeService (youtubei.js / Innertube) locally to get playable stream URL
+    if (videoId) {
+      try {
+        const YouTubeService = require('../youtube/YouTubeService');
+        const res = await YouTubeService.getVideoDetails(videoId, '1080');
+        if (res && res.success && res.details?.streamUrl) {
+          console.log('[resolve-trailer-stream] Resolved via YouTubeService (youtubei.js):', res.details.streamUrl.slice(0, 60) + '...');
+          return res.details.streamUrl;
+        }
+      } catch (ytErr) {
+        console.warn('[resolve-trailer-stream] YouTubeService failed:', ytErr.message);
       }
-    } catch (err) {
-      console.warn('[YTDLP] Failed to resolve stream:', err.message);
     }
 
+    // 2. Secondary: Try local yt-dlp fallback prioritizing High Definition (1080p/720p)
+    try {
+      const { execYtDlp } = require('../downloader-adapter');
+      const directUrl = await execYtDlp(
+        `--no-playlist --flat-playlist --socket-timeout 5 -g -f "best[height<=1080][height>=720][ext=mp4]/best[height<=1080]/22/bestvideo[height<=1080]+bestaudio/best" --extractor-args "youtube:player_client=android,web" "${youtubeUrl}"`,
+        { timeout: 8000 }
+      );
+      if (directUrl && directUrl.startsWith('http')) {
+        const stream = directUrl.split('\n')[0].trim();
+        console.log('[YTDLP] Fast resolved HD YouTube trailer stream:', stream.slice(0, 60) + '...');
+        return stream;
+      }
+    } catch (err) {
+      console.warn('[YTDLP] Stream resolution failed, trying proxy fallbacks:', err.message);
+    }
+
+    // 2. Secondary: Invidious / Piped using proxied stream URLs (prevents IP-binding 403)
+    if (videoId) {
+      const invidInstances = [
+        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=22`,
+        `https://invidious.nerqv.ps/latest_version?id=${videoId}&itag=22`,
+        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=18`
+      ];
+      for (const invUrl of invidInstances) {
+        try {
+          const res = await axios.head(invUrl, { timeout: 3000, maxRedirects: 5 });
+          if (res.status === 200 || res.status === 302 || res.status === 301) {
+            console.log('[Invidious] Stream resolved via proxy:', invUrl);
+            return invUrl;
+          }
+        } catch (e) {}
+      }
+
+      const pipedEndpoints = [
+        `https://pipedapi.kavin.rocks/streams/${videoId}`,
+        `https://api.piped.privacydev.net/streams/${videoId}`
+      ];
+      for (const endpoint of pipedEndpoints) {
+        try {
+          const res = await axios.get(endpoint, { timeout: 3500 });
+          if (res.data && res.data.videoStreams && res.data.videoStreams.length > 0) {
+            const bestStream = res.data.videoStreams.find(s => s.quality === '720p' || s.quality === '360p') || res.data.videoStreams[0];
+            const streamUrl = bestStream?.proxyUrl || bestStream?.url;
+            if (streamUrl) {
+              console.log('[TrailerAPI] Stream resolved via Piped:', endpoint);
+              return streamUrl;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 3. Tertiary: Cobalt API
     const instances = [
       'https://co.wuk.sh/api/json',
       'https://api.vve.wtf/api/json',
-      'https://cobalt.q0.wtf/api/json',
-      'https://cobalt.catbox.video/api/json',
       'https://api.cobalt.tools/api/json'
     ];
     for (const endpoint of instances) {
       try {
         const res = await axios.post(endpoint, 
-          { url: youtubeUrl, videoQuality: '1080' }, 
-          { 
-            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-            timeout: 5000 
-          }
+          { url: youtubeUrl, videoQuality: '720' }, 
+          { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 4000 }
         );
         if (res.data && res.data.url) {
-          console.log('[Cobalt] Successfully resolved trailer stream from:', endpoint);
+          console.log('[Cobalt] Resolved stream from:', endpoint);
           return res.data.url;
         }
-      } catch (e) {
-        console.warn(`[Cobalt] resolution failed at ${endpoint}:`, e.message);
-      }
+      } catch (err) {}
     }
     return null;
   });

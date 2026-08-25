@@ -1,16 +1,24 @@
 /* ── Unified Cinematic Detail & Data Orchestrator (V4 - Mobile Polish) ── */
 
 /* ── Image Resolution Strategy ── */
+/* ── Image Resolution Strategy ── */
 window.getTMDBImageUrl = (path, isHighRes = false) => {
     if (!path) return 'imgs/no-backdrop.png';
-    let url = String(path);
+    let url = String(path).trim();
+    url = url.replace(/\\/g, '/');
+    url = url.replace(/\/+(img|background\.jpg|poster\.jpg|poster\.png)(:\d+)?$/i, '');
+    url = url.replace(/^(img|poster)(:\d+)?$/i, '');
+    url = url.replace(/^\/+(img|poster)(:\d+)?$/i, '');
+    if (!url || url.length < 3 || url === 'img' || url === 'poster') return 'imgs/no-backdrop.png';
+
     if (url.startsWith('http') || url.startsWith('local-file') || url.startsWith('media-img')) {
-        if (url.includes('images.metahub.space')) {
-            url = url.replace('/background/medium/', '/background/original/')
-                     .replace('/poster/medium/', '/poster/large/')
-                     .replace('/poster/small/', '/poster/large/');
+        if (url.includes('.metahub.space')) {
+            url = url.replace(/(live|episodes)\.metahub\.space/, 'images.metahub.space');
+            if (isHighRes) {
+                url = url.replace(/\/background\/medium\//, '/background/large/');
+            }
         } else if (url.includes('image.tmdb.org/t/p/')) {
-            url = url.replace(/\/t\/p\/[^\/]+/, '/t/p/' + (isHighRes ? 'original' : 'w1280'));
+            url = url.replace(/\/t\/p\/[^\/]+/, '/t/p/' + (isHighRes ? 'original' : 'w500'));
         }
         return (typeof window.localImg === 'function') ? window.localImg(url) : url;
     }
@@ -26,16 +34,17 @@ window.getTMDBImageUrl = (path, isHighRes = false) => {
 
     if (isTmdbPath && !isImdbId) {
         const cleanPath = url.startsWith('/') ? url : '/' + url;
-        const size = isHighRes ? 'original' : 'w1280';
+        const size = isHighRes ? 'original' : 'w500';
         const fullUrl = `https://image.tmdb.org/t/p/${size}${cleanPath}`;
         return (typeof window.localImg === 'function') ? window.localImg(fullUrl) : fullUrl;
     }
 
-    const imdbId = url.replace(/^\//, '');
-    const suffix = imdbId.endsWith('/background.jpg') ? '' : '/background.jpg';
-    const fullUrl = `https://images.metahub.space/background/original/${imdbId}${suffix}`;
+    const imdbId = url.replace(/^\//, '').replace(/\/(img|background\.jpg)$/, '');
+    const type = isHighRes ? 'background/medium' : 'poster/medium';
+    const fullUrl = `https://images.metahub.space/${type}/${imdbId}/img`;
     return (typeof window.localImg === 'function') ? window.localImg(fullUrl) : fullUrl;
 };
+
 
 window.checkIfTV = (item, tmdb = null, extra1 = null) => {
     if (!item) return false;
@@ -142,6 +151,56 @@ window.renderUnifiedDetail = async function(item) {
         let mediaType = item.media_type || item.type || (item.title ? 'movie' : 'tv');
         // Normalize 'anime' type to 'tv' so Cinemeta treats it correctly
         if (mediaType === 'anime') mediaType = 'tv';
+
+        // RESOLVE NUMERIC TMDB ID TO IMDB ID FOR WESTERN CONTENT
+        // Handles both bare numeric IDs ("12345") and prefixed IDs ("tmdb:12345")
+        const tmdbKey = window.appData?.tmdbKey;
+        let numericTmdbId = null;
+        if (cinemetaId) {
+            const idStr = String(cinemetaId);
+            if (/^\d+$/.test(idStr)) {
+                numericTmdbId = idStr;
+            } else if (idStr.startsWith('tmdb:')) {
+                numericTmdbId = idStr.replace('tmdb:', '');
+                cinemetaId = numericTmdbId; // strip prefix for API calls
+            }
+        }
+        if (numericTmdbId && tmdbKey) {
+            console.log(`[UnifiedDetail] Numeric TMDB ID detected: ${numericTmdbId}. Resolving to IMDb ID...`);
+            const tmdbUrl = mediaType === 'tv' 
+                ? `https://api.themoviedb.org/3/tv/${numericTmdbId}/external_ids?api_key=${tmdbKey}`
+                : `https://api.themoviedb.org/3/movie/${numericTmdbId}?api_key=${tmdbKey}`;
+            
+            try {
+                const tmdbRes = await fetch(tmdbUrl).then(r => r.json());
+                const resolvedImdbId = tmdbRes.imdb_id;
+                if (resolvedImdbId) {
+                    console.log(`[UnifiedDetail] Resolved TMDB ID ${numericTmdbId} → IMDb ${resolvedImdbId}`);
+                    cinemetaId = resolvedImdbId;
+                    item.imdbId = resolvedImdbId;
+                    item.imdb_id = resolvedImdbId;
+                } else {
+                    console.warn(`[UnifiedDetail] TMDB API did not return an IMDb ID for ${numericTmdbId}`);
+                }
+            } catch (err) {
+                console.error(`[UnifiedDetail] Failed to resolve TMDB ID to IMDb ID:`, err.message);
+            }
+        } else if (numericTmdbId && !tmdbKey) {
+            // No TMDB key — try via ElfHosted TMDB addon (no key required)
+            try {
+                const type2 = mediaType === 'tv' ? 'series' : 'movie';
+                const elfRes = await fetch(`https://tmdb.elfhosted.com/meta/${type2}/${numericTmdbId}.json`, { signal: AbortSignal.timeout(6000) }).then(r => r.json());
+                const resolvedImdbId = elfRes?.meta?.imdb_id || elfRes?.meta?.imdbId;
+                if (resolvedImdbId) {
+                    console.log(`[UnifiedDetail] Resolved via ElfHosted: TMDB ${numericTmdbId} → IMDb ${resolvedImdbId}`);
+                    cinemetaId = resolvedImdbId;
+                    item.imdbId = resolvedImdbId;
+                    item.imdb_id = resolvedImdbId;
+                }
+            } catch (err) {
+                console.warn(`[UnifiedDetail] ElfHosted fallback failed for ${numericTmdbId}:`, err.message);
+            }
+        }
 
         const isLocalLib = item.isLocal || (item.path && !/^https?:\/\//i.test(item.path) && !/^magnet:/i.test(item.path));
 
@@ -295,7 +354,7 @@ function showUnifiedLoader() {
         loader.innerHTML = `
             <div class="dd-loader-content">
                 <div class="dd-loader-spinner-premium"></div>
-                <p>Establishing Cinematic Connection...</p>
+                <p style="font-size: 0.95rem; font-weight: 600; color: rgba(255,255,255,0.8); letter-spacing: 0.5px; text-transform: none;">Usually this doesn't take long...</p>
             </div>
         `;
         container.appendChild(loader);
@@ -316,20 +375,23 @@ function setupUnifiedSkeleton(container, item) {
     container.classList.add('cinematic-mode');
     container.scrollTop = 0;
 
-    const bPath = item.backdrop_path || item.backdrop || item.background;
-    let backdropUrl = 'imgs/no-backdrop.png';
-    
-    if (item.source === 'kitsu' || item.source === 'jikan' || item.source === 'mal') {
-        if (item.attributes?.coverImage) {
-            backdropUrl = window.getKitsuImageUrl(item.attributes.coverImage, true);
-        } else if (bPath) {
-            backdropUrl = (bPath.startsWith('http') || bPath.startsWith('local-file')) ? bPath : window.getTMDBImageUrl(bPath, true);
-        } else if (item.poster || item.poster_path) {
-            backdropUrl = window.getKitsuImageUrl(item.poster || item.poster_path, true);
-        }
-    } else {
-        backdropUrl = window.getTMDBImageUrl(bPath, true);
-    }
+    const sanitizeBackdropPath = (path) => {
+        if (!path) return null;
+        let value = String(path).trim();
+        value = value.replace(/\\/g, '/');
+        value = value.replace(/\/+(img|background\.jpg|poster\.jpg|poster\.png)(:\d+)?$/i, '');
+        value = value.replace(/^(img|poster)(:\d+)?$/i, '');
+        value = value.replace(/^\/+(img|poster)(:\d+)?$/i, '');
+        return value || null;
+    };
+
+    const bPath = sanitizeBackdropPath(item.backdrop_path || item.backdrop || item.background || item.cover || item.poster || item.poster_path);
+    const lowResBackdrop = sanitizeBackdropPath(item.thumb || item.thumbnail || item.poster || item.poster_path) || 'imgs/no-backdrop.png';
+    const defaultBackdrop = item.source === 'kitsu' || item.source === 'jikan' || item.source === 'mal'
+        ? (item.attributes?.coverImage ? window.getKitsuImageUrl(item.attributes.coverImage, true) : null)
+        : (bPath ? window.getTMDBImageUrl(bPath, true) : null);
+
+    const backdropUrl = defaultBackdrop || (bPath && (bPath.startsWith('http') || bPath.startsWith('local-file')) ? bPath : null) || lowResBackdrop || 'imgs/no-backdrop.png';
 
     const isKitsu = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || !!item.anime_id || !!item.mal_id || (item.id && (String(item.id).startsWith('kitsu:') || String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:') || String(item.id).startsWith('anilist:')));
     const isTV = window.checkIfTV(item);
@@ -339,11 +401,11 @@ function setupUnifiedSkeleton(container, item) {
 
     container.innerHTML = `
         <div class="dd-container">
-            <button class="dd-exit-fullscreen-btn" id="dd-exit-fullscreen-btn" type="button">
+            <button class="dd-exit-fullscreen-btn" id="dd-exit-fullscreen-btn" type="button" style="display: none;">
                 <i class="fas fa-eye"></i> Show UI
             </button>
             <div class="dd-backdrop-wrap">
-                <img src="${backdropUrl}" id="dd-backdrop-img" class="dd-backdrop-img">
+                <img src="${lowResBackdrop}" data-hi-res="${backdropUrl}" id="dd-backdrop-img" class="dd-backdrop-img dd-backdrop-loading">
                 <div class="dd-backdrop-overlay"></div>
             </div>
 
@@ -351,9 +413,14 @@ function setupUnifiedSkeleton(container, item) {
             <div class="dd-side-panel" id="dd-side-panel">
                 <div class="dd-panel-header">
                     <h3 id="dd-panel-title">Episodes</h3>
-                    <button class="dd-panel-close" onclick="document.getElementById('dd-side-panel').classList.remove('active')">
-                        <i class="fas fa-times"></i>
-                    </button>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(0, 173, 181, 0.12); border: 1px solid rgba(0, 173, 181, 0.35); color: #00adb5; padding: 6px 12px; border-radius: 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="How Streams & Addons Work">
+                            <i class="fas fa-info-circle"></i> About
+                        </button>
+                        <button class="dd-panel-close" onclick="document.getElementById('dd-side-panel').classList.remove('active')">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="dd-panel-content" id="dd-panel-content"></div>
             </div>
@@ -365,7 +432,9 @@ function setupUnifiedSkeleton(container, item) {
                         <i class="fas fa-chevron-left"></i>
                     </button>
                     <h3 id="dd-mobile-panel-title">Episodes</h3>
-                    <div style="width: 40px"></div>
+                    <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(0, 173, 181, 0.12); border: 1px solid rgba(0, 173, 181, 0.35); color: #00adb5; padding: 6px 12px; border-radius: 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="How Streams & Addons Work">
+                        <i class="fas fa-info-circle"></i> About
+                    </button>
                 </div>
                 <div class="dd-mobile-panel-content" id="dd-mobile-panel-content"></div>
             </div>
@@ -391,20 +460,20 @@ function setupUnifiedSkeleton(container, item) {
                     </div>
 
                     ${showTmdbNotice ? `
-                    <div class="tmdb-notice-banner" style="margin: 0 0 25px 0; padding: 18px 24px; background: linear-gradient(135deg, rgba(0, 173, 181, 0.05) 0%, rgba(0, 242, 254, 0.01) 100%); border: 1px solid rgba(0, 173, 181, 0.2); border-radius: 16px; display: flex; align-items: center; justify-content: space-between; gap: 20px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); max-width: 750px; transition: all 0.3s ease; flex-wrap: wrap;">
+                    <div class="tmdb-notice-banner" style="margin: 0 0 25px 0; padding: 18px 24px; background: #000000; border: 1.5px solid rgba(255, 255, 255, 0.45); border-radius: 16px; display: flex; align-items: center; justify-content: space-between; gap: 20px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.95), 0 0 25px rgba(255, 255, 255, 0.08); backdrop-filter: blur(12px); max-width: 750px; transition: all 0.3s ease; flex-wrap: wrap;">
                         <div style="display: flex; gap: 15px; align-items: center; flex: 1; min-width: 280px;">
-                            <div style="width: 42px; height: 42px; border-radius: 12px; background: rgba(0, 173, 181, 0.1); border: 1px solid rgba(0, 173, 181, 0.3); display: flex; align-items: center; justify-content: center; color: #00adb5; box-shadow: 0 0 15px rgba(0, 173, 181, 0.2); flex-shrink: 0;">
-                                <i class="fas fa-magic" style="font-size: 18px;"></i>
+                            <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, 0.08); border: 1.5px solid rgba(255, 255, 255, 0.7); display: flex; align-items: center; justify-content: center; color: #ffffff; box-shadow: 0 0 20px rgba(255, 255, 255, 0.15); flex-shrink: 0;">
+                                <i class="fas fa-magic" style="font-size: 18px; color: #ffffff;"></i>
                             </div>
-                            <div style="display: flex; flex-direction: column; gap: 2px; text-align: left;">
-                                <div style="font-size: 14px; font-weight: 800; color: #fff; letter-spacing: 0.3px;">Enhance Your TV Show Experience</div>
-                                <div style="font-size: 12.5px; color: rgba(255,255,255,0.6); line-height: 1.5; font-weight: 500;">
+                            <div style="display: flex; flex-direction: column; gap: 3px; text-align: left;">
+                                <div style="font-size: 14px; font-weight: 800; color: #ffffff; letter-spacing: 0.3px;">Enhance Your TV Show Experience</div>
+                                <div style="font-size: 12.5px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; font-weight: 500;">
                                     Missing those episode posters? We can fix that! Simply add your TMDB API key in Settings, and we'll handle the rest.
                                 </div>
                             </div>
                         </div>
-                        <button class="btn-primary" style="background: linear-gradient(135deg, #00adb5 0%, #00f2fe 100%); border: none; color: #fff; padding: 10px 20px; font-size: 12px; font-weight: 700; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0, 173, 181, 0.3); white-space: nowrap;" onclick="if(typeof window.closeUnifiedDetail === 'function') window.closeUnifiedDetail(); if(typeof window.switchView === 'function') window.switchView('settings');" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0, 173, 181, 0.5)';" onmouseout="this.style.transform='none'; this.style.boxShadow='0 4px 15px rgba(0, 173, 181, 0.3)';">
-                            <i class="fas fa-cog"></i> GO TO SETTINGS
+                        <button class="btn-primary" style="background: #ffffff; border: none; color: #000000; padding: 10px 22px; font-size: 12px; font-weight: 800; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; box-shadow: 0 4px 20px rgba(255, 255, 255, 0.3); white-space: nowrap;" onclick="if(typeof window.closeUnifiedDetail === 'function') window.closeUnifiedDetail(); if(typeof window.switchView === 'function') window.switchView('settings');" onmouseover="this.style.background='#f4f4f5'; this.style.transform='translateY(-2px)';" onmouseout="this.style.background='#ffffff'; this.style.transform='none';">
+                            <i class="fas fa-cog" style="color: #000000;"></i> <span style="color: #000000; font-weight: 800;">GO TO SETTINGS</span>
                         </button>
                     </div>
                     ` : ''}
@@ -417,9 +486,9 @@ function setupUnifiedSkeleton(container, item) {
                     </div>
 
                     <div class="dd-bottom-actions">
-                        <button class="dd-btn-main primary-premium" id="dd-play-btn-top" onclick="window.openEpisodes()">${isTV ? '<i class="fas fa-list-ol"></i> Show Episodes' : '<i class="fas fa-play"></i> Watch Now'}</button>
+                        <button class="dd-btn-main primary-premium" id="dd-play-btn-top" onclick="window.openEpisodes()">${isTV ? '<i class="fas fa-list-ol"></i> Show Episodes' : '<i class="fas fa-play-circle" style="font-size: 0.95rem;"></i> Watch Now'}</button>
                         <div class="dd-list-dropdown">
-                            <button class="dd-btn-main glass-premium" id="btn-main-list" type="button"><i class="fas fa-list"></i> List</button>
+                            <button class="dd-btn-main primary-premium" id="btn-main-list" type="button"><i class="fas fa-plus-circle" style="font-size: 0.95rem;"></i> My List</button>
                             <div class="dd-dropdown-menu" id="dd-list-menu">
                                 <div class="dd-menu-inner">
                                 <div class="dd-menu-title">Select action</div>
@@ -439,7 +508,7 @@ function setupUnifiedSkeleton(container, item) {
                             </div>
                             </div>
                         </div>
-                        <button class="dd-btn-main glass-premium" id="dd-go-back-btn" type="button"><i class="fas fa-chevron-left"></i> Go Back</button>
+                        <button class="dd-btn-main primary-premium" id="dd-go-back-btn" type="button"><i class="fas fa-chevron-left"></i> Go Back</button>
                     </div>
                 </div>
             </div>
@@ -544,20 +613,25 @@ function setupUnifiedSkeleton(container, item) {
 
         const listToggleBtn = document.getElementById('btn-main-list');
         if (listToggleBtn) {
-            let listLabel = 'List';
+            let listLabel = 'My List';
+            let listIcon = 'plus-circle';
             const isAnyActive = isWatched || isWatchlist || isInCustomList;
             
             if (isWatched) {
                 listLabel = 'Watched';
+                listIcon = 'eye';
             } else if (isWatchlist && isInCustomList) {
-                listLabel = `In List & ${activeCustomLists.length === 1 ? activeCustomLists[0].name : 'Collections'}`;
+                listLabel = `In My List (${activeCustomLists.length + 1})`;
+                listIcon = 'check-circle';
             } else if (isWatchlist) {
                 listLabel = 'In My List';
+                listIcon = 'check-circle';
             } else if (isInCustomList) {
                 listLabel = activeCustomLists.length === 1 ? `In ${activeCustomLists[0].name}` : 'In Collections';
+                listIcon = 'check-circle';
             }
             
-            listToggleBtn.innerHTML = `<i class="fas fa-list"></i> ${listLabel}`;
+            listToggleBtn.innerHTML = `<i class="fas fa-${listIcon}" style="font-size: 0.95rem;"></i> ${listLabel}`;
             listToggleBtn.classList.toggle('in-library', isAnyActive);
         }
 
@@ -709,6 +783,30 @@ function setupUnifiedSkeleton(container, item) {
         };
         document.addEventListener('click', window._ddUnifiedListMenuCloseHandler);
     }
+
+
+    const loadUnifiedBackdrop = () => {
+        const img = document.getElementById('dd-backdrop-img');
+        if (!img) return;
+
+        const hiRes = img.dataset.hiRes;
+        if (!hiRes || img.src === hiRes) {
+            img.classList.remove('dd-backdrop-loading');
+            return;
+        }
+
+        const loader = new Image();
+        loader.src = hiRes;
+        loader.onload = () => {
+            img.src = hiRes;
+            img.classList.remove('dd-backdrop-loading');
+        };
+        loader.onerror = () => {
+            img.classList.remove('dd-backdrop-loading');
+            img.src = 'imgs/no-backdrop.png';
+        };
+    };
+    loadUnifiedBackdrop();
 
     // Hook up trailer control event listeners
     const youtubeBtn = document.getElementById('dd-youtube-btn');
@@ -892,10 +990,10 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         const { escapeHTML } = window;
         const isKitsu = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || !!item.anime_id || !!item.mal_id || (item.id && (String(item.id).startsWith('kitsu:') || String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:') || String(item.id).startsWith('anilist:')));
         
-        // Hide IMDb badge for anime, show for Western media
+        // Show IMDb badge for all media including anime
         const imdbBadge = document.getElementById('dd-imdb-badge');
         if (imdbBadge) {
-            imdbBadge.style.display = isKitsu ? 'none' : 'inline-block';
+            imdbBadge.style.display = 'inline-block';
         }
         
         // Critical assets tracking
@@ -1144,9 +1242,10 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         Array.from(metaContainer.querySelectorAll('.dd-meta-badges-column')).forEach(e => e.remove());
 
         // Render linked IDs (IMDb/TMDB) for transparency
-        const cache = window.appData?.tmdbCache?.[item.id] || {};
-        const resolvedImdb = item.imdb_id || item.imdbId || cache.imdb_id || cache.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
-        const resolvedTmdb = item.tmdbId || item.tmdb_id || cache.tmdbId || cache.tmdb_id || (/^\d+$/.test(String(item.id)) ? item.id : null);
+        const tmdbCacheObj = window.appData?.tmdbCache?.[item.id] || {};
+        const cinemetaCacheObj = window.appData?.cinemetaCache?.[item.id] || {};
+        let resolvedImdb = item.imdb_id || item.imdbId || tmdbCacheObj.imdb_id || tmdbCacheObj.imdbId || cinemetaCacheObj.imdb_id || cinemetaCacheObj.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
+        const resolvedTmdb = item.tmdbId || item.tmdb_id || tmdbCacheObj.tmdbId || tmdbCacheObj.tmdb_id || (/^\d+$/.test(String(item.id)) ? item.id : null);
 
         // Create the vertical badges column
         const badgesCol = document.createElement('div');
@@ -1159,7 +1258,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
             margin-left: 10px;
         `;
 
-        const createMetaBadge = (text, isUnrated = false) => {
+        const createMetaBadge = (text, isUnrated = false, isImdb = false) => {
             const span = document.createElement('span');
             span.className = 'dd-pill dd-id-tag';
             span.textContent = text;
@@ -1169,11 +1268,11 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                 justify-content: center;
                 padding: 2px 10px;
                 border-radius: 20px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                color: ${isUnrated ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.85)'};
-                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid ${isImdb ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255, 255, 255, 0.08)'};
+                color: ${isImdb ? '#f59e0b' : (isUnrated ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.85)')};
+                background: ${isImdb ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)'};
                 font-size: 10px;
-                font-weight: 600;
+                font-weight: 700;
                 white-space: nowrap;
                 letter-spacing: 0.5px;
                 line-height: 1;
@@ -1193,9 +1292,26 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
         // 2. Add ID badge (bottom row)
         if (resolvedImdb) {
-            badgesCol.appendChild(createMetaBadge(resolvedImdb));
+            item.imdb_id = resolvedImdb;
+            item.imdbId = resolvedImdb;
+            badgesCol.appendChild(createMetaBadge(`IMDb: ${resolvedImdb}`, false, true));
         } else if (resolvedTmdb) {
             badgesCol.appendChild(createMetaBadge(`TMDB ${resolvedTmdb}`));
+        } else if (isKitsu) {
+            const kitsuId = item.kitsuId || (String(item.id).startsWith('kitsu:') ? String(item.id).replace('kitsu:', '') : null);
+            if (kitsuId) {
+                fetch(`https://kitsu.io/api/edge/anime/${kitsuId}/mappings?page[limit]=20`)
+                    .then(r => r.json())
+                    .then(json => {
+                        const imdbMap = json?.data?.find(m => m.attributes?.externalSite === 'imdb');
+                        if (imdbMap && imdbMap.attributes?.externalId) {
+                            const imdbId = imdbMap.attributes.externalId;
+                            item.imdb_id = imdbId;
+                            item.imdbId = imdbId;
+                            badgesCol.appendChild(createMetaBadge(`IMDb: ${imdbId}`, false, true));
+                        }
+                    }).catch(() => null);
+            }
         }
 
         metaContainer.appendChild(badgesCol);
@@ -1204,17 +1320,9 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
     const extraInfo = document.getElementById('dd-extra-info');
     if (extraInfo) {
         extraInfo.innerHTML = '';
-        const kitsuGenres = extra1?.genres || item.genres;
-        if (isKitsu && kitsuGenres && kitsuGenres.length) {
-            extraInfo.appendChild(createPillGroup('GENRES', kitsuGenres));
-        } else if (tmdb?.genre && Array.isArray(tmdb.genre)) {
-            // Cinemeta format: meta.genre = ["Action", "Drama"]
-            extraInfo.appendChild(createPillGroup('GENRES', tmdb.genre));
-        } else if (tmdb?.genres && Array.isArray(tmdb.genres)) {
-            // TMDB format: meta.genres = [{name: "Action"}]
-            extraInfo.appendChild(createPillGroup('GENRES', tmdb.genres.map(g => g.name || g)));
-        } else if (kitsuGenres) {
-            extraInfo.appendChild(createPillGroup('GENRES', kitsuGenres));
+        const allGenres = extractAllGenres(item, tmdb, extra1, anilist);
+        if (allGenres.length > 0) {
+            extraInfo.appendChild(createPillGroup('GENRES', allGenres));
         }
     }
 
@@ -1222,7 +1330,42 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
     if (overview) {
         const kitsuOverview = extra1?.description || extra1?.overview || (item.attributes?.synopsis) || item.overview || item.synopsis;
         const resolvedOverview = tmdb?.overview || tmdb?.description || tmdb?.synopsis || kitsuOverview || 'No overview available.';
-        overview.textContent = (isKitsu && anilist?.description) ? anilist.description.replace(/<br>/g, '\n').replace(/<\/?[^>]+(>|$)/g, "") : resolvedOverview;
+        const fullText = (isKitsu && anilist?.description) ? anilist.description.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?[^>]+(>|$)/g, "") : resolvedOverview;
+        
+        overview.textContent = fullText;
+
+        const summarySec = overview.closest('.dd-summary-section');
+        if (summarySec) {
+            const oldBtn = summarySec.querySelector('.dd-read-more-btn');
+            if (oldBtn) oldBtn.remove();
+
+            overview.classList.remove('expanded');
+
+        // Remove previous button
+        const oldBtn2 = summarySec.querySelector('.dd-read-more-btn');
+        if (oldBtn2) oldBtn2.remove();
+
+        // Only show "Read More" button if text actually overflows the clamped box
+        // We use a rAF to let the DOM settle after setting textContent
+        requestAnimationFrame(() => {
+          const isOverflowing = overview.scrollHeight > overview.clientHeight + 2;
+          if (isOverflowing) {
+            const toggleBtn = document.createElement('button');
+            toggleBtn.type = 'button';
+            toggleBtn.className = 'dd-read-more-btn';
+            toggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Read More';
+            toggleBtn.onclick = (e) => {
+              e.stopPropagation();
+              const isExpanded = overview.classList.toggle('expanded');
+              toggleBtn.innerHTML = isExpanded
+                ? '<i class="fas fa-chevron-up"></i> Read Less'
+                : '<i class="fas fa-chevron-down"></i> Read More';
+            };
+            summarySec.appendChild(toggleBtn);
+          }
+        });
+
+        }
     }
 
     if (typeof window.updateUnifiedWatchlistUI === 'function') {
@@ -1241,8 +1384,75 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
     }; 
     const currentItem = window.currentDetailItem;
 
+    // Cache: showId_season → Map<episodeNum, still_url>
+    const _tmdbStillCache = {};
+
+    // Fetch ALL episode stills for a season in one call, then apply to rendered cards
+    const prefetchTmdbSeasonStills = async (showId, seasonN) => {
+        const cacheKey = `${showId}_${seasonN}`;
+        if (_tmdbStillCache[cacheKey]) return _tmdbStillCache[cacheKey]; // already fetched
+        _tmdbStillCache[cacheKey] = {}; // mark as fetching (empty map prevents duplicate requests)
+        try {
+            const tmdbKey = window.appData?.tmdbKey;
+            if (!tmdbKey || !showId) return {};
+            // Resolve TMDB TV ID from IMDB ID if needed
+            let tvId = null;
+            if (String(showId).startsWith('tt')) {
+                const res = await fetch(`https://api.themoviedb.org/3/find/${showId}?api_key=${tmdbKey}&external_source=imdb_id`).then(r => r.json()).catch(() => null);
+                tvId = res?.tv_results?.[0]?.id;
+            } else if (/^\d+$/.test(String(showId))) {
+                tvId = showId;
+            }
+            if (!tvId) return {};
+            const season = await fetch(`https://api.themoviedb.org/3/tv/${tvId}/season/${seasonN}?api_key=${tmdbKey}`).then(r => r.json()).catch(() => null);
+            const map = {};
+            (season?.episodes || []).forEach(ep => {
+                if (ep.still_path) map[ep.episode_number] = `https://image.tmdb.org/t/p/w400${ep.still_path}`;
+            });
+            _tmdbStillCache[cacheKey] = map;
+            return map;
+        } catch (e) {
+            return {};
+        }
+    };
+
+    // Apply fetched stills to already-rendered episode cards
+    const applyTmdbStillsToCards = (listEl, stillsMap, seasonN) => {
+        if (!stillsMap || !Object.keys(stillsMap).length) return;
+        const cards = listEl.querySelectorAll(`.dd-ep-card[data-season="${seasonN}"]`);
+        cards.forEach(card => {
+            const epN = parseInt(card.dataset.episode);
+            const stillUrl = stillsMap[epN];
+            if (!stillUrl) return;
+            const img = card.querySelector('img');
+            if (img && img.isConnected) {
+                img.onerror = null;
+                img.src = stillUrl;
+            }
+        });
+    };
+
+
     const renderEpisodesInBatches = (listEl, episodes, seasonNum, isKitsu = false) => {
         if (!listEl) return;
+        
+        // Normalize and save the current episodes list so the player can access it for the sidebar and auto-next
+        window.currentDetailEpisodes = (episodes || []).map(v => {
+            const epNum = isKitsu ? v.episode : (v.episode_number !== undefined ? v.episode_number : v.episode);
+            const epName = isKitsu ? (v.name || v.title) : v.name;
+            const epThumb = isKitsu ? v.thumbnail : (v.still_path ? window.getTMDBImageUrl(v.still_path, false) : null);
+            const currentSeason = v.season !== undefined ? v.season : (isKitsu ? (v.season || 1) : seasonNum);
+            return {
+                id: window.currentDetailItem?.id || v.showId || '',
+                season: currentSeason,
+                episode: epNum,
+                title: epName || `Episode ${epNum}`,
+                still_path: v.still_path || null,
+                thumbnail: epThumb || '',
+                path: v.path || ''
+            };
+        });
+
         listEl.innerHTML = '';
         const batchSize = 20;
         let currentIdx = 0;
@@ -1252,49 +1462,97 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         const renderBatch = () => {
             if (listEl.dataset.renderId !== String(renderId)) return;
             const batch = episodes.slice(currentIdx, currentIdx + batchSize);
-            const html = batch.map((v, i) => {
-                const idx = currentIdx + i;
+            const fragment = document.createDocumentFragment();
+
+            batch.forEach((v, i) => {
                 const epNum = isKitsu ? v.episode : (v.episode_number !== undefined ? v.episode_number : v.episode);
                 const epName = isKitsu ? (v.name || v.title) : v.name;
                 const epDate = isKitsu ? v.released : v.air_date;
                 const epThumb = isKitsu ? v.thumbnail : (v.still_path ? window.getTMDBImageUrl(v.still_path, false) : null);
-                
-                // Unreleased check: if date is in the future or no title/thumb
+
                 const isUnreleased = epDate && new Date(epDate) > new Date();
                 const finalTitle = epName || ("Episode " + epNum);
                 const thumbUrl = isUnreleased ? 'imgs/no-backdrop.png' : (epThumb || currentItem.backdrop_path || currentItem.poster_path || 'imgs/no-backdrop.png');
                 const displayDate = epDate ? new Date(epDate).toLocaleDateString() : '';
                 const currentSeason = v.season !== undefined ? v.season : (isKitsu ? (v.season || 1) : seasonNum);
 
-                return `
-                    <div class="dd-ep-card" data-season="${currentSeason}" data-episode="${epNum}" style="animation-delay: ${Math.min(i * 0.05, 1)}s" 
-                         onclick="window.selectUnifiedEpisode(${currentSeason}, ${epNum}, '${(finalTitle || '').replace(/'/g, "\\'")}', '${epThumb || ''}', '${(v.path || '').replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')">
-                         <div class="dd-ep-img">
-                             <img src="${thumbUrl}" onerror="this.onerror=null;this.src='imgs/no-backdrop.png'">
-                             <div class="dd-ep-number">EP ${epNum}</div>
-                            ${isUnreleased ? '<div style="position:absolute; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(2px); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:900; color:#fff; letter-spacing:1px;">UPCOMING</div>' : ''}
-                        </div>
-                        <div class="dd-ep-info">
-                            <div class="dd-ep-name">${(window.escapeHTML || (s=>s))(finalTitle)}</div>
-                            <div class="dd-ep-date">${displayDate}</div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-            
-            listEl.insertAdjacentHTML('beforeend', html);
-            
+                const card = document.createElement('div');
+                card.className = 'dd-ep-card';
+                card.dataset.season = currentSeason;
+                card.dataset.episode = epNum;
+                card.style.animationDelay = `${Math.min(i * 0.05, 1)}s`;
+                card.onclick = () => window.selectUnifiedEpisode(currentSeason, epNum, finalTitle, epThumb || '', v.path || '');
+
+                const imgEl = document.createElement('img');
+                imgEl.src = thumbUrl;
+
+                // Smart fallback: if image fails → try TMDB still → then backdrop
+                const showId = window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId ||
+                               (String(window.currentDetailItem?.id || '').startsWith('tt') ? window.currentDetailItem.id : null) ||
+                               window.currentDetailItem?.tmdb_id || window.currentDetailItem?.tmdbId;
+
+                if (!isUnreleased) {
+                    imgEl.onerror = () => {
+                        imgEl.onerror = null;
+                        imgEl.src = currentItem.backdrop_path || currentItem.poster_path || 'imgs/no-backdrop.png';
+                    };
+                } else {
+                    imgEl.onerror = () => { imgEl.onerror = null; imgEl.src = 'imgs/no-backdrop.png'; };
+                }
+
+                const epImgDiv = document.createElement('div');
+                epImgDiv.className = 'dd-ep-img';
+                epImgDiv.appendChild(imgEl);
+
+                const epNumDiv = document.createElement('div');
+                epNumDiv.className = 'dd-ep-number';
+                epNumDiv.textContent = `EP ${epNum}`;
+                epImgDiv.appendChild(epNumDiv);
+
+                if (isUnreleased) {
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#fff;letter-spacing:1px;';
+                    overlay.textContent = 'UPCOMING';
+                    epImgDiv.appendChild(overlay);
+                }
+
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'dd-ep-info';
+                infoDiv.innerHTML = `<div class="dd-ep-name">${(window.escapeHTML || (s=>s))(finalTitle)}</div><div class="dd-ep-date">${displayDate}</div>`;
+
+                card.appendChild(epImgDiv);
+                card.appendChild(infoDiv);
+                fragment.appendChild(card);
+            });
+
+            listEl.appendChild(fragment);
+
             if (window.socialPresence && typeof window.socialPresence.renderEpisodePresence === 'function') {
                 const showId = window.currentDetailItem?.id || currentItem?.id;
-                if (showId) {
-                    window.socialPresence.renderEpisodePresence(showId, '.dd-ep-card');
-                }
+                if (showId) window.socialPresence.renderEpisodePresence(showId, '.dd-ep-card');
             }
 
             currentIdx += batchSize;
-
             if (currentIdx < episodes.length) {
-                setTimeout(renderBatch, 16); // Approximately 1 frame delay
+                setTimeout(renderBatch, 16);
+            } else {
+                // All batches done → fetch stills from TMDB/Cinemeta (via Main Process or Key)
+                const sid = window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId ||
+                    (String(window.currentDetailItem?.id || '').startsWith('tt') ? window.currentDetailItem.id : null) ||
+                    window.currentDetailItem?.tmdb_id || window.currentDetailItem?.tmdbId;
+                if (sid && !isKitsu) {
+                    window.api.invoke('tmdb-season-details', sid, seasonNum).then(res => {
+                        if (res && res.episodes && res.episodes.length > 0) {
+                            const map = {};
+                            res.episodes.forEach(ep => {
+                                if (ep.still_path) {
+                                    map[ep.episode_number] = ep.still_path;
+                                }
+                            });
+                            applyTmdbStillsToCards(listEl, map, seasonNum);
+                        }
+                    }).catch(() => null);
+                }
             }
         };
 
@@ -1745,14 +2003,14 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                                 return ep;
                             });
 
-                            renderEpisodesInBatches(listEl, enrichedEps, 1, false);
+                            renderEpisodesInBatches(listEl, enrichedEps, enrichedEps[0]?.season || 1, false);
                             enriched = true;
                         }
                     } catch (err) {
                         console.error('[DETAIL] Failed to fetch local episodes metadata:', err);
                     } finally {
                         if (!enriched) {
-                            renderEpisodesInBatches(listEl, offlineEps, 1, false);
+                            renderEpisodesInBatches(listEl, offlineEps, offlineEps[0]?.season || 1, false);
                         }
                     }
                 })();
@@ -1868,7 +2126,12 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                         </div>
                         <div class="dd-episode-list" id="dd-unified-ep-list"></div>
                         <div id="dd-streams-container-unified" style="display:none">
-                            <button class="dd-panel-back-to-ep" onclick="window.backToEpisodes()"><i class="fas fa-chevron-left"></i> Back to Episodes</button>
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                                <button class="dd-panel-back-to-ep" onclick="window.backToEpisodes()"><i class="fas fa-chevron-left"></i> Back to Episodes</button>
+                                <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(0, 173, 181, 0.12); border: 1px solid rgba(0, 173, 181, 0.35); color: #00adb5; padding: 5px 12px; border-radius: 10px; font-weight: 700; font-size: 0.76rem; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                    <i class="fas fa-info-circle"></i> About Streams
+                                </button>
+                            </div>
                             <div id="dd-streams-list" class="dd-streams-list-unified active"></div>
                         </div>
                     </div>
@@ -2021,12 +2284,30 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
     const watchBtn = document.getElementById('btn-main-watch');
     if (watchBtn) watchBtn.onclick = window.openEpisodes;
-    
+
     const playBtnTop = document.getElementById('dd-play-btn-top');
     if (playBtnTop) {
-        playBtnTop.onclick = window.openEpisodes;
-        playBtnTop.innerHTML = isTV ? '<i class="fas fa-list-ol"></i> Show Episodes' : '<i class="fas fa-play"></i> Watch Now';
+        const defaultPlayLabel = isTV ? '<i class="fas fa-list-ol"></i> Show Episodes' : '<i class="fas fa-play"></i> Watch Now';
+        playBtnTop.innerHTML = defaultPlayLabel;
+        playBtnTop.onclick = (e) => {
+            // For movies with auto-choose: show inline spinner inside the button
+            if (!isTV && window.appData && window.appData.autoChooseBestStream) {
+                playBtnTop.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Finding Stream...';
+                playBtnTop.style.opacity = '0.75';
+                playBtnTop.style.pointerEvents = 'none';
+                // Restore button after a delay (stream auto-plays, user returns, etc.)
+                const restoreBtn = () => {
+                    playBtnTop.innerHTML = defaultPlayLabel;
+                    playBtnTop.style.opacity = '';
+                    playBtnTop.style.pointerEvents = '';
+                };
+                setTimeout(restoreBtn, 8000);
+                window._restorePlayBtn = restoreBtn;
+            }
+            window.openEpisodes(e);
+        };
     }
+
     
     const trailerBtn = document.getElementById('dd-play-trailer');
     if (trailerBtn) {
@@ -2035,6 +2316,44 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
     resolve();
   });
+}
+
+function extractAllGenres(item, tmdb, extra1, anilist) {
+    const genreSet = new Set();
+    const rawCandidates = [
+        tmdb?.genres,
+        tmdb?.genre,
+        extra1?.genres,
+        extra1?.genre,
+        item?.genres,
+        item?.genre,
+        anilist?.genres
+    ];
+
+    rawCandidates.forEach(candidate => {
+        if (!candidate) return;
+        if (Array.isArray(candidate)) {
+            candidate.forEach(g => {
+                if (!g) return;
+                if (typeof g === 'string') {
+                    g.split(/[,/|]/).forEach(s => {
+                        const clean = s.trim();
+                        if (clean && clean.length > 1) genreSet.add(clean);
+                    });
+                } else if (typeof g === 'object' && (g.name || g.label)) {
+                    const clean = (g.name || g.label).trim();
+                    if (clean && clean.length > 1) genreSet.add(clean);
+                }
+            });
+        } else if (typeof candidate === 'string') {
+            candidate.split(/[,/|]/).forEach(s => {
+                const clean = s.trim();
+                if (clean && clean.length > 1) genreSet.add(clean);
+            });
+        }
+    });
+
+    return Array.from(genreSet);
 }
 
 function createPillGroup(label, items) {
@@ -2147,36 +2466,10 @@ async function playBackgroundTrailer(youtubeUrl) {
     const youtubeId = extractYoutubeId(youtubeUrl);
     if (!youtubeId) return;
 
-    // ── Fix 1: Wait for the banner image to be fully loaded before resolving trailer ──
-    // This ensures the user always sees the sharp banner first, not an empty/loading state.
-    if (img.src && !img.complete) {
-        await new Promise(resolve => {
-            img.onload = resolve;
-            img.onerror = resolve;
-            // Safety timeout: don't wait forever
-            setTimeout(resolve, 4000);
-        });
-    }
-
-    // ── Fix 2: Ensure the high-res backdrop is ready ──
-    // If a progressive-load swap is in progress (blur → sharp), wait for it.
-    // The high-res image sets filter='' when done; if filter still has blur, it hasn't finished.
-    if (img.style.filter && img.style.filter.includes('blur')) {
-        await new Promise(resolve => {
-            const check = setInterval(() => {
-                if (!img.style.filter || !img.style.filter.includes('blur')) {
-                    clearInterval(check);
-                    resolve();
-                }
-            }, 200);
-            setTimeout(() => { clearInterval(check); resolve(); }, 5000);
-        });
-    }
-
-    // ── Fix 3: Save the current (high-res) banner src for restoration after trailer ends ──
+    // Save current banner src for restoration when trailer ends
     const savedBannerSrc = img.src;
 
-    // Resolve the YouTube URL using yt-dlp / Cobalt backend
+    // Resolve the YouTube URL immediately in parallel
     let directUrl = null;
     try {
         directUrl = await window.api.invoke('resolve-trailer-stream', youtubeUrl);

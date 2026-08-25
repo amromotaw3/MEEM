@@ -113,26 +113,50 @@
         const localProf = localProfiles.find(p => p.id === profileId);
         const localWatchlist = localProf?.watchlist || [];
         const dbWatchlistIds = new Set((watchlistData || []).map(row => row.media_id));
-        const localOnlyWatchlist = localWatchlist.filter(item => !dbWatchlistIds.has(item.id));
+        const localOnlyWatchlist = localWatchlist.filter(item => item && item.id && !dbWatchlistIds.has(item.id));
+
+        const localWatchlistMap = new Map();
+        localWatchlist.forEach(i => {
+          if (i && i.id) localWatchlistMap.set(i.id, i);
+          if (i && i.path) localWatchlistMap.set(i.path, i);
+          if (i && i.radioUrl) localWatchlistMap.set(i.radioUrl, i);
+          if (i && i.streamUrl) localWatchlistMap.set(i.streamUrl, i);
+        });
 
         const watchlist = [
-            ...(watchlistData || []).map(row => ({
-                id: row.media_id,
-                type: row.type,
-                media_type: row.type,
-                title: row.title,
-                poster: row.poster_path,
-                rating: row.rating ? Number(row.rating) : null,
-                listedAt: row.added_at ? new Date(row.added_at).getTime() : Date.now(),
-                source: row.source || null,
-                mal_id: row.mal_id || null,
-                malId: row.mal_id || null,
-                anime_id: row.anime_id || null,
-                backdrop_path: row.backdrop_path || null,
-                backdrop: row.backdrop_path || null,
-                release_date: row.release_date || null,
-                overview: row.overview || null
-            })),
+            ...(watchlistData || []).map(row => {
+                const localMatch = localWatchlistMap.get(row.media_id) || {};
+                const itemData = row.item_data && typeof row.item_data === 'object' ? row.item_data : {};
+                return {
+                    ...localMatch,
+                    ...itemData,
+                    id: row.media_id || localMatch.id || itemData.id,
+                    type: row.type || localMatch.type || itemData.type || 'movie',
+                    media_type: row.type || localMatch.media_type || itemData.media_type || 'movie',
+                    title: row.title || localMatch.title || itemData.title || 'Untitled',
+                    name: row.title || localMatch.name || itemData.name || 'Untitled',
+                    poster_path: row.poster_path || localMatch.poster_path || itemData.poster_path || null,
+                    posterPath: row.poster_path || localMatch.posterPath || itemData.posterPath || null,
+                    poster: row.poster_path || localMatch.poster || itemData.poster || null,
+                    rating: row.rating ? Number(row.rating) : (localMatch.rating || null),
+                    listedAt: row.added_at ? new Date(row.added_at).getTime() : (localMatch.listedAt || Date.now()),
+                    source: row.source || localMatch.source || null,
+                    mal_id: row.mal_id || localMatch.mal_id || null,
+                    malId: row.mal_id || localMatch.malId || null,
+                    anime_id: row.anime_id || localMatch.anime_id || null,
+                    backdrop_path: row.backdrop_path || localMatch.backdrop_path || null,
+                    backdrop: row.backdrop_path || localMatch.backdrop || null,
+                    release_date: row.release_date || localMatch.release_date || null,
+                    overview: row.overview || localMatch.overview || null,
+                    streamUrl: row.stream_url || row.streamUrl || localMatch.streamUrl || null,
+                    radioUrl: row.radio_url || row.radioUrl || localMatch.radioUrl || null,
+                    favicon: row.favicon || localMatch.favicon || null,
+                    logo: row.logo || localMatch.logo || null,
+                    country: row.country || localMatch.country || null,
+                    category: row.category || localMatch.category || null,
+                    path: row.path || localMatch.path || itemData.path || null
+                };
+            }),
             ...localOnlyWatchlist
         ];
 
@@ -1071,16 +1095,22 @@
                                             profile_id: profile.id,
                                             media_id: item.id,
                                             type: item.type || item.media_type || 'movie',
-                                            title: item.title || 'Untitled',
-                                            poster_path: item.poster || null,
+                                            title: item.title || item.name || 'Untitled',
+                                            poster_path: item.poster_path || item.posterPath || item.favicon || item.logo || item.poster || null,
                                             rating: item.rating ? Number(item.rating) : null,
                                             added_at: item.listedAt ? new Date(item.listedAt).toISOString() : new Date().toISOString(),
                                             source: item.source || null,
                                             mal_id: item.mal_id ? String(item.mal_id) : (item.malId ? String(item.malId) : null),
                                             anime_id: item.anime_id ? String(item.anime_id) : null,
-                                            backdrop_path: item.backdrop_path || item.backdrop || null,
+                                            backdrop_path: item.backdrop_path || item.backdrop || item.favicon || item.logo || null,
                                             release_date: item.release_date || null,
-                                            overview: item.overview || null
+                                            overview: item.overview || null,
+                                            stream_url: item.streamUrl || item.url || null,
+                                            radio_url: item.radioUrl || item.url || null,
+                                            favicon: item.favicon || null,
+                                            logo: item.logo || item.tvgLogo || null,
+                                            country: item.country || null,
+                                            category: item.category || item.groupTitle || null
                                         }));
 
                                         const { error: upsertWlError } = await client
@@ -1182,27 +1212,8 @@
                                         if (delListsError) throw delListsError;
                                     }
 
-                                    // Leave shared lists that the user removed locally
-                                    const { data: userMemberships, error: membError } = await client
-                                        .from('list_members')
-                                        .select('list_id')
-                                        .eq('user_id', toSave.user.id)
-                                        .eq('status', 'joined');
-                                    if (!membError && userMemberships && userMemberships.length > 0) {
-                                        const localListsIds = new Set(localLists.map(x => x.id));
-                                        const membershipsToRemove = userMemberships
-                                            .filter(m => !localListsIds.has(m.list_id))
-                                            .map(m => m.list_id);
-                                        
-                                        if (membershipsToRemove.length > 0) {
-                                            const { error: leaveError } = await client
-                                                .from('list_members')
-                                                .delete()
-                                                .eq('user_id', toSave.user.id)
-                                                .in('list_id', membershipsToRemove);
-                                            if (leaveError) console.error('[Bridge] Failed to leave shared lists:', leaveError.message);
-                                        }
-                                    }
+                                    // NOTE: Auto-leave on sync REMOVED — caused race condition deleting
+                                    // newly-accepted invitations. Leave via explicit user action only.
 
                                     for (const localList of localLists) {
                                         let listId = localList.id;
@@ -1945,7 +1956,7 @@
             // Default Providers — Anime Alt (Kitsu) removed; all streams go through standard IMDb-based IDs.
             const providers = [
                 { name: 'Torrentio', url: 'https://torrentio.strem.fun', icon: 'fas fa-bolt' },
-                { name: 'Comet', url: 'https://comet.strem.fun', icon: 'fas fa-globe' }
+                { name: 'KnightCrawler', url: 'https://main.knightcrawler.elfhosted.com', icon: 'fas fa-dragon' }
             ];
 
             const detectQuality = (text) => {
@@ -1958,19 +1969,43 @@
 
             const promises = providers.map(async (p) => {
                 try {
-                    // Always build the stremioId using IMDb IDs — no Kitsu/anime-specific paths.
-                    let stremioId = type === 'movie' ? imdbId : `${imdbId}:${season}:${episode}`;
+                    // Guard: skip if imdbId is missing — prevents "null:1:5.json" URLs
+                    if (!imdbId || imdbId === 'null' || imdbId === 'undefined') {
+                        console.warn(`[Bridge] ${p.name}: skipping — no valid IMDb ID for "${title}"`);
+                        return;
+                    }
 
+                    let stremioId = type === 'movie' ? imdbId : `${imdbId}:${season}:${episode}`;
                     const url = `${p.url}/stream/${stremioType}/${stremioId}.json`;
+                    console.log(`[Bridge] ${p.name} → ${url}`);
                     const resp = await fetch(url);
+                    if (!resp.ok) {
+                        console.warn(`[Bridge] ${p.name} HTTP ${resp.status} for ${url}`);
+                        return;
+                    }
                     const data = await resp.json();
                     if (data && data.streams) {
+                        console.log(`[Bridge] ${p.name} returned ${data.streams.length} streams`);
                         data.streams.forEach(s => {
                             const torrentTitle = s.title || s.name || '';
-                            // Basic mobile filtering (simplified version of TorrentFilterService)
-                            if (type !== 'movie') {
-                                const epStr = String(episode).padStart(2, '0');
-                                const hasEp = torrentTitle.includes(`E${epStr}`) || torrentTitle.includes(` ${episode} `) || torrentTitle.includes(` ${epStr} `) || new RegExp(`\\b${episode}\\b`).test(torrentTitle);
+                            // Episode filter for series: accept if title contains the episode number in any common format
+                            if (type !== 'movie' && episode != null) {
+                                const epNum = parseInt(episode, 10);
+                                const epStr = String(epNum).padStart(2, '0');
+                                const hasEp = (
+                                    torrentTitle.toLowerCase().includes(`e${epStr}`) ||
+                                    torrentTitle.toLowerCase().includes(`e${epNum}`) ||
+                                    torrentTitle.includes(` ${epNum} `) ||
+                                    torrentTitle.includes(` ${epStr} `) ||
+                                    torrentTitle.includes(`- ${epNum}`) ||
+                                    torrentTitle.includes(`- ${epStr}`) ||
+                                    torrentTitle.startsWith(`${epNum} `) ||
+                                    torrentTitle.startsWith(`${epStr} `) ||
+                                    new RegExp(`[Ee]p?${epNum}\\b`).test(torrentTitle) ||
+                                    new RegExp(`\\b${epNum}\\b`).test(torrentTitle) ||
+                                    torrentTitle.includes('⛔️') ||
+                                    torrentTitle.includes('⚠️')
+                                );
                                 if (!hasEp) return;
                             }
 
@@ -1985,6 +2020,8 @@
                                 fileIdx: s.fileIdx
                             });
                         });
+                    } else {
+                        console.warn(`[Bridge] ${p.name}: no streams in response`);
                     }
                 } catch (e) {
                     console.warn(`[Bridge] Scraper ${p.name} failed:`, e.message);
@@ -2219,7 +2256,7 @@
                 const folders = ['Movies', 'Series', 'Social', 'Music', 'Downloads', 'Subtitles', 'Banners'];
                 for (const folder of folders) {
                     try {
-                        const path = `MediaVault/${profileName}/${folder}`;
+                        const path = `MEEM/${profileName}/${folder}`;
                         await Filesystem.mkdir({
                             path: path,
                             directory: 'DOCUMENTS',
@@ -2470,20 +2507,27 @@
             const fetchStremioAddon = async (name, baseUrl, icon) => {
                 try {
                     const stremioType = type === 'movie' ? 'movie' : 'series';
-                    let stremioId = type === 'movie' ? imdbId : `${imdbId}:${season}:${episode}`;
-                    
-                    // Fallback for anime or missing IMDb
-                    if ((type === 'anime' || !imdbId) && tmdbId) {
-                        // Attempt to use TMDB if IMDB fails, though Stremio prefers IMDB
-                        if (type === 'anime') stremioId = `kitsu:${tmdbId}:${episode || 1}`;
+
+                    // Guard: must have a valid IMDb ID (starts with 'tt')
+                    const validImdb = imdbId && String(imdbId).startsWith('tt');
+
+                    let stremioId;
+                    if (validImdb) {
+                        stremioId = type === 'movie' ? imdbId : `${imdbId}:${season}:${episode}`;
+                    } else if (type === 'anime' && tmdbId) {
+                        // Fallback for anime: use Kitsu ID format
+                        stremioId = `kitsu:${tmdbId}:${episode || 1}`;
+                    } else {
+                        console.warn(`[Bridge-Mobile] ${name}: skipping — no valid IMDb ID for "${title}"`);
+                        return;
                     }
 
-                    if (!stremioId) return;
-
                     const url = `${baseUrl}/stream/${stremioType}/${stremioId}.json`;
+                    console.log(`[Bridge-Mobile] ${name} → ${url}`);
                     const resp = await fetch(url).catch(() => null);
                     if (!resp || !resp.ok) return;
                     const data = await resp.json();
+
                     
                     if (data && data.streams) {
                         data.streams.forEach(s => {
@@ -2493,7 +2537,7 @@
                                 
                                 // Strict episode matching: look for E01, EP01, or standalone 01
                                 const epRegex = new RegExp(`(e|ep|episode|\\s)${epStr}(\\s|\\b|\\.|$)`, 'i');
-                                const isMatch = epRegex.test(torrentTitle);
+                                const isMatch = epRegex.test(torrentTitle) || torrentTitle.includes('⛔️') || torrentTitle.includes('⚠️');
                                 
                                 if (!isMatch) return; // Skip season packs or wrong episodes
                             }
@@ -2753,7 +2797,7 @@
             }
         },
         getDefaultLibraryRoot: async () => {
-            return isAndroid ? 'MediaVault' : 'C:/MediaVault';
+            return isAndroid ? 'MEEM' : 'C:/MEEM';
         },
 
         getCommonPaths: async () => {
@@ -2762,7 +2806,7 @@
                 'Movies',
                 'Download',
                 'DCIM/Camera',
-                'MediaVault',
+                'MEEM',
                 '/storage/emulated/0/Movies',
                 '/storage/emulated/0/Download'
             ];
@@ -2773,7 +2817,7 @@
             if (!isAndroid) return [];
             try {
                 const fs = window.Capacitor.Plugins.Filesystem;
-                const path = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}`;
+                const path = `MEEM/${profileName}/Subtitles${subDir ? '/' + subDir : ''}`;
                 const result = await fs.readdir({ path, directory: 'DOCUMENTS' });
                 return result.files.map(f => ({
                     name: f.name,
@@ -2786,7 +2830,7 @@
             if (!isAndroid) return { success: false };
             try {
                 const fs = window.Capacitor.Plugins.Filesystem;
-                const path = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${fileName}`;
+                const path = `MEEM/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${fileName}`;
                 await fs.writeFile({ path, data: content, directory: 'DOCUMENTS', encoding: 'utf8' });
                 return { success: true };
             } catch (e) { return { success: false, error: e.message }; }
@@ -2795,8 +2839,8 @@
             if (!isAndroid) return { success: false };
             try {
                 const fs = window.Capacitor.Plugins.Filesystem;
-                const from = `MediaVault/${profileName}/Subtitles${fromDir ? '/' + fromDir : ''}/${fileName}`;
-                const to = `MediaVault/${profileName}/Subtitles${toDir ? '/' + toDir : ''}/${fileName}`;
+                const from = `MEEM/${profileName}/Subtitles${fromDir ? '/' + fromDir : ''}/${fileName}`;
+                const to = `MEEM/${profileName}/Subtitles${toDir ? '/' + toDir : ''}/${fileName}`;
                 await fs.rename({ from, to, directory: 'DOCUMENTS' });
                 return { success: true };
             } catch (e) { return { success: false, error: e.message }; }
@@ -2805,8 +2849,8 @@
             if (!isAndroid) return { success: false };
             try {
                 const fs = window.Capacitor.Plugins.Filesystem;
-                const from = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${oldName}`;
-                const to = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${newName}`;
+                const from = `MEEM/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${oldName}`;
+                const to = `MEEM/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${newName}`;
                 await fs.rename({ from, to, directory: 'DOCUMENTS' });
                 return { success: true };
             } catch (e) { return { success: false, error: e.message }; }
@@ -2815,7 +2859,7 @@
             if (!isAndroid) return { success: false };
             try {
                 const fs = window.Capacitor.Plugins.Filesystem;
-                const path = `MediaVault/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${fileName}`;
+                const path = `MEEM/${profileName}/Subtitles${subDir ? '/' + subDir : ''}/${fileName}`;
                 await fs.deleteFile({ path, directory: 'DOCUMENTS' });
                 return { success: true };
             } catch (e) { return { success: false, error: e.message }; }

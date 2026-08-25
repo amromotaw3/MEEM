@@ -1,7 +1,7 @@
 {
-  "name": "mediavault",
-  "version": "30.0.0",
-  "description": "MediaVault — Own Your Stream",
+  "name": "meem",
+  "version": "2.7.0",
+  "description": "MEEM — Play Anything. Anytime.",
   "main": "main.js",
   "repository": {
     "type": "git",
@@ -34,7 +34,7 @@
     "tmdb",
     "downloader"
   ],
-  "author": "MediaVault",
+  "author": "MEEM",
   "license": "MIT",
   "devDependencies": {
     "@capacitor/android": "^8.3.1",
@@ -58,15 +58,22 @@
     "sharp": "^0.34.5"
   },
   "build": {
-    "appId": "com.mediavault.app",
-    "productName": "MediaVault",
-    "copyright": "Copyright © 2026 MediaVault",
+    "appId": "com.meem.app",
+    "productName": "MEEM",
+    "copyright": "Copyright © 2026 MEEM",
     "directories": {
       "output": "build_out"
     },
+    "extraResources": [
+      {
+        "from": "src/assets/VLC skin/MEEM-skin.vlt",
+        "to": "assets/VLC skin/MEEM-skin.vlt"
+      }
+    ],
     "asarUnpack": [
       "**/node_modules/youtube-dl-exec/bin/**/*",
-      "**/node_modules/webtorrent/**/*"
+      "**/node_modules/webtorrent/**/*",
+      "**/src/assets/VLC skin/**/*"
     ],
     "files": [
       "main.js",
@@ -78,7 +85,6 @@
       "ico/**/*",
       "src/**/*",
       "package.json",
-      ".env",
       "src/renderer/imgs/**/*"
     ],
     "win": {
@@ -98,13 +104,12 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "MediaVault",
+      "shortcutName": "MEEM",
       "installerIcon": "src/renderer/imgs/appicon.ico",
       "uninstallerIcon": "src/renderer/imgs/appicon.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "include": "build_assets/installer.nsh"
+      "createStartMenuShortcut": true
     },
     "portable": {
       "artifactName": "${productName}-Portable-${version}.${ext}"
@@ -124,12 +129,15 @@
     "ffmpeg-static": "^5.3.0",
     "ffprobe-static": "*",
     "ip": "^2.0.1",
+    "libass-wasm": "^4.1.0",
     "mime-types": "^3.0.2",
     "music-metadata": "^10.0.0",
     "node-machine-id": "^1.1.12",
     "opensubtitles-api": "^5.1.2",
+    "radio-browser-api": "^6.0.3",
     "torrent-stream": "^1.2.1",
     "webtorrent": "^2.8.5",
-    "youtube-dl-exec": "^3.1.4"
+    "youtube-dl-exec": "^3.1.4",
+    "youtubei.js": "^18.0.0"
   }
 }

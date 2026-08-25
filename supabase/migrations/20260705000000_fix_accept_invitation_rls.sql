@@ -1,0 +1,33 @@
+-- ============================================================
+-- Fix: Accept Invitation RLS Race Condition
+-- Date: 2026-07-05
+-- ============================================================
+-- 
+-- Problem: When a user accepted an invitation, the row in list_members
+-- disappeared instead of changing status from 'pending' to 'joined'.
+--
+-- Root Cause:
+-- 1. cloud-accept-invitation used authenticated client + .select() after UPDATE.
+-- 2. The SELECT policy requires is_list_member() (status='joined'), but during
+--    the UPDATE, the SELECT-after-UPDATE still returned 0 rows due to an RLS
+--    evaluation timing issue.
+-- 3. The code then retried with service_role AND ran the full runQuery again —
+--    which ran update AGAIN on an already-joined row, causing unexpected behavior.
+--
+-- Fix Applied (in store.js):
+-- - Always use service_role client for accept/decline operations.
+-- - Replaced .select() after UPDATE with { count: 'exact', head: true }
+--   to avoid RLS row-return issues.
+-- - Added .eq('status', 'pending') guard so only truly pending invitations
+--   can be accepted (idempotency protection).
+--
+-- No DB schema changes needed — the issue was purely in the Node.js layer.
+-- ============================================================
+
+-- Ensure list_members SELECT policy allows users to see their own rows
+-- (including pending status) — already correct, documenting for clarity:
+-- USING (
+--   user_id = auth.uid()          ← sees own pending invitations
+--   OR is_list_owner(...)          ← owner sees all members
+--   OR is_list_member(...)         ← joined members see fellow members
+-- )

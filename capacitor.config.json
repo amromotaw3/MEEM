@@ -1,6 +1,6 @@
 {
-  "appId": "com.mediavault.app",
-  "appName": "MediaVault",
+  "appId": "com.meem.app",
+  "appName": "MEEM",
   "webDir": "src/renderer",
   "plugins": {
     "SplashScreen": {

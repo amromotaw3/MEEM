@@ -133,6 +133,10 @@ function normalizeStream(raw, addonName, addonIcon) {
   const seedsMatch = statsText.match(/👤\s*(\d+)/) || statsText.match(/(\d+)\s*seeds/i);
   const sizeMatch = statsText.match(/💾\s*([\d.]+\s*[GMTK]i?B)/i) || statsText.match(/([\d.]+\s*[GMTK]i?B)/i);
 
+  // Peario (and similar browser-session addons) return BOTH infoHash AND externalUrl.
+  // externalUrl MUST take priority — these are web room links, not playable torrents.
+  const hasExternalUrl = !!(raw.externalUrl);
+
   return {
     addon: addonName,
     icon: addonIcon,
@@ -140,9 +144,11 @@ function normalizeStream(raw, addonName, addonIcon) {
     quality: detectQuality(title),
     seeds: seedsMatch ? parseInt(seedsMatch[1]) : 0,
     size: sizeMatch ? sizeMatch[1] : '',
-    url: raw.url || raw.infoHash || raw.externalUrl || '',
-    type: raw.infoHash ? 'torrent' : (raw.externalUrl ? 'browser' : 'http'),
-    infoHash: raw.infoHash || null,
+    // externalUrl wins over infoHash — prevents Peario rooms being treated as torrents
+    url: hasExternalUrl ? raw.externalUrl : (raw.url || raw.infoHash || ''),
+    externalUrl: raw.externalUrl || null,
+    type: hasExternalUrl ? 'browser' : (raw.infoHash ? 'torrent' : 'http'),
+    infoHash: hasExternalUrl ? null : (raw.infoHash || null),
     fileIdx: raw.fileIdx != null ? raw.fileIdx : null,
     behaviorHints: raw.behaviorHints || null
   };
@@ -206,15 +212,48 @@ class StremioAddonService {
   /** Fetch streams for a TV Series episode (IMDb + S:E). */
   async getSeriesStreams(imdbId, season, episode) {
     if (!imdbId || !imdbId.startsWith('tt')) return [];
-    const keys = Object.keys(this.addons).filter(k => this.addons[k].types.includes('series') || this.addons[k].types.includes('tv'));
+    const keys = Object.keys(this.addons).filter(k => {
+      const t = this.addons[k].types;
+      // Include addons that explicitly support series/tv
+      if (t.includes('series') || t.includes('tv')) return true;
+      // Also include addons that ONLY have 'movie' — these are typically browser-session
+      // openers (e.g. Peario) whose manifest only lists 'movie' but whose endpoint actually
+      // handles all content types. Real torrent indexers that support series always declare
+      // 'series' in their manifest, so this won't accidentally include wrong addons.
+      if (t.length > 0 && t.every(x => x === 'movie')) return true;
+      return false;
+    });
     return this._fetchWithId(buildImdbStreamId(imdbId, 'tv', season, episode), keys, 'tv', season, episode);
   }
 
-  /**
-   * Fetch streams for an Anime episode using DUAL-ROUTING
-   */
   async getAnimeStreams({ imdbId, kitsuId, season, episode }) {
-    return [];
+    const promises = [];
+
+    // 1. Query addons that support anime/series using Kitsu ID (Standard Stremio Anime behavior)
+    if (kitsuId && episode != null) {
+      const animeKeys = Object.keys(this.addons).filter(k => {
+        const t = this.addons[k].types;
+        return t.includes('anime') || t.includes('series');
+      });
+      if (animeKeys.length) {
+        promises.push(this._fetchWithId(buildKitsuStreamId(kitsuId, episode), animeKeys, 'anime', season, episode, true));
+      }
+    }
+
+    // 2. Query browser-session addons (movie-only typed, like Peario) using the IMDb ID.
+    // These addons handle all content types regardless of their manifest declaration.
+    if (imdbId && imdbId.startsWith('tt') && season != null && episode != null) {
+      const pearioKeys = Object.keys(this.addons).filter(k => {
+        const t = this.addons[k].types;
+        return t.length > 0 && t.every(x => x === 'movie');
+      });
+      if (pearioKeys.length) {
+        promises.push(this._fetchWithId(buildImdbStreamId(imdbId, 'tv', season, episode), pearioKeys, 'tv', season, episode, true));
+      }
+    }
+
+    const results = await Promise.all(promises);
+    return results.flat();
   }
 
   /** Universal entry point — routes by content type. */
@@ -246,6 +285,10 @@ class StremioAddonService {
         break;
       case 'anime':
         streams = await this.getAnimeStreams({ imdbId, kitsuId, season, episode });
+        // If no streams from anime-specific path, also try series route (covers Peario + torrent addons)
+        if (!streams.length && imdbId) {
+          streams = await this.getSeriesStreams(imdbId, season, episode);
+        }
         break;
       default:
         if (imdbId) {
@@ -576,10 +619,13 @@ class StremioAddonService {
       for (const raw of rawStreams) {
         const torrentTitle = raw.title || raw.name || '';
 
-        // Episode verification for series/anime (skip for movies and when explicitly bypassed)
-        // skipEpisodeVerification=true is used for anime with Kitsu IDs because Torrentio already
-        // resolves to the correct absolute episode via the kitsu: prefix — no local re-checking needed.
-        if (!skipEpisodeVerification && type !== 'movie' && torrentTitle) {
+        // Episode verification for series/anime:
+        // – Skip for movies.
+        // – Skip when skipEpisodeVerification=true (Kitsu IDs already resolve to absolute episodes).
+        // – Skip for browser/external streams (e.g. Peario) — they use externalUrl instead of
+        //   infoHash and don't contain torrent title metadata, so matching would always fail.
+        const isBrowserStream = !!raw.externalUrl && !raw.infoHash;
+        if (!skipEpisodeVerification && type !== 'movie' && torrentTitle && !isBrowserStream) {
           const isMatch = TorrentFilterService.verifyEpisodeMatch({
             torrentTitle,
             requestedSeason: season,

@@ -12,7 +12,7 @@ function getProfileSubPath(profileName, libraryRoot, subDir = '') {
   // Use user-specified library root or fallback to default Videos/MediaVault
   let root = libraryRoot;
   if (!root || root === 'undefined') {
-    root = path.join(app.getPath('videos'), 'MediaVault');
+    root = path.join(app.getPath('videos'), 'MEEM');
   }
   const safeName = (profileName || 'Default').replace(/[<>:"/\\|?*]/g, '_');
   const base = path.join(root, safeName, 'Subtitles');

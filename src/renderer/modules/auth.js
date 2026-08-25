@@ -198,9 +198,72 @@
         ? 'Opening Chrome to sign in with Google… You will return to MediaVault automatically.'
         : 'Opening browser for Discord… You will return to MediaVault automatically.', true);
     } else {
-      setAuthMessage(msgEl, provider === 'google'
-        ? 'Google login window is opening. Please wait...'
-        : 'Waiting for Discord login...', true);
+      // Show waiting message with a fallback manual input area
+      const providerName = provider === 'google' ? 'Google' : 'Discord';
+      msgEl.innerHTML = `
+        <div style="margin-top: 10px; text-align: center;">
+          <div class="spinner" style="display:inline-block; margin-bottom: 8px;"></div>
+          <div>Waiting for ${providerName} login...</div>
+          <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 12px; margin-bottom: 8px; line-height: 1.4;">
+            If the app didn't open automatically after logging in, copy the final URL from your browser address bar and paste it below:
+          </div>
+          <div style="display: flex; gap: 6px; justify-content: center; align-items: center;">
+            <input type="text" id="manual-oauth-url" placeholder="Paste callback URL here (mediavault://... or localhost:3000...)" style="
+              flex: 1;
+              background: rgba(255,255,255,0.06);
+              border: 1px solid rgba(255,255,255,0.15);
+              border-radius: 6px;
+              padding: 6px 10px;
+              font-size: 11px;
+              color: #fff;
+              outline: none;
+            " />
+            <button id="manual-oauth-btn" class="btn" style="
+              padding: 6px 12px;
+              font-size: 11px;
+              background: #5865F2;
+              border: none;
+              border-radius: 6px;
+              color: white;
+              cursor: pointer;
+            ">Submit</button>
+          </div>
+        </div>
+      `;
+
+      // Attach event listener for the manual login fallback
+      const submitBtn = msgEl.querySelector('#manual-oauth-btn');
+      const inputEl = msgEl.querySelector('#manual-oauth-url');
+      if (submitBtn && inputEl) {
+        submitBtn.onclick = async () => {
+          const rawVal = inputEl.value.trim();
+          if (!rawVal) return;
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Verifying...';
+          // Convert localhost:3000 links to mediavault:// protocol if needed
+          let formattedUrl = rawVal;
+          if (rawVal.includes('localhost:3000') || rawVal.includes('127.0.0.1:3000')) {
+            const hashIndex = rawVal.indexOf('#');
+            const searchIndex = rawVal.indexOf('?');
+            const paramStart = hashIndex !== -1 ? hashIndex : searchIndex;
+            if (paramStart !== -1) {
+              formattedUrl = 'mediavault://callback' + rawVal.substring(paramStart);
+            }
+          }
+          try {
+            const handled = await handleOAuthDeepLink(formattedUrl);
+            if (!handled) {
+              showToast('❌ Invalid token or callback URL.');
+              submitBtn.disabled = false;
+              submitBtn.textContent = 'Submit';
+            }
+          } catch (err) {
+            showToast('❌ Verification failed: ' + err.message);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit';
+          }
+        };
+      }
     }
 
     await window.api.cloudOAuthLogin(data.url);
@@ -471,11 +534,17 @@
       try {
         const resp = await window.api.loadData();
         if (resp) {
-          if (resp.banned || resp.authenticated === false) {
-            console.warn('[AUTH] Session invalidated or banned during periodic check.');
+          if (resp.banned) {
+            console.warn('[AUTH] Device or account banned during periodic check.');
             clearInterval(window.periodicSessionCheckInterval);
             window.periodicSessionCheckInterval = null;
             showBannedOverlay(resp.banReason || 'Your account has been suspended.', hardwareIdCacheLocal || 'Unknown');
+            return;
+          }
+          if (resp.authenticated === false) {
+            console.warn('[AUTH] Session expired or unauthenticated during periodic check.');
+            clearInterval(window.periodicSessionCheckInterval);
+            window.periodicSessionCheckInterval = null;
             return;
           }
           if (resp.user) {
@@ -627,15 +696,11 @@
     overlay.id = 'auth-overlay';
     overlay.className = 'auth-overlay';
     overlay.innerHTML = `
-      <div class="auth-orbs" aria-hidden="true">
-        <div style="top:-20%;left:-20%;width:80%;height:80%;background:radial-gradient(circle,rgba(168,85,247,0.35) 0%,transparent 70%);animation:splashOrbit 8s infinite ease-in-out"></div>
-        <div style="bottom:-20%;right:-20%;width:80%;height:80%;background:radial-gradient(circle,rgba(79,70,229,0.3) 0%,transparent 70%);animation:splashOrbit 12s infinite ease-in-out reverse"></div>
-        <div style="top:20%;right:-30%;width:70%;height:70%;background:radial-gradient(circle,rgba(139,92,246,0.25) 0%,transparent 70%);animation:splashOrbit 10s infinite linear"></div>
-      </div>
+      <div class="auth-orbs" aria-hidden="true"></div>
       <div class="auth-card" role="dialog" aria-labelledby="auth-title">
         <div class="auth-brand">
           <div class="auth-logo" aria-hidden="true"></div>
-          <h2 id="auth-title" class="auth-title">Welcome to MediaVault</h2>
+          <h2 id="auth-title" class="auth-title">Welcome to MEEM</h2>
           <p class="auth-subtitle">Sign in to sync profiles, continue watching, and unlock your library across devices.</p>
         </div>
         <div class="auth-tabs" role="tablist">
@@ -660,8 +725,9 @@
           <div class="auth-field">
             <div style="display: flex; justify-content: space-between; align-items: baseline;">
               <label class="auth-label" for="auth-password">Password</label>
-              <a href="#" id="auth-forgot-password" style="font-size: 12px; color: var(--accent); text-decoration: none;">Forgot Password?</a>
+              <a href="#" id="auth-forgot-password" style="font-size: 12px; color: rgba(255, 255, 255, 0.7); text-decoration: none;">Forgot Password?</a>
             </div>
+
             <div class="auth-input-wrap">
               <i class="fa-solid fa-lock" aria-hidden="true"></i>
               <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" placeholder="••••••••" required>
@@ -1130,13 +1196,23 @@
     return runAuthFlowPromise;
   }
 
-  function updateOfflineStatusIndicator() {
+  async function updateOfflineStatusIndicator() {
+    if (typeof window.updateOfflineStatusIndicator === 'function') {
+      window.updateOfflineStatusIndicator();
+      return;
+    }
     const isOnline = navigator.onLine;
     const indicator = document.getElementById('btn-offline-status');
     if (indicator) {
-      indicator.style.display = isOnline ? 'none' : 'flex';
+      if (isOnline) {
+        indicator.style.setProperty('display', 'none', 'important');
+      } else {
+        indicator.style.removeProperty('display');
+        indicator.style.display = 'flex';
+      }
     }
   }
+
   window.addEventListener('online', updateOfflineStatusIndicator);
   window.addEventListener('offline', updateOfflineStatusIndicator);
 
@@ -1186,14 +1262,22 @@
     const picker = document.getElementById('profile-picker');
     if (!picker) return;
     if (url) {
-      const bg = `linear-gradient(rgba(15,15,19,0.5), rgba(15,15,19,0.95)), url('${window.localImg(url)}')`;
+      const imgUrl = window.localImg(url);
+      const bg = `linear-gradient(to bottom, rgba(5,5,8,0.35) 0%, rgba(5,5,8,0.75) 60%, rgba(5,5,8,0.97) 100%), url('${imgUrl}')`;
       picker.style.setProperty('background-image', bg, 'important');
-      picker.style.backgroundSize = 'cover';
-      picker.style.backgroundPosition = 'center';
+      picker.style.setProperty('background-size', 'cover', 'important');
+      picker.style.setProperty('background-position', 'center top', 'important');
+      picker.style.setProperty('background-repeat', 'no-repeat', 'important');
+      picker.style.setProperty('background-color', '#050508', 'important');
     } else {
       picker.style.removeProperty('background-image');
+      picker.style.removeProperty('background-size');
+      picker.style.removeProperty('background-position');
+      picker.style.removeProperty('background-repeat');
+      picker.style.removeProperty('background-color');
     }
   }
+
 
   function renderProfilePicker() {
     const picker = document.getElementById('profile-picker');
@@ -1218,12 +1302,9 @@
       activeProf = appData.profiles.find(p => p.banner) || appData.profiles[0];
     }
 
-    if (activeProf && activeProf.banner) {
-      applyProfilePickerBackdrop(activeProf.banner);
-      picker.style.transition = 'background 0.5s ease';
-    } else {
-      applyProfilePickerBackdrop(null);
-    }
+    const unifiedBanner = appData.globalBanner || (activeProf && activeProf.banner) || null;
+    applyProfilePickerBackdrop(unifiedBanner);
+    if (picker) picker.style.transition = 'background 0.5s ease';
 
     appData.profiles.forEach(p => {
       const card = document.createElement('div');
@@ -1238,19 +1319,8 @@
         }
       };
 
-      card.onmouseenter = () => {
-        if (p.banner && !window.api.isMobile()) applyProfilePickerBackdrop(p.banner);
-      };
-      card.onmouseleave = () => {
-        if (!window.api.isMobile()) {
-          const hoverReset = appData.profiles.find(prof => prof.id === appData.activeProfileId) || appData.profiles[0];
-          if (hoverReset?.banner) applyProfilePickerBackdrop(hoverReset.banner);
-          else applyProfilePickerBackdrop(null);
-        }
-      };
-
       const disableDelete = appData.profiles.length <= 1;
-      const avatarSrc = p.avatar ? window.localImg(p.avatar) : 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(p.name);
+      const avatarSrc = p.avatar ? window.localImg(p.avatar) : 'imgs/avatars/default.jpg';
       
       const escapeHTML = (s) => { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; };
 
@@ -1265,7 +1335,7 @@
           </button>`}
         </div>
         <div class="profile-avatar-box" style="width: 150px; height: 150px; border-radius: 50%; background: #222; overflow: hidden; position: relative;">
-          <img src="${avatarSrc}" alt="${escapeHTML(p.name)}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="this.onerror=null; this.src='https://api.dicebear.com/7.x/avataaars/svg?seed='+encodeURIComponent('${escapeHTML(p.name)}');">
+          <img src="${avatarSrc}" alt="${escapeHTML(p.name)}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="this.onerror=null; this.src='imgs/avatars/default.jpg';">
         </div>
         <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
           <span class="profile-name" style="color:#fff; font-size:1.1rem; font-weight:600; text-shadow:0 2px 5px rgba(0,0,0,0.8);">${escapeHTML(p.name)}</span>
@@ -1327,6 +1397,10 @@
   function selectProfile(id, skipAnimation = false) {
     const profile = appData.profiles.find(p => p.id === id);
     if (!profile) return;
+
+    // Immediately apply selected banner (or global fallback)
+    const selBanner = profile.banner || appData.globalBanner || null;
+    applyProfilePickerBackdrop(selBanner);
 
     window.isTransitioningAway = true;
     const editContainer = document.getElementById('edit-profiles-container');
@@ -1530,7 +1604,7 @@
           return;
         }
 
-        const rootName = overlay.querySelector('#mobile-root-input').value || 'MediaVault';
+        const rootName = overlay.querySelector('#mobile-root-input')?.value || 'MEEM';
         appData.mobileRoot = rootName;
         appData.firstRun = false;
         persist();
@@ -1557,7 +1631,7 @@
       document.body.style.backgroundImage = '';
     }
 
-    const avatarUrl = window.localImg(currentProfile.avatar) || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(currentProfile.name));
+    const avatarUrl = window.localImg(currentProfile.avatar) || 'imgs/avatars/default.jpg';
     const titleAvatar = document.getElementById('current-profile-avatar');
     if (titleAvatar) {
       titleAvatar.src = avatarUrl;
@@ -1631,6 +1705,36 @@
       if (sidebar) sidebar.insertBefore(widget, sidebar.firstChild);
     }
     widget.style.display = 'none';
+
+    // Also update the settings page account banner whenever profile widget is refreshed
+    try {
+      const avatarSrc = window.localImg ? window.localImg(currentProfile.avatar) : (currentProfile.avatar || 'imgs/appicon-w.png');
+      const displayName = (appData.user?.user_metadata?.username || appData.user?.user_metadata?.display_name || appData.user?.user_metadata?.full_name || currentProfile?.name || 'My Account');
+      const displayEmail = appData.user?.email || `Profile: ${currentProfile.name}`;
+
+      const settingsAvatar = document.getElementById('settings-user-avatar');
+      if (settingsAvatar) {
+        settingsAvatar.src = avatarSrc || 'imgs/appicon-w.png';
+        settingsAvatar.onerror = () => { settingsAvatar.onerror = null; settingsAvatar.src = 'imgs/appicon-w.png'; };
+      }
+      const settingsName = document.getElementById('settings-user-name');
+      if (settingsName) settingsName.textContent = displayName;
+      const settingsEmail = document.getElementById('settings-user-email');
+      if (settingsEmail) settingsEmail.textContent = displayEmail;
+
+      const bannerUrl = currentProfile.banner || appData.globalBanner;
+      const coverEl = document.querySelector('#settings-account-banner .settings-account-cover');
+      if (coverEl && bannerUrl && window.localImg) {
+        coverEl.style.backgroundImage = `linear-gradient(135deg, rgba(99,102,241,0.7), rgba(168,85,247,0.7)), url('${window.localImg(bannerUrl)}')`;
+        coverEl.style.backgroundSize = 'cover';
+        coverEl.style.backgroundPosition = 'center';
+      }
+
+      const sub = appData.user?.subscription_expires_at || appData.subscription_expires_at;
+      const isPremium = sub && new Date(sub) > new Date();
+      const proBadge = document.querySelector('#settings-account-banner .account-tag-badge.active');
+      if (proBadge) proBadge.innerHTML = isPremium ? '<i class="fas fa-shield-alt"></i> PRO Active' : '<i class="fas fa-user"></i> Free Tier';
+    } catch (e) { /* ignore */ }
   }
 
   function compressImageFile(file, maxWidth) {
@@ -1876,7 +1980,7 @@
     if (usernameDisplay) usernameDisplay.textContent = appData.user?.user_metadata?.username || appData.user?.user_metadata?.display_name || appData.user?.user_metadata?.full_name || currentProfile?.name || 'Master Account';
     
     if (avatarImg) {
-      avatarImg.src = window.localImg(currentProfile?.avatar) || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(currentProfile?.name || 'User'));
+      avatarImg.src = window.localImg(currentProfile?.avatar) || 'imgs/avatars/default.jpg';
       avatarImg.onerror = () => { avatarImg.onerror = null; avatarImg.src = DEFAULT_AVATAR_SVG; };
     }
 
@@ -2303,6 +2407,12 @@
   }
 
   function openFavoritesAvatarModal(mode = 'avatar') {
+    if (mode === 'banner' && window.AppCapabilities && !window.AppCapabilities.can('banner-search')) {
+      if (typeof showToast === 'function') {
+        showToast('⚠️ Banner search requires Cinemeta or TMDB add-on to be installed');
+      }
+      return;
+    }
     window.currentFavModalMode = mode;
     createFavModal();
     const title = document.querySelector('#fav-avatar-modal h2');
@@ -2554,6 +2664,13 @@
             }
           }
         } else if (window.currentFavModalMode === 'banner') {
+          if (window.AppCapabilities && !window.AppCapabilities.can('banner-search')) {
+            list.innerHTML = `<div style="grid-column: 1 / -1; padding:40px; text-align:center; color:rgba(255,255,255,0.6);">
+              <i class="fas fa-plug-circle-xmark" style="font-size:2.5rem; color:var(--accent); margin-bottom:15px; display:block;"></i>
+              Banner search requires Cinemeta or TMDB add-on to be installed.
+            </div>`;
+            return;
+          }
           const res = await window.api.invoke('cinemeta-search', q);
           results = res?.results || [];
         } else {
@@ -2710,6 +2827,21 @@
 
       let items = [];
 
+      let tmdbId = item.tmdbId || item.id;
+      let tmdbType = item.media_type || item.type || (item.title ? 'movie' : 'tv');
+
+      if (!tmdbId && searchTitle) {
+        try {
+          const tSearch = await window.api.invoke('tmdb-search-discover', searchTitle).catch(() => null);
+          if (tSearch?.results?.length) {
+            tmdbId = tSearch.results[0].id;
+            tmdbType = tSearch.results[0].media_type || tmdbType;
+          }
+        } catch (e) {
+          console.error('[TMDB ID Resolve Error]', e);
+        }
+      }
+
       if (isAvatarMode) {
         try {
           let animeChars = [];
@@ -2724,17 +2856,6 @@
 
           if (animeChars && animeChars.length) {
             items.push(...animeChars);
-          }
-
-          let tmdbId = item.tmdbId || item.id;
-          let tmdbType = item.media_type || item.type || (item.title ? 'movie' : 'tv');
-
-          if (!tmdbId && searchTitle) {
-            const tSearch = await window.api.invoke('tmdb-search-discover', searchTitle).catch(() => null);
-            if (tSearch?.results?.length) {
-              tmdbId = tSearch.results[0].id;
-              tmdbType = tSearch.results[0].media_type || tmdbType;
-            }
           }
         } catch (e) {
           console.error('[Avatar Resolve Error]', e);
@@ -2795,13 +2916,58 @@
               const bgs = fanart.moviebackground || fanart.tvbackground || fanart.showbackground || [];
               bgs.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Background', type: 'banner' }));
               
-              const banners = fanart.moviebanner || fanart.tvbanner || [];
-              banners.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Banner', type: 'banner' }));
+              // Excluded because they are narrow strips (1000x185) that stretch poorly
+              // const banners = fanart.moviebanner || fanart.tvbanner || [];
+              // banners.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Banner', type: 'banner' }));
               
               const thumbs = fanart.moviethumb || fanart.tvthumb || [];
               thumbs.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Thumbnail', type: 'banner' }));
             }
           } catch (e) { console.error('[Banner Fetch Error]', e); }
+        }
+
+        const tmdbEnabled = appData.tmdbEnabled !== false;
+        const tmdbKey = appData.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
+        if (tmdbEnabled && tmdbKey) {
+          try {
+            let actualTmdbId = tmdbId;
+            let actualTmdbType = tmdbType;
+
+            // Resolve IMDB ID to TMDB ID if needed
+            if (!actualTmdbId && item.id && String(item.id).startsWith('tt')) {
+              actualTmdbId = item.id;
+            }
+
+            if (actualTmdbId && String(actualTmdbId).startsWith('tt')) {
+              const findUrl = `https://api.themoviedb.org/3/find/${actualTmdbId}?api_key=${tmdbKey}&external_source=imdb_id`;
+              const findResp = await fetch(findUrl).then(r => r.json()).catch(() => null);
+              if (findResp) {
+                const movie = findResp.movie_results?.[0];
+                const tv = findResp.tv_results?.[0];
+                if (movie) {
+                  actualTmdbId = movie.id;
+                  actualTmdbType = 'movie';
+                } else if (tv) {
+                  actualTmdbId = tv.id;
+                  actualTmdbType = 'tv';
+                }
+              }
+            }
+
+            if (actualTmdbId && !String(actualTmdbId).startsWith('tt')) {
+              const tmdbTypeClean = (actualTmdbType === 'series' || actualTmdbType === 'tv') ? 'tv' : 'movie';
+              const cleanTmdbId = String(actualTmdbId).replace('tmdb:', '');
+              const res = await fetch(`https://api.themoviedb.org/3/${tmdbTypeClean}/${cleanTmdbId}/images?api_key=${tmdbKey}`);
+              const data = await res.json();
+              if (data && data.backdrops && data.backdrops.length) {
+                data.backdrops.slice(0, 15).forEach(bg => {
+                   items.push({ src: `https://image.tmdb.org/t/p/w1280${bg.file_path}`, label: 'TMDB Backdrop', type: 'banner' });
+                });
+              }
+            }
+          } catch (e) {
+            console.error('[TMDB Banner Fetch Error]', e);
+          }
         }
       }
 
@@ -2810,8 +2976,8 @@
           items.push({ src: window.localImg(item.banner), label: 'Original Banner', type: 'banner' });
         }
         const mainPoster = item.poster || item.poster_path;
-        if (mainPoster) {
-          items.push({ src: window.localImg(mainPoster), label: 'Main Poster', type: isAvatarMode ? 'avatar' : 'banner' });
+        if (mainPoster && isAvatarMode) {
+          items.push({ src: window.localImg(mainPoster), label: 'Main Poster', type: 'avatar' });
         }
       }
       
@@ -2889,10 +3055,25 @@
           selectBtn.onclick = () => {
             setSelectedBanner(it.src);
             showToast('Banner applied');
-            const _m = document.getElementById('fav-avatar-modal');
-            if (_m?._bannerCleanup) { _m._bannerCleanup(); _m._bannerCleanup = null; }
-            if (_m) _m.style.display = 'none';
+            
+            // Show checkmark on the button and highlight it in green
+            selectBtn.innerHTML = '<i class="fas fa-check-circle" style="margin-right:8px; color: #22C55E;"></i> Applied';
+            selectBtn.style.background = 'rgba(16, 185, 129, 0.2)';
+            selectBtn.style.borderColor = '#10B981';
+            selectBtn.style.color = '#10B981';
+            selectBtn.disabled = true;
+
+            setTimeout(() => {
+              const _m = document.getElementById('fav-avatar-modal');
+              if (_m?._bannerCleanup) { _m._bannerCleanup(); _m._bannerCleanup = null; }
+              if (_m) {
+                _m.style.display = 'none';
+                _m.classList.remove('modal-active');
+                try { document.body.classList.remove('modal-open'); } catch (e) { /* ignore */ }
+              }
+            }, 1000);
           };
+
 
           selectOverlay.appendChild(selectBtn);
           tile.appendChild(selectOverlay);
@@ -3064,15 +3245,18 @@
   }
 
   function setSelectedBanner(url) {
-    let targetId = editingProfileId;
-    const profile = targetId ? appData.profiles.find((p) => p.id === targetId) : null;
-    if (profile) profile.banner = url;
-    else appData.globalBanner = url;
+    appData.globalBanner = url;
+    if (Array.isArray(appData.profiles)) {
+      appData.profiles.forEach((p) => { p.banner = url; });
+    }
     applyProfilePickerBackdrop(url);
     persist();
     renderProfilePicker();
     renderProfileWidget();
     renderAccount();
+    if (typeof window.updateSettingsBanner === 'function') {
+      window.updateSettingsBanner();
+    }
   }
   function migrateToProfiles() {
     if (appData.profiles.length > 0) {
@@ -3139,7 +3323,8 @@
 
     const globalBannerBtn = document.getElementById('btn-fav-banner');
     if (globalBannerBtn) {
-      globalBannerBtn.style.display = 'flex';
+      const canBanner = window.AppCapabilities ? window.AppCapabilities.can('banner-search') : true;
+      globalBannerBtn.style.display = canBanner ? 'flex' : 'none';
       globalBannerBtn.onclick = () => openFavoritesAvatarModal('banner');
     }
 
@@ -3150,18 +3335,19 @@
         const bannerBtn = document.getElementById('btn-fav-banner');
         const label = btnToggleEdit.querySelector('.btn-label');
         const icon = btnToggleEdit.querySelector('i');
+        const canBanner = window.AppCapabilities ? window.AppCapabilities.can('banner-search') : true;
         if (window.isEditingProfiles) {
           if (label) label.textContent = 'Done Editing';
           else btnToggleEdit.textContent = 'Done Editing';
           if (icon) icon.className = 'fas fa-check';
           btnToggleEdit.classList.add('editing-active');
-          if (bannerBtn) bannerBtn.style.display = 'flex';
+          if (bannerBtn) bannerBtn.style.display = canBanner ? 'flex' : 'none';
         } else {
           if (label) label.textContent = 'Edit Profiles';
           else btnToggleEdit.textContent = 'Edit Profiles';
           if (icon) icon.className = 'fas fa-user-edit';
           btnToggleEdit.classList.remove('editing-active');
-          if (bannerBtn) bannerBtn.style.display = 'flex';
+          if (bannerBtn) bannerBtn.style.display = canBanner ? 'flex' : 'none';
         }
         renderProfilePicker();
       };

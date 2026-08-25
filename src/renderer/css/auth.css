@@ -1,4 +1,4 @@
-/* MediaVault — Sign-in overlay */
+/* MediaVault — Sign-in overlay (Pure Pitch Black & White Minimalist Theme) */
 .auth-overlay {
   position: fixed;
   inset: 0;
@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: #050508;
+  background: #000000 !important;
   overflow: hidden;
   animation: auth-fade-in 0.35s ease;
 }
@@ -18,17 +18,7 @@ body:has(#auth-overlay) #mobile-dock {
 }
 
 .auth-overlay .auth-orbs {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.auth-overlay .auth-orbs > div {
-  position: absolute;
-  filter: blur(80px);
-  pointer-events: none;
+  display: none !important;
 }
 
 .auth-overlay .auth-card {
@@ -37,55 +27,48 @@ body:has(#auth-overlay) #mobile-dock {
 }
 
 @keyframes auth-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .auth-card {
   width: 100%;
-  max-width: 720px;
-  max-height: 80vh;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  border: none;
-  box-shadow: none;
+  max-width: 440px;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
+
 
 .auth-brand {
   text-align: center;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .auth-logo {
-  width: 88px;
-  height: 88px;
-  margin: 0 auto 14px;
-  border-radius: 8px;
-  background: transparent url("../imgs/appicon-w.png") center center / contain no-repeat;
+  width: 95px;
+  height: 95px;
+  margin: 0 auto 16px;
+  border-radius: 16px;
+  background: transparent url("../imgs/appicon.png") center center / contain no-repeat;
   display: block;
-  align-items: center;
-  justify-content: center;
-  box-shadow: none;
-}
-
-.auth-logo i {
-  font-size: 26px;
-  color: #0f172a;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
 }
 
 .auth-title {
   margin: 0 0 6px;
   font-size: 1.5rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
-  color: #fff;
+  color: #ffffff;
 }
 
 .auth-subtitle {
   margin: 0;
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.5);
   line-height: 1.45;
 }
 
@@ -95,8 +78,8 @@ body:has(#auth-overlay) #mobile-dock {
   padding: 4px;
   margin-bottom: 22px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .auth-separator {
@@ -104,22 +87,25 @@ body:has(#auth-overlay) #mobile-dock {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 12px 0;
+  margin: 14px 0;
 }
+
 .auth-separator::before,
 .auth-separator::after {
   content: "";
   flex: 1;
-  height: 2px;
-  background: rgba(255,255,255,0.22);
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
   margin: 0 10px;
 }
+
 .auth-separator span {
-  color: rgba(255,255,255,0.85);
-  font-size: 0.875rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  padding: 0 16px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  padding: 0 12px;
   background: transparent;
   position: relative;
   z-index: 2;
@@ -128,24 +114,28 @@ body:has(#auth-overlay) #mobile-dock {
 .auth-tab {
   flex: 1;
   padding: 10px 14px;
-  border: none;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
   border-radius: 9px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.7);
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition: all 0.2s ease;
 }
 
 .auth-tab:hover {
-  color: rgba(255, 255, 255, 0.85);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .auth-tab.active {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  background: #ffffff !important;
+  color: #000000 !important;
+  font-weight: 700;
+  border-color: #ffffff !important;
+  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25);
 }
 
 .auth-field {
@@ -155,11 +145,11 @@ body:has(#auth-overlay) #mobile-dock {
 .auth-label {
   display: block;
   margin-bottom: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .auth-input-wrap {
@@ -172,7 +162,7 @@ body:has(#auth-overlay) #mobile-dock {
   position: absolute;
   left: 14px;
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.4);
   pointer-events: none;
 }
 
@@ -181,21 +171,21 @@ body:has(#auth-overlay) #mobile-dock {
   height: 48px;
   padding: 0 14px 0 42px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.35);
-  color: #fff;
-  font-size: 0.9375rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: #ffffff;
+  font-size: 0.9rem;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .auth-input::placeholder {
-  color: rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .auth-input:focus {
-  border-color: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+  border-color: #ffffff !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15) !important;
 }
 
 .auth-submit {
@@ -204,23 +194,53 @@ body:has(#auth-overlay) #mobile-dock {
   margin-top: 8px;
   border: none;
   border-radius: 12px;
-  background: #fff !important;
-  color: #0f172a !important;
-  font-size: 0.9375rem;
-  font-weight: 800 !important;
+  background: #ffffff !important;
+  color: #000000 !important;
+  font-size: 0.9rem;
+  font-weight: 700 !important;
   cursor: pointer;
-  transition: transform 0.15s, filter 0.15s;
-  box-shadow: 0 8px 24px rgba(255, 255, 255, 0.15) !important;
+  transition: transform 0.15s, background 0.15s;
+  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.15) !important;
 }
 
 .auth-submit:hover:not(:disabled) {
-  transform: scale(1.02);
-  filter: brightness(1.05);
+  background: #e5e5e5 !important;
+  transform: translateY(-1px);
 }
 
 .auth-submit:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.auth-oauth {
+  width: 100% !important;
+  height: 48px !important;
+  padding: 0 16px !important;
+  border-radius: 12px !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.google-btn,
+.discord-btn {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1.5px solid #ffffff !important;
+  color: #ffffff !important;
+}
+
+.google-btn:hover,
+.discord-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: #ffffff !important;
+  box-shadow: 0 4px 20px rgba(255, 255, 255, 0.25) !important;
+  transform: translateY(-1px);
 }
 
 .auth-msg {
@@ -230,9 +250,9 @@ body:has(#auth-overlay) #mobile-dock {
   border-radius: 10px;
   font-size: 0.8125rem;
   line-height: 1.4;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  color: #fecaca;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
 }
 
 .auth-msg.visible {
@@ -240,9 +260,9 @@ body:has(#auth-overlay) #mobile-dock {
 }
 
 .auth-msg.success {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.35);
-  color: #bbf7d0;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }
 
 @media (max-width: 768px) {
@@ -259,6 +279,7 @@ body:has(#auth-overlay) #mobile-dock {
     max-height: none;
     margin: 0 auto;
     width: 100%;
+    padding: 24px 20px;
   }
 
   .auth-brand {
@@ -266,8 +287,8 @@ body:has(#auth-overlay) #mobile-dock {
   }
 
   .auth-logo {
-    width: 72px;
-    height: 72px;
+    width: 64px;
+    height: 64px;
     margin-bottom: 10px;
   }
 
@@ -314,8 +335,8 @@ body:has(#auth-overlay) #mobile-dock {
   height: 18px;
   margin-right: 8px;
   vertical-align: middle;
-  border: 2px solid rgba(15, 23, 42, 0.2);
-  border-top-color: #0f172a;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: #000000;
   border-radius: 50%;
   animation: auth-spin 0.7s linear infinite;
 }
@@ -336,6 +357,7 @@ body.auth-active #floating-search-btn,
 body.auth-active .floating-search-btn {
   display: none !important;
 }
+
 
 
 

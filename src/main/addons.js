@@ -4,10 +4,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const axios = require('axios');
 const { getCleanMetadata, isLocalFilePath } = require('./utils/MetadataNormalizer');
-
-    const torrentStream = require('torrent-stream');
-    let torrentEngine = null;
-    let torrentServer = null;
+const torrentStream = require('torrent-stream');
+let torrentEngine = null;
+let torrentServer = null;
 
 /**
  * Fetches data from Cinemeta API using fallback endpoints and retry logic.
@@ -40,15 +39,10 @@ async function fetchCinemeta(endpoint, timeout = 8000) {
  * Destroys the active addon torrent engine and stops the media server.
  */
 function stopAddonStreaming() {
-    console.log('[Addons] Stopping torrent stream and cleaning up...');
-    if (torrentEngine) {
-        try { torrentEngine.destroy(); } catch(e) {}
-        torrentEngine = null;
-    }
-    if (torrentServer) {
-        try { torrentServer.close(); } catch(e) {}
-        torrentServer = null;
-    }
+    try {
+        const { stopStreaming } = require('./streamer');
+        stopStreaming();
+    } catch(e) {}
 }
 
 /**
@@ -139,18 +133,9 @@ function initAddonsIpc(ipcMain, store) {
         const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
         const sc = appData.scraperConfig || {};
         sc.installedAddons = appData.installedAddons || [];
-        if (!sc.installedAddons.length) {
-          sc.installedAddons = [
-            { id: 'v3.cinemeta.stremio', name: 'Cinemeta', url: 'https://v3-cinemeta.strem.io', manifestUrl: 'https://v3-cinemeta.strem.io/manifest.json', icon: '🎬', types: ['movie', 'series'] }
-          ];
-        } else {
-          // Deep clean: replace dead RPDB cinemeta with official cinemeta if it was cached in user store
-          sc.installedAddons = sc.installedAddons.map(a => 
-            a.id === 'com.rpdb.cinemeta' 
-            ? { id: 'v3.cinemeta.stremio', name: 'Cinemeta', url: 'https://v3-cinemeta.strem.io', manifestUrl: 'https://v3-cinemeta.strem.io/manifest.json', icon: '🎬', types: ['movie', 'series'] } 
-            : a
-          );
-        }
+        // MediaVault is a neutral player — no fallback addons are injected.
+        // If the user has no addons installed, return an empty stream list.
+        // Users are responsible for installing the Mods/Addons they choose to use.
         const { StremioAddonService } = require('./StremioAddonService');
         const service = new StremioAddonService(sc);
         const results = await service.getStreams({ imdbId, kitsuId, type, season, episode, title });
@@ -558,7 +543,7 @@ function initAddonsIpc(ipcMain, store) {
                     return items.map(movie => ({
                         id: movie.id,
                         title: movie.name,
-                        poster: movie.poster ? movie.poster.replace('https://images.metahub.space/poster/small/', '/').replace('https://images.metahub.space/poster/medium/', '/') : '',
+                        poster: movie.poster ? (movie.poster.startsWith('http') ? movie.poster : `https://images.metahub.space/poster/medium/${movie.id}/img`) : (movie.id ? `https://images.metahub.space/poster/medium/${movie.id}/img` : ''),
                         type: 'movie',
                         source: 'cinemeta',
                         rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
@@ -577,7 +562,7 @@ function initAddonsIpc(ipcMain, store) {
                     return items.map(tv => ({
                         id: tv.id,
                         title: tv.name,
-                        poster: tv.poster ? tv.poster.replace('https://images.metahub.space/poster/small/', '/').replace('https://images.metahub.space/poster/medium/', '/') : '',
+                        poster: tv.poster ? (tv.poster.startsWith('http') ? tv.poster : `https://images.metahub.space/poster/medium/${tv.id}/img`) : (tv.id ? `https://images.metahub.space/poster/medium/${tv.id}/img` : ''),
                         type: 'tv',
                         source: 'cinemeta',
                         rating: tv.imdbRating ? parseFloat(tv.imdbRating) : 0,
@@ -585,6 +570,7 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: tv.description || ''
                     }));
                 })
+
                 .catch(err => {
                     console.warn('[Unified Search] Cinemeta TV search failed:', err.message);
                     return [];
@@ -631,8 +617,8 @@ function initAddonsIpc(ipcMain, store) {
             }
 
             const [tmdbMovies, tmdbTv, cinemetaMovies, cinemetaTv, officialTmdbMovies, officialTmdbTv] = await Promise.all([
-                
-                
+                tmdbMoviesPromise,
+                tmdbTvPromise,
                 cinemetaMoviesPromise,
                 cinemetaTvPromise,
                 officialTmdbMoviesPromise,
@@ -644,6 +630,7 @@ function initAddonsIpc(ipcMain, store) {
             const seen = new Set();
 
             const addResults = (items) => {
+                if (!items || !Array.isArray(items)) return;
                 for (const item of items) {
                     const key = `${(item.title || '').toLowerCase().trim()}_${item.releaseYear || ''}_${item.type}`;
                     if (!seen.has(key)) {
@@ -662,13 +649,16 @@ function initAddonsIpc(ipcMain, store) {
                 }
             };
 
-            // Order of priority: official TMDB API > TMDB Addon > Cinemeta
+            // Order of priority: official TMDB API > Cinemeta > TMDB ElfHosted addon (fallback)
             addResults(officialTmdbMovies);
             addResults(officialTmdbTv);
             
-            
             addResults(cinemetaMovies);
             addResults(cinemetaTv);
+
+            // Fallback: ElfHosted TMDB addon (has TMDB poster CDN links, no key needed)
+            addResults(tmdbMovies);
+            addResults(tmdbTv);
 
             // Sort by rating (highest first)
             merged.sort((a, b) => (b.rating || 0) - (a.rating || 0));
@@ -813,219 +803,6 @@ function initAddonsIpc(ipcMain, store) {
     });
 
 
-    // IPC: Start streaming a torrent
-    ipcMain.handle('stream-torrent', async (_e, infoHashOrMagnet, fileIdx) => {
-        console.log(`[Addons] Request to stream torrent: ${infoHashOrMagnet} (FileIdx: ${fileIdx})`);
-
-        // Cleanup existing engine/server
-        if (torrentEngine) {
-            try { torrentEngine.destroy(); } catch(e) {}
-            torrentEngine = null;
-        }
-        if (torrentServer) {
-            try { torrentServer.close(); } catch(e) {}
-            torrentServer = null;
-        }
-
-        const publicTrackers = [
-            'udp://tracker.opentrackr.org:1337/announce',
-            'udp://9.rarbg.com:2810/announce',
-            'udp://open.stealth.si:80/announce',
-            'udp://exodus.desync.com:6969/announce',
-            'udp://tracker.openbittorrent.com:6969/announce'
-        ];
-
-        let magnet = infoHashOrMagnet;
-        if (!magnet.startsWith('magnet:') && !magnet.startsWith('http')) {
-            magnet = `magnet:?xt=urn:btih:${infoHashOrMagnet}&tr=` + publicTrackers.map(encodeURIComponent).join('&tr=');
-        }
-
-        const engineOptions = {
-            connections: 150,
-            uploads: 10,
-            verify: true,
-            path: path.join(app.getPath('temp'), 'MediaVaultCache'),
-            tracker: true,
-            trackers: publicTrackers
-        };
-
-        torrentEngine = torrentStream(magnet, engineOptions);
-
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                if (torrentEngine) { torrentEngine.destroy(); torrentEngine = null; }
-                reject(new Error('Torrent timeout (No peers found within 90s)'));
-            }, 90000);
-
-            torrentEngine.on('ready', () => {
-                clearTimeout(timeout);
-                console.log('[Addons] Torrent engine ready. Files:', torrentEngine.files.length);
-
-                // ── Selection Logic ──
-                const VIDEO_EXT = /\.(mp4|mkv|avi|webm|mov|m4v|wmv|flv|ts|mpg|mpeg)$/i;
-                let file;
-                
-                // If index is provided, use it. Otherwise find largest video.
-                if (fileIdx !== undefined && fileIdx !== null && torrentEngine.files[fileIdx]) {
-                    file = torrentEngine.files[fileIdx];
-                } else {
-                    const videoFiles = torrentEngine.files.filter(f => VIDEO_EXT.test(f.name));
-                    // Prioritize files > 50MB to avoid samples, then take largest
-                    const realVideos = videoFiles.filter(f => f.length > 50 * 1024 * 1024);
-                    const sourceList = realVideos.length > 0 ? realVideos : (videoFiles.length > 0 ? videoFiles : torrentEngine.files);
-                    file = sourceList.reduce((prev, curr) => (prev.length > curr.length) ? prev : curr);
-                }
-
-                // ── Priority ──
-                torrentEngine.files.forEach(f => { if (f !== file) f.deselect(); });
-                file.select();
-                console.log(`[Addons] Selected file for streaming: "${file.name}" (${(file.length / 1024 / 1024).toFixed(1)} MB)`);
-
-                // ── Mime Resolution ──
-                const ext = path.extname(file.name).toLowerCase();
-                const mimeMap = { '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo', '.webm': 'video/webm', '.mov': 'video/quicktime' };
-                const mime = mimeMap[ext] || require('mime-types').lookup(ext) || 'video/mp4';
-
-                const http = require('http');
-                torrentServer = http.createServer((req, res) => {
-                    const range = req.headers.range;
-                    
-                    res.setHeader('Access-Control-Allow-Origin', '*');
-                    res.setHeader('Server', 'MediaVault/3.0');
-
-                    if (req.method === 'OPTIONS') {
-                        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-                        res.setHeader('Access-Control-Allow-Headers', 'Range');
-                        res.writeHead(204); res.end(); return;
-                    }
-
-                    // ── Subtitle Extraction (FFmpeg WebVTT) ──
-                    if (req.url.startsWith('/stream/subtitle/')) {
-                        res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
-                        const trackIndex = req.url.split('/').pop();
-                        const { spawn } = require('child_process');
-                        const ffmpegPath = require('ffmpeg-static');
-                        
-                        const streamUrl = `http://127.0.0.1:${torrentServer.address().port}/0`;
-                        const ffmpeg = spawn(ffmpegPath, [
-                            '-i', streamUrl,
-                            '-map', `0:${trackIndex}`,
-                            '-f', 'webvtt',
-                            'pipe:1'
-                        ]);
-                        
-                        ffmpeg.stdout.pipe(res);
-                        
-                        res.on('close', () => {
-                            try { ffmpeg.kill('SIGKILL'); } catch(e) {}
-                        });
-                        return;
-                    }
-
-                    // ── HEAD Request ──
-                    if (req.method === 'HEAD') {
-                        res.setHeader('Accept-Ranges', 'bytes');
-                        res.setHeader('Content-Type', mime);
-                        res.setHeader('Content-Length', file.length);
-                        res.writeHead(200); res.end(); return;
-                    }
-
-                    if (!range) {
-                        res.setHeader('Accept-Ranges', 'bytes');
-                        res.setHeader('Content-Type', mime);
-                        res.setHeader('Content-Length', file.length);
-                        res.writeHead(200);
-                        const stream = file.createReadStream();
-                        stream.pipe(res);
-                        res.on('close', () => { stream.destroy(); });
-                        return;
-                    }
-
-                    // ── Range Request ──
-                    const parts = range.replace(/bytes=/, "").split("-");
-                    const start = parseInt(parts[0], 10);
-                    const end = parts[1] ? parseInt(parts[1], 10) : file.length - 1;
-                    
-                    if (start >= file.length || end >= file.length) {
-                        res.writeHead(416, { 'Content-Range': `bytes */${file.length}` });
-                        return res.end();
-                    }
-
-                    const chunksize = (end - start) + 1;
-                    res.writeHead(206, {
-                        'Content-Range': `bytes ${start}-${end}/${file.length}`,
-                        'Content-Length': chunksize,
-                        'Content-Type': mime,
-                        'Accept-Ranges': 'bytes'
-                    });
-
-                    const stream = file.createReadStream({ start, end });
-                    stream.pipe(res);
-                    res.on('close', () => { stream.destroy(); });
-                });
-
-                torrentServer.listen(0, '127.0.0.1', () => {
-                    const port = torrentServer.address().port;
-                    const streamUrl = `http://127.0.0.1:${port}`;
-                    console.log(`[Addons] Local streaming server: ${streamUrl} | File: ${file.name} | Size: ${(file.length / 1024 / 1024).toFixed(1)} MB`);
-                    
-                    // ── Probe Metadata using FFprobe ──
-                    const { exec } = require('child_process');
-                    const ffprobePath = require('ffprobe-static').path;
-                    exec(`"${ffprobePath}" -v quiet -print_format json -show_streams "${streamUrl}/0"`, (err, stdout, stderr) => {
-                        if (!err && stdout) {
-                            try {
-                                const meta = JSON.parse(stdout);
-                                const audioTracks = meta.streams.filter(s => s.codec_type === 'audio').map(s => ({
-                                    index: s.index,
-                                    language: (s.tags && (s.tags.language || s.tags.LANGUAGE)) || 'Unknown',
-                                    title: (s.tags && (s.tags.title || s.tags.TITLE)) || '',
-                                    codec: s.codec_name
-                                }));
-                                const subtitleTracks = meta.streams.filter(s => s.codec_type === 'subtitle').map(s => ({
-                                    index: s.index,
-                                    language: (s.tags && (s.tags.language || s.tags.LANGUAGE)) || 'Unknown',
-                                    title: (s.tags && (s.tags.title || s.tags.TITLE)) || '',
-                                    codec: s.codec_name
-                                }));
-                                
-                                console.log(`[FFprobe] Found ${audioTracks.length} audio tracks, ${subtitleTracks.length} subtitle tracks.`);
-                                const win = require('electron').BrowserWindow.getAllWindows()[0];
-                                if (win && !win.isDestroyed()) {
-                                    win.webContents.send('stream-metadata-ready', { audioTracks, subtitleTracks, streamUrl });
-                                }
-                            } catch(e) { console.error('[FFprobe] Parse Error:', e); }
-                        } else {
-                            console.error('[FFprobe] Probing failed:', err?.message || stderr);
-                        }
-                    });
-
-                    resolve({ url: streamUrl, title: file.name });
-                });
-            });
-
-            // ── Progress Reporting ──
-            const progressInterval = setInterval(() => {
-                if (!torrentEngine) { clearInterval(progressInterval); return; }
-                const sw = torrentEngine.swarm;
-                const win = require('electron').BrowserWindow.getAllWindows()[0];
-                if (win && !win.isDestroyed()) {
-                    win.webContents.send('torrent-progress', {
-                        speed: (sw.downloadSpeed() / 1024 / 1024).toFixed(2) + ' MB/s',
-                        percent: 'Streaming...',
-                        peers: sw.connections.length
-                    });
-                }
-            }, 1000);
-
-            torrentEngine.on('error', (err) => {
-                console.error('[Addons] Engine error:', err);
-                clearInterval(progressInterval);
-                reject(err);
-            });
-        });
-    });
-
     // ─── NATIVE TRAKT.TV INTEGRATION IPC HANDLERS ───
     const TraktService = require('./TraktService');
 
@@ -1061,7 +838,10 @@ function initAddonsIpc(ipcMain, store) {
     });
 
     ipcMain.handle('trakt-connection-status', async () => {
-        return TraktService.getCredentials();
+        const creds = TraktService.getCredentials();
+        if (!creds || !creds.accessToken) return null;
+        // Always include `connected: true` so the renderer's guard check works correctly.
+        return { ...creds, connected: true };
     });
 
     ipcMain.handle('trakt-sync-watchlist', async () => {

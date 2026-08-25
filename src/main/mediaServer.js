@@ -5,6 +5,9 @@ const ip = require('ip');
 const mime = require('mime-types');
 const { loadData, BANNERS_DIR } = require('./store');
 const { powerSaveBlocker } = require('electron');
+const { spawn } = require('child_process');
+const ffmpegPath = require('ffmpeg-static');
+
 
 
 // Wrap bonjour in try-catch — it crashes on Windows systems without mDNS service
@@ -29,7 +32,7 @@ let sleepBlockerId = null;
 function startPersistentServer(onStarted) {
   if (server) return;
 
-  server = http.createServer((req, res) => {
+  server = http.createServer(async (req, res) => {
     // Enable CORS for mobile app (Capacitor origins)
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -51,7 +54,7 @@ function startPersistentServer(onStarted) {
 
     // 2. API Endpoint: Get Library Metadata
     if (pathname === '/api/library') {
-      const data = loadData();
+      const data = await loadData();
       const library = {
         movies: data.movies || [],
         shows: data.shows || [],
@@ -108,33 +111,122 @@ function startPersistentServer(onStarted) {
       }
 
       // Security Check: Ensure file is within an allowed folder
-      const data = loadData();
-      const { app: electronApp } = require('electron');
-      const profileBase = path.join(electronApp.getPath('videos'), 'MediaVault');
-      const allowedFolders = [...(data.libraryFolders || []), profileBase];
-      const isAllowed = allowedFolders.some(folder => filePath.startsWith(path.resolve(folder)));
-      
-      if (!isAllowed) {
-        console.warn('[SyncServer] Blocked access to:', filePath);
-        res.writeHead(403);
-        res.end('Access Denied');
-        return;
+      // Skip for localhost connections (the Electron app itself — the file is already trusted)
+      const clientIp = req.socket.remoteAddress;
+      const isLocalhost = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1';
+      if (!isLocalhost) {
+        const data = await loadData();
+        const { app: electronApp } = require('electron');
+        const profileBase = path.join(electronApp.getPath('videos'), 'MEEM');
+        const allowedFolders = [...(data.libraryFolders || []), profileBase];
+        const isAllowed = allowedFolders.some(folder => filePath.startsWith(path.resolve(folder)));
+        
+        if (!isAllowed) {
+          console.warn('[SyncServer] Blocked access to:', filePath);
+          res.writeHead(403);
+          res.end('Access Denied');
+          return;
+        }
       }
 
       const stat = fs.statSync(filePath);
       const fileSize = stat.size;
       const range = req.headers.range;
+
+      const transcodeMode = url.searchParams.get('transcode'); // 'true'|'audio' = fast remux, 'full' = full transcode
+      const isTranscodeAudio = transcodeMode === 'true' || transcodeMode === 'audio';
+      const isTranscodeFull  = transcodeMode === 'full';
+      const isTranscode = isTranscodeAudio || isTranscodeFull;
+      const startTime = parseFloat(url.searchParams.get('start')) || 0;
       
       // Enhanced MIME detection
       const ext = path.extname(filePath).toLowerCase();
-      let contentType = mime.lookup(filePath) || 'video/mp4';
-      if (ext === '.mkv') contentType = 'video/x-matroska';
-      if (ext === '.webm') contentType = 'video/webm';
-      if (ext === '.avi') contentType = 'video/x-msvideo';
-      if (ext === '.mp3') contentType = 'audio/mpeg';
-      if (ext === '.wav') contentType = 'audio/wav';
-      if (ext === '.srt') contentType = 'text/plain';
-      if (ext === '.vtt') contentType = 'text/vtt';
+      let contentType = isTranscode ? 'video/mp4' : (mime.lookup(filePath) || 'video/mp4');
+      if (!isTranscode) {
+        if (ext === '.mkv') contentType = 'video/x-matroska';
+        if (ext === '.webm') contentType = 'video/webm';
+        if (ext === '.avi') contentType = 'video/x-msvideo';
+        if (ext === '.mp3') contentType = 'audio/mpeg';
+        if (ext === '.wav') contentType = 'audio/wav';
+        if (ext === '.srt') contentType = 'text/plain';
+        if (ext === '.vtt') contentType = 'text/vtt';
+      }
+
+      if (isTranscode) {
+        console.log(`[SyncServer] Transcoding started for local file: ${filePath} (Start: ${startTime}s, Mode: ${transcodeMode})`);
+        res.writeHead(200, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'none' });
+
+        let ffmpegArgs;
+        if (isTranscodeAudio) {
+          ffmpegArgs = [
+            '-loglevel', 'error',
+            '-fflags', '+genpts',
+            '-i', filePath,
+            ...(startTime > 0 ? ['-ss', startTime.toString()] : []),
+            '-map', '0:v:0',
+            '-map', '0:a:0',
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-ac', '2',
+            '-avoid_negative_ts', 'make_zero',
+            '-reset_timestamps', '1',
+            '-movflags', 'frag_keyframe+empty_moov+default_base_moof+faststart',
+            '-f', 'mp4',
+            'pipe:1'
+          ];
+        } else {
+          ffmpegArgs = [
+            '-loglevel', 'error',
+            ...(startTime > 0 ? ['-ss', startTime.toString()] : []),
+            '-i', filePath,
+            '-map', '0:v:0',
+            '-map', '0:a:0',
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-pix_fmt', 'yuv420p',
+            '-crf', '23',
+            '-maxrate', '5M',
+            '-bufsize', '10M',
+            '-force_key_frames', 'expr:gte(t,n_forced*2)',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-ac', '2',
+            '-fflags', '+genpts',
+            '-avoid_negative_ts', 'make_zero',
+            '-reset_timestamps', '1',
+            '-movflags', 'frag_keyframe+empty_moov+default_base_moof+faststart',
+            '-f', 'mp4',
+            'pipe:1'
+          ];
+        }
+
+        const ffmpegProcess = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+        
+        ffmpegProcess.stderr.on('data', (data) => {
+          console.error(`[SyncServer/FFmpeg] ${data.toString().trim()}`);
+        });
+
+        ffmpegProcess.stdout.pipe(res);
+
+        res.on('close', () => {
+          console.log('[SyncServer] Client disconnected, terminating ffmpeg...');
+          try { ffmpegProcess.kill('SIGTERM'); } catch (e) {}
+          setTimeout(() => { try { if (!ffmpegProcess.killed) ffmpegProcess.kill('SIGKILL'); } catch(e){} }, 2000);
+        });
+
+        ffmpegProcess.on('error', (err) => {
+          console.error('[SyncServer] FFmpeg spawn error:', err.message);
+          if (!res.headersSent) { try { res.writeHead(500); res.end('Transcode failed'); } catch(e){} }
+        });
+
+        ffmpegProcess.on('exit', (code, sig) => {
+          if (code !== 0 && code !== null) console.warn('[SyncServer] FFmpeg exited with code', code, 'signal', sig);
+          try { if (!res.destroyed) res.end(); } catch(e){}
+        });
+        return;
+      }
 
       if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
@@ -259,8 +351,27 @@ function startServer(filePath) {
   return `http://${localIp}:${port}/stream?path=${encodeURIComponent(filePath)}`;
 }
 
+/**
+ * Waits for the persistent server to be ready and returns the localhost base URL.
+ * Safe to call multiple times — resolves immediately if the server is already running.
+ */
+function ensureLocalServerReady() {
+  return new Promise((resolve) => {
+    if (server) {
+      // Server already running — resolve immediately with the actual port
+      resolve(`http://127.0.0.1:${server.address().port}`);
+    } else {
+      // Start server and resolve once it's actually listening
+      startPersistentServer((actualPort) => {
+        resolve(`http://127.0.0.1:${actualPort}`);
+      });
+    }
+  });
+}
+
 module.exports = {
   startPersistentServer,
   stopPersistentServer,
-  startServer
+  startServer,
+  ensureLocalServerReady
 };

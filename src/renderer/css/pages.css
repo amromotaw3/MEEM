@@ -1011,34 +1011,36 @@
 .episode-item {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px;
-  border-radius: var(--radius-lg);
+  gap: 18px;
+  padding: 12px 16px;
+  border-radius: 14px;
   cursor: pointer;
-  transition: transform var(--t), opacity var(--t), color var(--t), background-color var(--t), border-color var(--t), box-shadow var(--t), filter var(--t), fill var(--t), stroke var(--t);
-  background: var(--bg-card);
-  border: 1px solid transparent;
-  animation: dd-fade-in 0.5s ease backwards;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  background: #0e0e0e !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  margin-bottom: 8px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 }
 
 .episode-item:hover {
-  background: linear-gradient(90deg, rgba(99,102,241,0.06), rgba(99,102,241,0.03));
-  transform: none;
-  border-color: rgba(99,102,241,0.14);
-  box-shadow: 0 8px 24px rgba(99,102,241,0.08);
+  background: #181818 !important;
+  transform: translateX(4px);
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8);
 }
 
 .ep-thumb-wrap {
   position: relative;
-  width: 120px;
-  height: 72px;
-  border-radius: 8px;
-  background: #000;
+  width: 160px;
+  height: 90px;
+  border-radius: 10px;
+  background: #141414;
   overflow: hidden;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .ep-thumb {
@@ -1050,27 +1052,19 @@
 }
 
 .ep-number-overlay {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  backdrop-filter: blur(4px);
+  display: none !important;
 }
 
 .ep-play-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, .3);
+  background: rgba(0, 0, 0, .45);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity var(--t);
+  transition: opacity 0.2s ease;
+  backdrop-filter: blur(2px);
 }
 
 .episode-item:hover .ep-play-overlay {
@@ -1078,9 +1072,9 @@
 }
 
 .ep-play-overlay svg {
-  fill: #fff;
-  width: 28px;
-  height: 28px;
+  fill: #ffffff;
+  width: 32px;
+  height: 32px;
 }
 
 .episode-info {
@@ -1154,20 +1148,30 @@
 }
 
 /* ── Settings ──────────────────────────────────────────────────────── */
-.settings-content {
-  max-width: 900px;
+#view-settings .view-header {
+  max-width: 960px;
   width: 100%;
+  margin: 0 auto 16px auto;
+  padding: 0;
+}
+
+.settings-content {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 0 60px 0;
   display: flex;
   flex-direction: column;
   gap: 0;
+  box-sizing: border-box;
 }
 
 .settings-card {
-  background: none;
+  background: transparent;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 0;
-  padding: 28px 8px;
+  padding: 28px 0;
 }
 
 .settings-card:last-child {
@@ -1232,7 +1236,7 @@
 .discover-main {
   flex: 1;
   overflow-y: auto;
-  padding: 45px 60px;
+  padding: 0 60px 45px;
   position: relative;
 }
 
@@ -1257,10 +1261,38 @@
 }
 
 .discover-section-header svg {
-  color: var(--accent);
+  color: #ffffff;
+  stroke: #ffffff;
   flex-shrink: 0;
   width: 22px;
   height: 22px;
+}
+
+/* ── Clean Standalone Pure White Section Title Icons (No Bounding Box) ── */
+.section-title-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #ffffff !important;
+}
+
+.discover-section-header .section-title-icon i,
+.discover-section-header .section-title-icon svg,
+.discover-section-header > i,
+.discover-section-header > svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+  font-size: 18px !important;
+  width: 20px !important;
+  height: 20px !important;
+  flex-shrink: 0 !important;
 }
 
 .discover-section-header {
@@ -1321,11 +1353,15 @@
   scroll-behavior: smooth;
   padding: 10px 5px 40px;
   margin: 0;
-  scrollbar-width: none;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
-.discover-row::-webkit-scrollbar {
-  display: none;
+.discover-row::-webkit-scrollbar,
+[id^="yt-row"]::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .discover-card {
@@ -1334,9 +1370,9 @@
   min-width: 170px;
   max-width: 170px;
   cursor: pointer;
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
-  transition: transform 0.2s ease;
+  transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.4, 1), box-shadow 0.3s ease;
   background: transparent;
   border: none;
   position: relative;
@@ -1350,18 +1386,18 @@
 .discover-poster-wrap {
   width: 100%;
   aspect-ratio: 2/3.1;
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
   position: relative;
   background: var(--bg-surface-2);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.12);
   transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .discover-card:hover .discover-poster-wrap {
-  border-color: var(--accent);
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5), 0 0 15px rgba(var(--accent-rgb), 0.2);
+  border-color: #ffffff;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.7);
 }
 
 .discover-poster {
@@ -1379,32 +1415,54 @@
   display: none !important;
 }
 
+/* Inside-Poster Info Overlay: Hidden by default, appears on hover with dark gradient shading */
 .discover-info {
-  padding: 12px 2px 8px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 35px 10px 10px 10px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.65) 60%, transparent 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 3px;
+  z-index: 10;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.28s ease, transform 0.28s cubic-bezier(0.2, 0.9, 0.4, 1);
+  pointer-events: none;
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+}
+
+.discover-card:hover .discover-info {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .discover-title {
-  font-size: 14.5px;
-  font-weight: 700;
+  font-size: 13.5px;
+  font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-  transition: color 0.3s;
+  color: #ffffff !important;
+  margin-bottom: 2px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
 }
 
 .discover-card:hover .discover-title {
-  color: var(--accent);
+  color: #ffffff !important;
 }
 
 .discover-meta {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.85) !important;
 }
 
 .discover-rating-stars {
@@ -1424,7 +1482,7 @@
   padding: 10px 0 24px;
 }
 
-.card-grid .discover-card,
+.card-grid > .discover-card,
 .mal-grid .discover-card {
   width: 100% !important;
   max-width: none !important;
@@ -1792,25 +1850,27 @@
 .stream-btn-play {
   width: 36px !important;
   height: 36px !important;
-  background: linear-gradient(135deg, #10B981, #059669) !important;
-  color: #ffffff !important;
+  background: #ffffff !important;
+  color: #0A0E17 !important;
   border-radius: 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.9) !important;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, fill 0.2s ease, stroke 0.2s ease;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
+  box-shadow: 0 4px 14px rgba(255, 255, 255, 0.25) !important;
 }
 
 .stream-btn-play svg {
   width: 16px !important;
   height: 16px !important;
-  fill: #ffffff !important;
+  fill: #0A0E17 !important;
 }
 
 .stream-btn-play:hover {
+  background: #ffffff !important;
   transform: scale(1.08) translateY(-1px) !important;
-  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.5) !important;
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.5) !important;
 }
 
 .stream-btn-download {
@@ -1830,27 +1890,6 @@
 .stream-btn-download:hover {
   background: rgba(255, 255, 255, 0.12) !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
-  transform: scale(1.08) translateY(-1px) !important;
-}
-
-.stream-btn-vlc {
-  width: 36px !important;
-  height: 36px !important;
-  background: rgba(243, 156, 18, 0.12) !important;
-  color: #f39c12 !important;
-  border-radius: 10px !important;
-  border: 1px solid rgba(243, 156, 18, 0.2) !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, fill 0.2s ease, stroke 0.2s ease;
-}
-
-.stream-btn-vlc:hover {
-  background: rgba(243, 156, 18, 0.22) !important;
-  color: #ffffff !important;
-  border-color: rgba(243, 156, 18, 0.35) !important;
   transform: scale(1.08) translateY(-1px) !important;
 }
 
@@ -2199,6 +2238,11 @@
 .dl-cancel-btn:hover {
   color: #EF4444;
   background: rgba(239, 68, 68, .1);
+}
+
+.dl-pause-btn:hover {
+  color: #4F46E5;
+  background: rgba(79, 70, 229, 0.1);
 }
 
 .dl-complete {
@@ -2630,6 +2674,31 @@
   border-radius: 50%;
 }
 
+/* Add Profile Circle Button: White Background & Black Plus Sign */
+#btn-add-profile .profile-avatar-box {
+  background: #ffffff !important;
+  border: 2px dashed #ffffff !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 20px rgba(255, 255, 255, 0.25) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+#btn-add-profile .profile-avatar-box svg {
+  stroke: #000000 !important;
+  stroke-width: 2.5px !important;
+}
+
+#btn-add-profile:hover .profile-avatar-box {
+  background: #e5e5e5 !important;
+  border-color: #ffffff !important;
+  transform: translateY(-5px) scale(1.05) !important;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.8), 0 0 25px rgba(255, 255, 255, 0.4) !important;
+}
+
+#btn-add-profile span {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
 .profile-card:hover .profile-avatar-box {
   border-color: #fff;
   transform: translateY(-5px);
@@ -2805,12 +2874,15 @@
 }
 
 #profile-picker.profile-picker-screen {
-  background-color: #050508 !important;
+  background-color: #050508;
   backdrop-filter: none !important;
 }
 
 #profile-picker {
-  background-color: #050508 !important;
+  background-color: #050508;
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
   position: fixed;
   inset: 0;
   z-index: 20000;
@@ -2821,6 +2893,7 @@
   overflow: hidden;
   text-align: center;
   color: #FFFFFF !important;
+  transition: background-image 0.5s ease;
 }
 
 #intro-screen {
@@ -3543,6 +3616,39 @@
   transform: scale(1.05);
 }
 
+/* ─── FULL-HEIGHT FLEX LAYOUT FOR ADDONS STORE ─────────────────────────── */
+#view-addons.view.active,
+section#view-addons.active {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  overflow-y: hidden !important;
+  padding: 24px 36px 20px !important;
+}
+
+#view-addons:not(.active) {
+  display: none !important;
+}
+
+#view-addons.active #addons-page-grid,
+#view-addons.active .addon-store-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)) !important;
+  gap: 16px !important;
+  width: 100% !important;
+  flex: 1 1 0px !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+  padding-bottom: 60px !important;
+  align-content: start !important;
+}
+
 @media (max-width: 1100px) {
   .dd-main {
     flex-direction: column;
@@ -3642,3 +3748,188 @@
     rgba(10, 10, 15, 0.12) 0%, 
     rgba(10, 10, 15, 0.4) 100%);
 }
+
+/* ─── Miniature App Screen Theme Picker Preview Cards ─── */
+.theme-picker-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 16px !important;
+  margin-top: 10px !important;
+  width: 100% !important;
+}
+
+.theme-card-preview {
+  position: relative !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 16px !important;
+  padding: 14px !important;
+  cursor: pointer !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  user-select: none !important;
+  box-sizing: border-box !important;
+}
+
+.theme-card-preview:hover {
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+
+.theme-card-preview.active {
+  border: 2px solid #ffffff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 30px rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Miniature App Window Mockup */
+.theme-window-mockup {
+  width: 100% !important;
+  height: 110px !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6) !important;
+  position: relative !important;
+  box-sizing: border-box !important;
+}
+
+/* Theme 1: Pitch Black */
+.theme-window-mockup.minimalist-mockup {
+  background: #000000 !important;
+}
+
+.minimalist-mockup .mockup-header {
+  height: 20px !important;
+  background: #111118 !important;
+  border-bottom: 1px solid #333344 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 8px !important;
+}
+
+.minimalist-mockup .dot { background: #ffffff !important; }
+.minimalist-mockup .mockup-title { color: #ffffff !important; font-weight: 900 !important; }
+.minimalist-mockup .mockup-sidebar { background: #0a0a0f !important; border-right: 1px solid #282838 !important; }
+.minimalist-mockup .mockup-line { background: #555566 !important; }
+.minimalist-mockup .mockup-line.active { background: #ffffff !important; }
+.minimalist-mockup .mockup-hero { background: #1a1a26 !important; border: 1.5px solid #444458 !important; }
+.minimalist-mockup .mockup-card { background: #141420 !important; border: 1.5px solid #333348 !important; }
+
+/* Theme 2: Midnight Glass */
+.theme-window-mockup.dark-mockup {
+  background: linear-gradient(135deg, #111124 0%, #06060c 100%) !important;
+}
+
+.dark-mockup .mockup-header {
+  height: 20px !important;
+  background: rgba(20, 20, 40, 0.8) !important;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 8px !important;
+}
+
+.dark-mockup .dot { background: #4f46e5 !important; }
+.dark-mockup .mockup-title { color: #c7d2fe !important; }
+.dark-mockup .mockup-sidebar { background: rgba(15, 15, 30, 0.9) !important; border-right: 1px solid rgba(99, 102, 241, 0.15) !important; }
+.dark-mockup .mockup-line { background: rgba(255, 255, 255, 0.15) !important; }
+.dark-mockup .mockup-line.active { background: #818cf8 !important; }
+.dark-mockup .mockup-hero { background: linear-gradient(135deg, rgba(79, 70, 229, 0.3), rgba(15, 15, 30, 0.8)) !important; border: 1px solid rgba(99, 102, 241, 0.3) !important; }
+.dark-mockup .mockup-card { background: rgba(30, 30, 60, 0.5) !important; border: 1px solid rgba(99, 102, 241, 0.2) !important; }
+
+/* Common Mockup Parts */
+.mockup-header .mockup-dots {
+  display: flex !important;
+  gap: 3px !important;
+}
+
+.mockup-header .dot {
+  width: 5px !important;
+  height: 5px !important;
+  border-radius: 50% !important;
+}
+
+.mockup-header .mockup-title {
+  font-size: 8px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.5px !important;
+  text-transform: uppercase !important;
+}
+
+.mockup-body {
+  flex: 1 !important;
+  display: flex !important;
+  overflow: hidden !important;
+}
+
+.mockup-sidebar {
+  width: 24px !important;
+  padding: 6px 4px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+}
+
+.mockup-line {
+  height: 3px !important;
+  border-radius: 2px !important;
+  width: 100% !important;
+}
+
+.mockup-content {
+  flex: 1 !important;
+  padding: 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 5px !important;
+}
+
+.mockup-hero {
+  height: 28px !important;
+  border-radius: 5px !important;
+  width: 100% !important;
+}
+
+.mockup-grid {
+  flex: 1 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 4px !important;
+}
+
+.mockup-card {
+  border-radius: 4px !important;
+  height: 100% !important;
+}
+
+/* Footer Label */
+.theme-card-footer {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 4px !important;
+}
+
+.theme-name {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+}
+
+.theme-badge {
+  display: none;
+  font-size: 13px !important;
+  color: #2ed573 !important;
+}
+
+.theme-card-preview.active .theme-badge {
+  display: inline-flex !important;
+}

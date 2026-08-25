@@ -117,6 +117,11 @@ class TorrentFilterService {
             return true;
         }
 
+        // Allow addon error messages to pass through so the user sees them
+        if (torrentTitle.includes('⛔️') || torrentTitle.includes('⚠️')) {
+            return true;
+        }
+
         const parsed = this.parseTitle(torrentTitle);
 
         // Rule 1: Reject Season Packs if no file index is provided

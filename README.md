@@ -1,35 +1,35 @@
 <div align="center">
 
-# MediaVault — Own Your Stream
+# 🎬 MEEM — Play Anything. Anytime.
 
-[![Version](https://img.shields.io/badge/version-26.15.0-6366f1?style=for-the-badge)](https://github.com/amromotaw3/MediaVault-Landing/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-blue?style=for-the-badge)](https://github.com/amromotaw3/MediaVault-Landing/releases)
-[![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.7.0-ffffff?style=for-the-badge&logo=electron&logoColor=black)](https://github.com/amromotaw3/MEEM)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-000000?style=for-the-badge)](https://github.com/amromotaw3/MEEM)
+[![License](https://img.shields.io/badge/license-MIT-white?style=for-the-badge)](LICENSE)
 
-**The next-generation personal media hub.**
-Stream torrents, discover trending content, manage your local library, and watch anime — all in one premium interface.
+**The next-generation personal media hub.**  
+Stream torrents, watch live IPTV, listen to global radio, manage your local library, watch anime, and connect community add-ons — all in a sleek minimalist black & white interface.
 
 </div>
 
 ---
 
-## ✨ Features
+## ✨ Core Features
 
 | Feature | Description |
 |---|---|
-| 🎬 **Local Media Library** | Scan local folders, auto-fetch metadata & posters from TMDB, organize movies & series with smart grouping |
-| 🧩 **Stremio Add-on Support** | Install community add-ons to access unlimited content sources with one-click install |
+| 🎬 **Local Media Library** | Scan local drives, auto-fetch posters & metadata from TMDB, organize movies & series with smart grouping |
+| 📺 **IPTV & Live Channels** | Built-in IPTV player with M3U/M3U8 playlist parsing, category navigation, and live TV streaming |
+| 📻 **Global Live Radio** | Stream thousands of live radio stations worldwide filtered by country, genre, and station tags |
 | ⚡ **Torrent Streaming** | Stream torrents in real-time without waiting for full download via WebTorrent |
-| 🐉 **Anime Hub** | Dedicated anime section with Jikan API trending and tracking |
-| 🔍 **Smart Discover** | Trending movies, trending series, popular, top-rated, upcoming, and anime — powered by TMDB |
-| 🔒 **Privacy Vault** | PIN-protected vault to hide private media from the main library |
-| 📝 **Subtitle Studio** | Search, download, and sync subtitles from OpenSubtitles with a visual timeline editor |
-| 🎵 **Music Player** | Play local music with cover art, metadata display, and volume controls |
-| 📺 **DLNA / Casting** | Cast media to smart TVs and devices on the local network |
-| 👤 **Multi-Profile** | Multiple user profiles with separate libraries and preferences |
-| 🔄 **Auto Updates** | Built-in auto-updater for both PC (electron-updater) and Android (APK download) |
-| 🖥️📱 **Cross-Platform** | Windows (Electron) and Android (Capacitor) |
-| 🎨 **Premium Dark UI** | Glassmorphism design with Inter font, smooth animations, and responsive layouts |
+| 🧩 **Stremio Add-on Support** | Install community add-ons to access unlimited content sources with one-click integration |
+| 🐉 **Dedicated Anime Hub** | Dedicated anime section powered by Jikan & Kitsu APIs with episode tracking |
+| 🔒 **PIN Privacy Vault** | Securely lock private media folders, movies, or collections behind a PIN-protected section |
+| 📝 **Subtitle Studio & Sync** | Search, download, and sync subtitles from OpenSubtitles with a visual timeline offset editor |
+| 📥 **Integrated Stream & Downloader** | Download direct video URLs or stream torrents straight to your local library |
+| 👤 **Multi-Profile System** | Separate user profiles for family members with individual avatars, watch history, and preferences |
+| 🔄 **Trakt.tv Progress Sync** | Real-time Trakt.tv scrobbling and playback position syncing across devices |
+| 🎨 **Modern Black & White Theme** | Pitch-black minimalist design tokens with high-contrast UI and responsive layouts |
+| 🖥️📱 **Cross-Platform** | Native Windows desktop app (Electron) and Android mobile app (Capacitor) |
 
 ---
 
@@ -42,8 +42,8 @@ Stream torrents, discover trending content, manage your local library, and watch
 ### Installation
 
 ```bash
-git clone https://github.com/amromotaw3/MediaVault.git
-cd MediaVault
+git clone https://github.com/amromotaw3/MEEM.git
+cd MEEM
 npm install
 npm start
 ```
@@ -57,21 +57,25 @@ npm run build
 Creates a production installer via `electron-builder`.
 
 **Android APK:**
-Built via Capacitor — sync and build from the `android/` directory.
+```bash
+npm run mobile:build
+```
+Builds release APK via Capacitor from the `android/` directory.
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Project Architecture
 
 ```
-MediaVault/
+MEEM/
 ├── main.js                    # Electron main process entry
 ├── package.json               # Dependencies & build config
 ├── capacitor.config.json      # Capacitor (Android) config
 │
 ├── src/
 │   ├── main/                  # Main process modules
-│   │   ├── ipcHandlers.js     # All IPC handlers (TMDB, files, etc.)
+│   │   ├── ipc/               # Modular IPC handlers (IPTV, Radio, Youtube, Files, etc.)
+│   │   ├── ipcHandlers.js     # Centralized IPC dispatcher
 │   │   ├── addons.js          # Stremio add-on engine
 │   │   ├── streamer.js        # Torrent streaming & media server
 │   │   ├── downloader.js      # Download manager
@@ -80,32 +84,24 @@ MediaVault/
 │   │   ├── updater.js         # Auto-update lifecycle
 │   │   ├── store.js           # Persistent data store
 │   │   ├── windowManager.js   # Window creation & management
-│   │   ├── mediaServer.js     # Local media streaming server
-│   │   └── discordRPC.js      # Discord Rich Presence
+│   │   └── mediaServer.js     # Local media streaming server
 │   │
 │   └── renderer/              # Frontend (UI)
 │       ├── index.html         # Main application shell
-│       ├── renderer.js        # Core UI logic (~11k lines)
+│       ├── renderer.js        # Core UI renderer logic
 │       ├── TMDBService.js     # TMDB API service
-│       ├── preload.js         # Electron preload (context bridge)
-│       ├── css/               # Stylesheets
+│       ├── css/               # Stylesheets (Minimalist Black & White theme)
 │       │   ├── base.css       # Design tokens & variables
 │       │   ├── layout.css     # Sidebar, grid, main layout
+│       │   ├── iptv.css       # IPTV player styles
+│       │   ├── radio.css      # Radio station styles
 │       │   ├── components.css # Reusable UI components
-│       │   ├── pages.css      # Page-specific styles
-│       │   ├── player.css     # Video player styles
-│       │   ├── mobile.css     # Android responsive overrides
-│       │   └── detail-cinematic.css  # Detail page cinema mode
-│       └── js/                # Modular JS
-│           ├── bridge.js      # Android Capacitor bridge
-│           ├── detail-unified.js
-│           ├── recommendation-service.js
-│           └── thumbnail-generator.js
+│       │   └── player.css     # Video player styles
+│       └── modules/           # Modular JS features (IPTV, Radio, Anime, Library, etc.)
 │
 ├── android/                   # Capacitor Android project
-├── build_assets/              # Icons & installer assets
-├── scripts/                   # Build & utility scripts
-└── tests/                     # Test files
+├── scripts/                   # Build & release utility scripts
+└── tests/                     # Test suites
 ```
 
 ---
@@ -116,13 +112,13 @@ MediaVault/
 |---|---|
 | Desktop Runtime | Electron 28+ |
 | Mobile Runtime | Capacitor |
-| Frontend | Vanilla JS, HTML5, CSS3 |
+| Frontend | Vanilla JavaScript (ES6+), HTML5, CSS3 |
 | Movie Metadata | TMDB API |
 | Anime Data | Jikan API, Kitsu API |
+| Live Media | IPTV M3U, Radio Browser API |
 | Content Sources | Stremio Addon Protocol |
 | Torrent Engine | WebTorrent |
-| Auto-Updates | electron-updater |
-| Data Storage | electron-store |
+| Data Storage | electron-store, Supabase |
 
 ---
 

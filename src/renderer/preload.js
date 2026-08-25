@@ -1,13 +1,12 @@
 // ─── preload.js ─── MediaVault v3.0 ──────────────────────────────────────────
 const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
-const { getSupabaseUrl, getSupabaseAnonKey, isConfigured } = require('../shared/supabaseEnv');
+const env = ipcRenderer.sendSync('get-supabase-env');
 
-if (isConfigured()) {
-  contextBridge.exposeInMainWorld('SUPABASE_URL', getSupabaseUrl());
-  contextBridge.exposeInMainWorld('SUPABASE_ANON_KEY', getSupabaseAnonKey());
-  contextBridge.exposeInMainWorld('MEDIAVAULT_SUPABASE_URL', getSupabaseUrl());
-  contextBridge.exposeInMainWorld('MEDIAVAULT_SUPABASE_ANON_KEY', getSupabaseAnonKey());
-  
+if (env && env.supabaseUrl && env.supabaseAnonKey) {
+  contextBridge.exposeInMainWorld('SUPABASE_URL', env.supabaseUrl);
+  contextBridge.exposeInMainWorld('SUPABASE_ANON_KEY', env.supabaseAnonKey);
+  contextBridge.exposeInMainWorld('MEDIAVAULT_SUPABASE_URL', env.supabaseUrl);
+  contextBridge.exposeInMainWorld('MEDIAVAULT_SUPABASE_ANON_KEY', env.supabaseAnonKey);
 } else {
   console.warn('[PRELOAD] Supabase env not configured — cloud auth may fail');
 }
@@ -65,12 +64,14 @@ contextBridge.exposeInMainWorld('api', {
   tmdbDiscoverByGenre: (genreId) => ipcRenderer.invoke('tmdb-discover-by-genre', genreId),
   downloadImage: (url, id, force) => ipcRenderer.invoke('download-image', url, id, force),
 
-  // Downloads
   startDownload: (opts) => ipcRenderer.invoke('start-download', opts),
   cancelDownload: (id) => ipcRenderer.invoke('cancel-download', id),
+  pauseDownload: (id) => ipcRenderer.invoke('pause-download', id),
+  resumeDownload: (id) => ipcRenderer.invoke('resume-download', id),
   onDownloadProgress: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('download-progress', h); return () => ipcRenderer.removeListener('download-progress', h); },
   onDownloadComplete: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('download-complete', h); return () => ipcRenderer.removeListener('download-complete', h); },
   onDownloadError: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('download-error', h); return () => ipcRenderer.removeListener('download-error', h); },
+  onDownloadCancelled: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('download-cancelled', h); return () => ipcRenderer.removeListener('download-cancelled', h); },
   onTorrentProgress: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('torrent-progress', h); return () => ipcRenderer.removeListener('torrent-progress', h); },
   onLibraryUpdated: (cb) => { const h = () => cb(); ipcRenderer.on('library-updated', h); return () => ipcRenderer.removeListener('library-updated', h); },
   onMetadataReady: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('metadata-ready', h); return () => ipcRenderer.removeListener('metadata-ready', h); },
@@ -118,6 +119,7 @@ contextBridge.exposeInMainWorld('api', {
   kitsuTrending: () => ipcRenderer.invoke('kitsu-trending'),
   jikanTrending: () => ipcRenderer.invoke('jikan-trending'),
   unifiedSearch: (query) => ipcRenderer.invoke('unified-search', query),
+  searchRadio: (opts) => ipcRenderer.invoke('radio-search', opts),
 
   // Manual metadata link
   saveManualLink: (opts) => ipcRenderer.invoke('save-manual-link', opts),
@@ -132,9 +134,114 @@ contextBridge.exposeInMainWorld('api', {
   // MPV Engine
 
 
-  // Generic Invoke Fail-Safe
-  invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-  send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+  // Generic Invoke — whitelist-gated to prevent XSS from calling arbitrary IPC channels
+  invoke: (() => {
+    const ALLOWED = new Set([
+      // Storage & Session
+      'load-app-data', 'save-app-data', 'get-hardware-id', 'clear-cache',
+      'save-playback-position', 'get-playback-position', 'get-profile-playback',
+      'clear-profile-playback', 'cloud-delete-playback-position',
+      'clean-missing-downloads', 'clear-session',
+
+      // Cloud Authentication & Profiles
+      'cloud-login', 'cloud-register', 'cloud-discord-login',
+      'cloud-create-profile', 'cloud-update-profile', 'cloud-delete-profile',
+      'cloud-verify-profile-pin', 'cloud-sync-user-session', 'cloud-oauth',
+      'cloud-update-profile-avatar-color',
+
+      // Cloud Catalog, Requests & Social Presence
+      'cloud-fetch-catalog', 'cloud-fetch-requests', 'cloud-create-request',
+      'cloud-update-request', 'cloud-admin-mutate', 'cloud-search-collaborators',
+      'cloud-get-user-id-by-username', 'cloud-invite-collaborator',
+      'cloud-refresh-custom-lists', 'cloud-delete-custom-list', 'cloud-remove-list-item',
+      'cloud-get-pending-invitations', 'cloud-accept-invitation', 'cloud-decline-invitation',
+      'cloud-delete-chat-message', 'cloud-kick-list-member', 'cloud-transfer-list-ownership',
+      'cloud-get-list-sharing-members', 'cloud-get-allow-invitations',
+      'cloud-set-allow-invitations', 'cloud-load-chat-history', 'cloud-send-chat-message',
+      'cloud-open-chat-window', 'cloud-send-media-share', 'cloud-upload-chat-image',
+      'cloud-realtime-send', 'cloud-realtime-fetch', 'cloud-fetch-addons',
+      'cloud-save-addon', 'cloud-delete-addon',
+
+      // File & Profile Folder Management
+      'select-folder', 'select-download-folder', 'select-files',
+      'delete-file', 'move-file', 'create-folder', 'rename-file', 'dir-exists',
+      'get-profile-media-paths', 'ensure-profile-folders', 'rename-profile-folders',
+      'delete-profile-data', 'select-user-avatar', 'select-user-banner',
+      'get-default-library-root',
+
+      // Library Scanning & Subtitles
+      'scan-library', 'scan-youtube', 'scan-music',
+      'find-subtitles', 'read-subtitle-file', 'open-subtitle-dialog',
+      'list-profile-subtitles', 'create-subtitle-folder', 'save-subtitle-local',
+      'delete-subtitle-local', 'rename-subtitle-local', 'move-subtitle-local',
+      'get-managed-subtitles', 'search-opensubtitles', 'search-opensubtitles-by-id',
+      'download-subtitle', 'download-remote-subtitle', 'fetch-addon-subtitles',
+      'get-subdl-key', 'set-subdl-key', 'get-subdl-key-masked', 'verify-subdl-key',
+      'subdl-verify-key',
+
+      // Metadata, Catalogs & Search
+      'set-custom-banner', 'fetch-url-metadata', 'fetch-url-text', 'fetch-proxy',
+      'fetch-icon', 'is-media-link', 'save-frame', 'probe-media', 'download-image', 'get-media-images',
+      'cinemeta-search', 'cinemeta-details', 'cinemeta-catalog', 'cinemeta-discover-by-genre',
+      'tmdb-discover-by-genre', 'tmdb-season-details', 'tmdb-verify-key',
+      'get-metadata-provider', 'set-metadata-provider',
+      'set-fanart-key', 'get-fanart-key-masked', 'verify-fanart-key', 'fanart-get-images', 'fanart-images',
+      'mal-search', 'map-mal-id', 'mal-details', 'mal-recommendations', 'mal-top-rated',
+      'mal-top-upcoming', 'mal-seasonal', 'jikan-trending', 'jikan-episodes', 'jikan-details',
+      'kitsu-search', 'kitsu-details', 'kitsu-details-by-mal', 'kitsu-trending',
+      'anilist-search', 'anilist-media-detailed', 'anilist-media-assets',
+      'unified-search', 'save-manual-link', 'get-anime-media-internal', 'get-western-media-internal',
+      'radio-search', 'iptv-parse-m3u-text', 'stremio-addon-list', 'search-addons',
+
+      // Trakt Integration
+      'trakt-get-auth-code', 'trakt-check-auth-status', 'trakt-disconnect',
+      'trakt-connection-status', 'trakt-sync-watchlist', 'trakt-toggle-watchlist',
+      'trakt-scrobble-event', 'trakt-search', 'trakt-playback-progress',
+
+      // Streaming & Media Playback
+      'stream-torrent', 'start-torrent-stream', 'stop-torrent-stream', 'play-media', 'open-in-external-player',
+      'open-in-meem-player', 'get-meem-player-status',
+      'open-in-vlc', 'play-external', 'play-native', 'start-local-server', 'get-vlc-status',
+      'resolve-trailer-stream',
+
+      // YouTube
+      'youtube-search', 'youtube-get-trending', 'youtube-get-home', 'youtube-get-video-info',
+      'youtube-get-captions', 'youtube-download-media',
+      'youtube-get-account', 'youtube-sign-in', 'youtube-sign-out', 'youtube-auth-start',
+      'youtube-auth-status', 'youtube-get-subscriptions', 'youtube-get-history',
+      'youtube-add-history', 'youtube-clear-history', 'youtube-like', 'youtube-dislike',
+      'youtube-subscribe', 'youtube-unsubscribe', 'youtube-get-comments',
+
+      // Addons & Downloads
+      'uninstall-addon', 'stremio-remove-addon', 'remove-stremio-addon',
+      'start-download', 'cancel-download', 'pause-download', 'resume-download', 'download-file',
+
+      // Utility & Window Controls
+      'check-network-status', 'get-app-version', 'open-external', 'set-fullscreen', 'is-fullscreen', 'open-devtools',
+      'check-for-updates', 'download-update', 'install-update'
+    ]);
+
+    return (channel, ...args) => {
+      if (!ALLOWED.has(channel)) {
+        console.error(`[PRELOAD] Blocked invoke on unlisted channel: "${channel}"`);
+        return Promise.reject(new Error(`IPC channel not allowed: ${channel}`));
+      }
+      return ipcRenderer.invoke(channel, ...args);
+    };
+  })(),
+  send: (() => {
+    const ALLOWED_SEND = new Set([
+      'win-minimize', 'win-maximize', 'win-close', 'log-bridge',
+      'discord-activity', 'update-tray-status', 'downloads-control', 'player-control'
+    ]);
+    return (channel, ...args) => {
+      if (!ALLOWED_SEND.has(channel)) {
+        console.error(`[PRELOAD] Blocked send on unlisted channel: "${channel}"`);
+        return;
+      }
+      ipcRenderer.send(channel, ...args);
+    };
+  })(),
   cloudOAuthLogin: (url) => ipcRenderer.invoke('cloud-oauth', url),
   onDeepLink: (cb) => {
     const h = (_e, url) => cb(url);

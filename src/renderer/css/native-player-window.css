@@ -116,12 +116,12 @@ body.mv-native-player-window .player-controls input[type="range"] {
 .player-splash {
   position: fixed;
   inset: 0;
-  background: #050508; /* Same background base as main splash */
+  background: #000000;
   z-index: 99999999;
   display: none;
   align-items: center;
   justify-content: center;
-  font-family: 'Outfit', 'Cairo', sans-serif;
+  font-family: 'Comfortaa', 'Outfit', 'Cairo', sans-serif;
   overflow: hidden;
   transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), visibility 0.6s;
 }
@@ -130,126 +130,40 @@ body.mv-native-player-window #player-splash {
   display: flex !important;
 }
 
-/* Moving Aura Blobs (Same as Main Splash) */
-.player-splash-blob {
-  position: absolute;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.player-splash-blob.blob-1 {
-  top: -20%;
-  left: -20%;
-  width: 80%;
-  height: 80%;
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.35) 0%, transparent 70%);
-  filter: blur(80px);
-  animation: playerSplashOrbit 8s infinite ease-in-out;
-}
-
-.player-splash-blob.blob-2 {
-  bottom: -20%;
-  right: -20%;
-  width: 80%;
-  height: 80%;
-  background: radial-gradient(circle, rgba(79, 70, 229, 0.3) 0%, transparent 70%);
-  filter: blur(80px);
-  animation: playerSplashOrbit 12s infinite ease-in-out reverse;
-}
-
-.player-splash-blob.blob-3 {
-  top: 20%;
-  right: -30%;
-  width: 70%;
-  height: 70%;
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.25) 0%, transparent 70%);
-  filter: blur(90px);
-  animation: playerSplashOrbit 10s infinite linear;
-}
-
-@keyframes playerSplashOrbit {
-  0%, 100% {
-    transform: translate(0, 0) scale(1) rotate(0deg);
-  }
-  25% {
-    transform: translate(15%, 10%) scale(1.1) rotate(5deg);
-  }
-  50% {
-    transform: translate(-10%, 20%) scale(0.9) rotate(-5deg);
-  }
-  75% {
-    transform: translate(-15%, -5%) scale(1.05) rotate(3deg);
-  }
-}
-
 .player-splash-content {
   position: relative;
   z-index: 2;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px; /* Closer gap for logo and text */
 }
 
 .player-splash-logo {
-  width: 96px;
-  height: 96px;
+  width: 84px;
+  height: 84px;
   object-fit: contain;
-  filter: drop-shadow(0 0 30px rgba(139, 92, 246, 0.4));
-  transform-origin: center;
-  animation: playerLogoSequence 2.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
 }
 
 .player-splash-text {
-  font-size: 2.8rem;
-  font-weight: 800;
-  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
   white-space: nowrap;
-  letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #ffffff 40%, rgba(255, 255, 255, 0.7) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  opacity: 0;
-  animation: playerTextSequence 2.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
 }
 
-@keyframes playerLogoSequence {
-  0% {
-    transform: translateX(160px) scale(0) rotate(-10deg);
-    opacity: 0;
-  }
-  30% {
-    transform: translateX(160px) scale(1.1) rotate(5deg);
-    opacity: 1;
-  }
-  38% {
-    transform: translateX(160px) scale(1) rotate(0deg);
-    opacity: 1;
-  }
-  50% {
-    transform: translateX(160px) scale(1);
-  }
-  75%, 100% {
-    transform: translateX(0) scale(1);
-  }
+/* Keyframe: spinner */
+@keyframes playerSplashSpin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-@keyframes playerTextSequence {
-  0%, 60% {
-    opacity: 0;
-    transform: translateX(-100px);
-    filter: blur(10px);
-  }
-  65% {
-    opacity: 0.3;
-    filter: blur(6px);
-  }
-  85%, 100% {
-    opacity: 1;
-    transform: translateX(0);
-    filter: blur(0);
-  }
+/* Keyframe: media logo fade-in */
+@keyframes playerSplashFade {
+  0%   { opacity: 0; transform: scale(0.92) translateY(8px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .player-splash.fade-out {
@@ -257,3 +171,4 @@ body.mv-native-player-window #player-splash {
   visibility: hidden;
   pointer-events: none;
 }
+

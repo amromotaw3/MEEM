@@ -1,34 +1,225 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   MediaVault v3.0 — White Minimalist Theme
+   MediaVault v3.0 — Modern Minimalist Black & White Default Theme
    ══════════════════════════════════════════════════════════════════════════ */
 
-:root {
-  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --bg: #F8FAFC;
-  --bg-surface: #FFFFFF;
-  --bg-surface-2: #F1F5F9;
-  --bg-card: #FFFFFF;
-  --text-primary: #0F172A;
-  --text-secondary: #475569;
-  --text-muted: #94A3B8;
-  --border: #E2E8F0;
-  --accent: #FFFFFF;
-  --accent-hover: #E2E8F0;
-  --accent-light: rgba(255, 255, 255, 0.15);
-  --accent-glow: rgba(255, 255, 255, 0.25);
+/* Default Theme: Modern Black & White Minimalist (mono-theme) */
+:root, .theme-minimalist {
+  --font: 'Comfortaa', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --bg: #000000;
+  --bg-surface: #000000;
+  --bg-surface-2: #09090b;
+  --bg-card: #000000;
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-muted: #8e8e93;
+  --border: rgba(255, 255, 255, 0.30);
+  --border-subtle: rgba(255, 255, 255, 0.22);
+  --border-strong: rgba(255, 255, 255, 0.50);
+  --accent: #ffffff;
+  --accent-hover: #f4f4f5;
+  --accent-light: rgba(255, 255, 255, 0.16);
+  --accent-glow: rgba(255, 255, 255, 0.30);
   --radius: 10px;
   --radius-lg: 14px;
   --radius-xl: 18px;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, .07);
-  --shadow-lg: 0 8px 30px rgba(0, 0, 0, .1);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.7);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.85);
+  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.95);
   --t: .18s ease;
   --sidebar-w: 230px;
   --titlebar-h: 32px;
 }
 
-/* High-Contrast Dark theme */
-.dark-theme {
+/* --- THEME MINIMALIST (BLACK & WHITE) SPECIFIC OVERRIDES --- */
+.theme-minimalist body,
+.theme-minimalist #app-content,
+.theme-minimalist .main-content,
+.theme-minimalist .page-view,
+.theme-minimalist .discover-main,
+.theme-minimalist .discover-section,
+.theme-minimalist .settings-card,
+.theme-minimalist .card-grid,
+.theme-minimalist .library-view,
+.theme-minimalist .iptv-view,
+.theme-minimalist .modal-backdrop > div,
+.theme-minimalist .modal-content,
+.theme-minimalist .dialog-container,
+.theme-minimalist .detail-view,
+.theme-minimalist .cinematic-detail,
+.theme-minimalist .detail-content,
+.theme-minimalist .detail-sheet,
+.theme-minimalist .profile-picker-screen {
+  background-color: #000000 !important;
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+.theme-minimalist .profile-float-btn i {
+  color: #000000 !important;
+  fill: #000000 !important;
+  stroke: #000000 !important;
+}
+
+.theme-minimalist button.btn-primary, 
+.theme-minimalist .play-circle, 
+.theme-minimalist .watch-now,
+.theme-minimalist #btn-mobile-start,
+.theme-minimalist #profile-confirm {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1.5px solid #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.theme-minimalist .media-card {
+  background: #000000 !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.28) !important;
+}
+
+/* Splash Screen Override - Black Theme */
+.theme-minimalist #app-splash,
+.theme-minimalist #player-splash,
+.theme-minimalist .player-splash {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+.theme-minimalist .splash-orb,
+.theme-minimalist .player-splash-blob {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0%, transparent 70%) !important;
+}
+
+/* Splash Screen Override - Purple Theme */
+.dark-theme #app-splash,
+.dark-theme #player-splash,
+.dark-theme .player-splash {
+  background: #0a0a14 !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .splash-orb,
+.dark-theme .player-splash-blob {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.3) 0%, transparent 70%) !important;
+}
+
+/* Profile Picker Override */
+.theme-minimalist #profile-picker,
+.theme-minimalist .profile-picker-screen {
+  background-color: #000000 !important;
+  background: #000000 !important;
+}
+
+/* Detail View & Loading Skeleton Overrides */
+.theme-minimalist #detail-modal,
+.theme-minimalist #cinematic-detail-modal,
+.theme-minimalist .detail-view,
+.theme-minimalist .cinematic-detail,
+.theme-minimalist .detail-content,
+.theme-minimalist .detail-sheet {
+  background: #000000 !important;
+  border-color: rgba(255, 255, 255, 0.32) !important;
+  color: #ffffff !important;
+}
+
+.theme-minimalist .detail-loading,
+.theme-minimalist .detail-loading-skeleton,
+.theme-minimalist .skeleton-box {
+  background: #09090b !important;
+}
+
+/* Notifications & Toasts Overrides */
+.theme-minimalist .toast,
+.theme-minimalist .update-toast,
+.theme-minimalist #toast-container > div,
+.theme-minimalist .notification-item,
+.theme-minimalist .notification-dropdown,
+.theme-minimalist .notification-center {
+  background: #000000 !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.35) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.95) !important;
+}
+
+.theme-minimalist .update-toast-icon {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+.theme-minimalist .update-toast-close-btn {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+  opacity: 0.9 !important;
+}
+
+/* Modals & Backdrops Overrides */
+.theme-minimalist .modal-backdrop > div,
+.theme-minimalist .modal-content,
+.theme-minimalist .dialog-container {
+  background: #000000 !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.35) !important;
+  color: #ffffff !important;
+}
+
+.theme-minimalist .settings-card {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+}
+
+.theme-minimalist input,
+.theme-minimalist select,
+.theme-minimalist .theme-input {
+  background: #141417 !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.30) !important;
+  color: #ffffff !important;
+}
+
+/* Global High-Contrast Checkbox Styling for pure B&W / all monitors */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 19px;
+  height: 19px;
+  border: 2px solid rgba(255, 255, 255, 0.65) !important;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  vertical-align: middle;
+  flex-shrink: 0;
+  position: relative;
+}
+
+input[type="checkbox"]:hover {
+  border-color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+}
+
+input[type="checkbox"]:checked {
+  background: #ffffff !important;
+  border-color: #ffffff !important;
+}
+
+input[type="checkbox"]:checked::before {
+  content: "";
+  width: 10px;
+  height: 6px;
+  border-left: 2.5px solid #000000;
+  border-bottom: 2.5px solid #000000;
+  transform: rotate(-45deg) translate(1px, -1px);
+  box-sizing: border-box;
+}
+
+
+
+/* Optional Classic Midnight Dark Theme */
+.dark-theme, .theme-dark {
   --bg: radial-gradient(circle at 20% 0%, #1a1a3a 0%, #0a0a14 85%, #050508 100%);
   --bg-surface: rgba(15, 15, 25, 0.92);
   --bg-surface-2: rgba(30, 30, 50, 0.85);
@@ -40,7 +231,6 @@
   --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
-  /* Accent color for dark theme (white) */
   --accent: #ffffff;
   --accent-hover: #f8fafc;
   --accent-light: rgba(255, 255, 255, 0.12);
@@ -52,6 +242,15 @@ button, .btn, .btn-primary, .btn-primary-sm, .play-circle, .watch-now, #btn-mobi
   border-radius: 8px !important;
   outline: none !important;
   transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease !important;
+  /* Fix font metric distortion from custom fonts (Comfortaa, Inter) */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
+  font-size: 13px !important;
+  white-space: nowrap !important;
+  gap: 6px !important;
 }
 
 button:focus, .btn:focus {
@@ -64,11 +263,14 @@ button:hover, .btn:hover, .btn-primary:hover, .btn-primary-sm:hover, .play-circl
 }
 
 /* Ensure contrast for light backgrounds */
-.btn-primary, .btn-primary-sm, .play-circle, .watch-now, #btn-mobile-start, #profile-confirm {
+.btn-primary, .btn-primary-sm, .watch-now, #btn-mobile-start, #profile-confirm {
   background: var(--accent) !important; 
   color: #121212 !important; /* Dark text on light accent */
-  font-weight: 800 !important;
+  font-weight: 700 !important;
   box-shadow: 0 8px 24px var(--accent-glow) !important;
+  min-height: 40px !important;
+  padding: 0 20px !important;
+  border-radius: 20px !important;
 }
 
 .dark-theme .btn-primary, .dark-theme .play-circle, .dark-theme .watch-now {
@@ -76,22 +278,63 @@ button:hover, .btn:hover, .btn-primary:hover, .btn-primary-sm:hover, .play-circl
   color: #121212 !important;
 }
 
-/* Secondary dark buttons get white text */
+/* Secondary dark buttons get white text & crisp high-contrast border */
 .btn-secondary, .btn-outline {
   background: rgba(255, 255, 255, 0.08) !important;
   color: #FFFFFF !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.35) !important;
+  min-height: 40px !important;
+  padding: 0 20px !important;
+  border-radius: 20px !important;
+}
+
+.btn-secondary:hover, .btn-outline:hover {
+  border-color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.25) !important;
 }
 
 .btn-primary i, .btn-primary svg, .btn-primary-sm i, .play-circle i, .source-btn.active i {
   color: #121212 !important;
   fill: #121212 !important;
+  line-height: 1 !important;
 }
+
 .search-box input, .hub-search-bar input, .discover-search-box input, .global-search-box input, .search-bar input { 
   background: transparent !important; 
   border: none !important; 
   outline: none !important; 
   box-shadow: none !important; 
   color: var(--text-primary) !important;
+}
+
+/* Subtle Light White Border for All Search Input Containers */
+.search-box,
+.search-bar,
+.hub-search-bar,
+.discover-search-box,
+.global-search-box,
+.social-search-bar,
+.iptv-search-bar,
+.radio-search-box,
+.settings-search-bar,
+.search-input-wrapper {
+  border: 1.5px solid rgba(255, 255, 255, 0.22) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-radius: 50px !important;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+.search-box:focus-within,
+.search-bar:focus-within,
+.hub-search-bar:focus-within,
+.discover-search-box:focus-within,
+.global-search-box:focus-within,
+.social-search-bar:focus-within,
+.iptv-search-bar:focus-within,
+.radio-search-box:focus-within {
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.15) !important;
 }
 
 input, select { 
@@ -120,12 +363,20 @@ input, select {
 }
 
 html,
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--font);
+}
+
+html,
 body {
   width: 100%;
   height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
-  font-family: var(--font);
   background: var(--bg) !important;
   color: var(--text-primary);
   transition: background var(--t), color var(--t);
@@ -185,12 +436,16 @@ img {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: transparent;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(10, 10, 15, 0.45) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding: 0 10px;
   -webkit-app-region: drag;
   user-select: none;
   flex-shrink: 0;
+  z-index: 1000;
+  transition: background 0.3s ease, border-color 0.3s ease, backdrop-filter 0.3s ease;
 }
 
 .title-bar-drag {
@@ -311,9 +566,25 @@ img {
    users who enable it (accessibility + battery saving, especially on Android). */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 0.001ms !important;
+    animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ─── UNIVERSAL COMFORTAA FONT ENFORCEMENT ────────────────────────────── */
+*:not(.fa):not(.fas):not(.far):not(.fab):not(.fad):not(.fal):not(.fat):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(i) {
+  font-family: 'Comfortaa', 'Cairo', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
+/* ─── APPTITLE, SPLASH & SIDEBAR FONT OVERRIDE ('Cairo') ─────────────────── */
+.title-text,
+#app-splash h1,
+#player-splash .player-splash-text,
+.player-splash-text,
+#sidebar *:not(.fa):not(.fas):not(.far):not(.fab):not(.fad):not(.fal):not(.fat):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(i),
+.sidebar-wrapper *:not(.fa):not(.fas):not(.far):not(.fab):not(.fad):not(.fal):not(.fat):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(i),
+.sidebar-flyout-menu *:not(.fa):not(.fas):not(.far):not(.fab):not(.fad):not(.fal):not(.fat):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(i) {
+  font-family: 'Cairo', sans-serif !important;
 }

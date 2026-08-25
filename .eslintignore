@@ -8,3 +8,6 @@ dist/
 .vscode/
 *.min.js
 src/renderer/LocalSyncManager.js
+src/renderer/js/shaka-player.compiled.js
+src/renderer/lib/**
+

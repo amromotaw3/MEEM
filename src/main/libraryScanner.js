@@ -7,11 +7,16 @@ function isVideo(name) { return VIDEO_EXT.has(path.extname(name).toLowerCase());
 function isAudio(name) { return AUDIO_EXT.has(path.extname(name).toLowerCase()); }
 
 function parseEpisode(filename) {
-  const base = path.basename(filename, path.extname(filename)).trim();
+  let base = path.basename(filename, path.extname(filename)).trim();
+  // Strip metadata in brackets/parentheses to avoid matching numbers inside them (e.g., [1080p], [10bit])
+  base = base.replace(/\[[^\]]*\]/g, '').replace(/\([^\)]*\)/g, '').trim();
+  // Replace underscores with spaces to normalize filenames
+  base = base.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  
   let m;
   
-  // Standard formats: S01E01, S1E1
-  m = base.match(/[Ss](\d{1,2})\s*[Ee](\d{1,3})/);
+  // Standard formats: S01E01, S1E1, S01-E01
+  m = base.match(/[Ss](\d{1,2})\s*[-Ee](\d{1,3})/);
   if (m) return { season: +m[1], episode: +m[2] };
   
   // Alternative format: 1x01, 01x01
@@ -44,6 +49,7 @@ function parseEpisode(filename) {
 function parseSeasonFromFolder(folderName) {
   let m;
   m = folderName.match(/season\s*(\d+)/i); if (m) return +m[1];
+  m = folderName.match(/(\d+)(?:st|nd|rd|th)\s*season/i); if (m) return +m[1];
   m = folderName.match(/^s(\d{1,2})$/i);   if (m) return +m[1];
   m = folderName.match(/part\s*(\d+)/i);   if (m) return +m[1];
   m = folderName.match(/cour\s*(\d+)/i);   if (m) return +m[1];

@@ -8,6 +8,31 @@
     if ($('#update-auto-check')) $('#update-auto-check').checked = appData.autoUpdate !== false;
     if ($('#mobile-internal-downloader')) $('#mobile-internal-downloader').checked = appData.mobileInternalDownloader !== false;
     if ($('#pref-video-trailers')) $('#pref-video-trailers').checked = appData.enableVideoTrailers !== false;
+
+    // Dynamically show/hide settings cards based on installed Mods/Addons
+    const addons = appData.installedAddons || [];
+    const urls = addons.map(a => (a.url || a.manifestUrl || '').toLowerCase());
+    const ids = addons.map(a => (a.id || '').toLowerCase());
+    const names = addons.map(a => (a.name || '').toLowerCase());
+
+    const hasAddon = (patterns) => patterns.some(p =>
+      urls.some(u => u.includes(p)) ||
+      ids.some(i => i.includes(p)) ||
+      names.some(n => n.includes(p))
+    );
+
+    const hasTmdbMod = hasAddon(['tmdb', 'tmdb-addon', 'tmdb.elfhosted']);
+    const hasSubdlMod = hasAddon(['subdl', 'opensubtitles', 'subscene']);
+    const hasTraktMod = hasAddon(['trakt', 'mytrakt']);
+
+    const tmdbCard = $('#tmdb-connection-card');
+    if (tmdbCard) tmdbCard.style.display = hasTmdbMod ? '' : 'none';
+
+    const subdlCard = $('#subdl-connection-card');
+    if (subdlCard) subdlCard.style.display = hasSubdlMod ? '' : 'none';
+
+    const traktCard = $('#trakt-connection-card');
+    if (traktCard) traktCard.style.display = hasTraktMod ? '' : 'none';
   }
 
   function renderSettingsFolders() {
@@ -77,6 +102,15 @@
         appData.tmdbCache = {};
         appData.cinemetaCache = {};
         appData.banners = {};
+        
+        // Clear all image cache references from localStorage
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('cache_banner_')) {
+            localStorage.removeItem(key);
+          }
+        }
+
         if (window.api && window.api.clearCache) await window.api.clearCache();
         persist();
         showToast('Cache and Images Cleared! Please rescan library.');
@@ -103,6 +137,28 @@
         persist();
         if (typeof renderDownloadHistory === 'function') renderDownloadHistory();
         showToast('History Cleared');
+      };
+    }
+
+    const btnTestVlc = $('#btn-test-vlc');
+    if (btnTestVlc) {
+      btnTestVlc.onclick = async () => {
+        btnTestVlc.disabled = true;
+        showToast('Launching VLC with MEEM Skin...');
+        try {
+          if (window.api && window.api.invoke) {
+            const res = await window.api.invoke('open-in-vlc', {});
+            if (res && res.success) {
+              showToast('VLC opened successfully with MEEM Skin!');
+            } else {
+              showToast('Failed to open VLC: ' + (res?.error || 'Unknown error'));
+            }
+          }
+        } catch (e) {
+          showToast('Error launching VLC: ' + e.message);
+        } finally {
+          btnTestVlc.disabled = false;
+        }
       };
     }
   };

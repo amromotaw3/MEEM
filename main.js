@@ -1,4 +1,12 @@
-// ─── main.js ─── MediaVault v11.6.0 ─────────────────────────────────────────────
+// ─── main.js ─── MEEM v2.7.0 ─────────────────────────────────────────────
+const fs = require('fs');
+const path = require('path');
+
+// ─── Logging setup (replaces console monkey-patch) ──────────────────────────
+const { initFileLogger, writeToDebugFile } = require('./src/main/utils/logger');
+const logPath = path.join(__dirname, 'debug.log');
+initFileLogger(logPath);
+
 try {
   global.WebSocket = require('ws');
 } catch (e) {
@@ -8,10 +16,14 @@ try {
 }
 
 const { app, ipcMain, Tray, Menu, BrowserWindow, screen } = require('electron');
+
 const { createWindow, initWindowIpc, getMainWindow } = require('./src/main/windowManager');
-const path = require('path');
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.mediavault.app');
+  try {
+    if (process.stdout && process.stdout.setEncoding) process.stdout.setEncoding('utf8');
+    if (process.stderr && process.stderr.setEncoding) process.stderr.setEncoding('utf8');
+  } catch (e) {}
+  app.setAppUserModelId('com.meem.app');
 }
 
 // Gracefully clear GPUCache folder on startup if possible to avoid "Access Denied" errors,
@@ -26,8 +38,16 @@ try {
   // Ignore if locked by another active instance
 }
 
-app.commandLine.appendSwitch('enable-features', 'EnableAudioTrack'); // Required for MKV internal audio selection
+app.commandLine.appendSwitch('enable-features', 'EnableAudioTrack,VaapiVideoDecoder,VaapiVideoEncoder,PlatformHEVCDecoderSupport');
 app.commandLine.appendSwitch('log-level', '3'); // Suppress native Chromium logs/errors in terminal
+
+// Enable hardware video decoding & fix black-screen / audio-only issue with HLS streams
+app.commandLine.appendSwitch('enable-accelerated-video-decode');
+app.commandLine.appendSwitch('enable-accelerated-video-encode');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 
 
 
@@ -79,17 +99,28 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 app.whenReady().then(() => {
-  const { net } = require('electron');
+  const { session, net } = require('electron');
   const { pathToFileURL } = require('url');
-  const path = require('path');
-  const fs = require('fs');
+  // fs and path are available from module scope
+
+  // ─── Shared helper: wraps an fs.ReadStream into a Fetch API ReadableStream ──
+  function createNodeReadable(filePath, options = {}) {
+    const stream = fs.createReadStream(filePath, options);
+    return new ReadableStream({
+      start(controller) {
+        stream.on('data', (chunk) => { try { controller.enqueue(chunk); } catch (e) { stream.destroy(); } });
+        stream.on('end', () => { try { controller.close(); } catch (e) {} });
+        stream.on('error', (err) => { try { controller.error(err); } catch (e) {} });
+      },
+      cancel() { stream.destroy(); }
+    });
+  }
 
   const { createMediaProtocolHandler } = require('./src/main/mediaProtocol');
   protocol.handle('media', createMediaProtocolHandler());
 
   protocol.handle('local-file', (request) => {
     try {
-      const fs = require('fs');
       const url = new URL(request.url);
       
       // On Windows, if the URL is local-file://C:/path, 'C:' is the host and '/path' is the pathname.
@@ -140,23 +171,7 @@ app.whenReady().then(() => {
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
         const chunkSize = end - start + 1;
 
-        const stream = fs.createReadStream(rawPath, { start, end });
-        const readable = new ReadableStream({
-          start(controller) {
-            stream.on('data', (chunk) => {
-              try { controller.enqueue(chunk); } catch (e) { stream.destroy(); }
-            });
-            stream.on('end', () => {
-              try { controller.close(); } catch (e) {}
-            });
-            stream.on('error', (err) => {
-              try { controller.error(err); } catch (e) {}
-            });
-          },
-          cancel() {
-            stream.destroy();
-          }
-        });
+        const readable = createNodeReadable(rawPath, { start, end });
 
         return new Response(readable, {
           status: 206,
@@ -169,23 +184,7 @@ app.whenReady().then(() => {
         });
       } else {
         // ─── FULL REQUEST ───
-        const stream = fs.createReadStream(rawPath);
-        const readable = new ReadableStream({
-          start(controller) {
-            stream.on('data', (chunk) => {
-              try { controller.enqueue(chunk); } catch (e) { stream.destroy(); }
-            });
-            stream.on('end', () => {
-              try { controller.close(); } catch (e) {}
-            });
-            stream.on('error', (err) => {
-              try { controller.error(err); } catch (e) {}
-            });
-          },
-          cancel() {
-            stream.destroy();
-          }
-        });
+        const readable = createNodeReadable(rawPath);
 
         return new Response(readable, {
           status: 200,
@@ -276,51 +275,26 @@ app.whenReady().then(() => {
           if (firstDecode) {
             if (/^https?:\/\//i.test(firstDecode)) {
               remoteUrl = firstDecode;
+            } else if (/^tt\d+$/i.test(firstDecode)) {
+              remoteUrl = `https://images.metahub.space/poster/medium/${firstDecode}/img`;
             } else {
               const secondDecode = decodeBase64Safe(firstDecode);
-              if (secondDecode && /^https?:\/\//i.test(secondDecode)) {
-                remoteUrl = secondDecode;
+              if (secondDecode) {
+                if (/^https?:\/\//i.test(secondDecode)) {
+                  remoteUrl = secondDecode;
+                } else if (/^tt\d+$/i.test(secondDecode)) {
+                  remoteUrl = `https://images.metahub.space/poster/medium/${secondDecode}/img`;
+                }
               }
             }
           }
 
           if (remoteUrl) {
-            console.log('[PROTOCOL] media-img downloading missing banner on the fly:', remoteUrl);
-            try {
-              await new Promise((resolve, reject) => {
-                const file = fs.createWriteStream(alt);
-                const proto = remoteUrl.startsWith('https') ? require('https') : require('http');
-                const req = proto.get(remoteUrl, { headers: { 'User-Agent': 'MediaVault/3.0' }, timeout: 10000 }, (res) => {
-                  if (res.statusCode !== 200) {
-                    file.close();
-                    try { fs.unlinkSync(alt); } catch (e) {}
-                    reject(new Error(`Status ${res.statusCode}`));
-                    return;
-                  }
-                  res.pipe(file);
-                  file.on('finish', () => {
-                    file.close();
-                    resolve();
-                  });
-                });
-                req.on('error', (err) => {
-                  file.close();
-                  try { fs.unlinkSync(alt); } catch (e) {}
-                  reject(err);
-                });
-                req.on('timeout', () => {
-                  req.destroy();
-                  file.close();
-                  try { fs.unlinkSync(alt); } catch (e) {}
-                  reject(new Error('Timeout'));
-                });
-              });
-              normalized = alt;
-              console.log('[PROTOCOL] media-img on-the-fly download completed successfully:', alt);
-            } catch (downloadErr) {
-              console.warn('[PROTOCOL] media-img on-the-fly download failed:', remoteUrl, downloadErr.message);
-              return new Response('File not found', { status: 404 });
-            }
+            console.log('[PROTOCOL] media-img redirecting to remote URL (non-blocking):', remoteUrl);
+            return new Response(null, {
+              status: 302,
+              headers: { 'Location': remoteUrl }
+            });
           } else {
             console.warn('[PROTOCOL] media-img file not found and cannot decode remote URL:', normalized);
             return new Response('File not found', { status: 404 });
@@ -349,15 +323,7 @@ app.whenReady().then(() => {
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
         const chunkSize = (end - start) + 1;
 
-        const stream = fs.createReadStream(normalized, { start, end });
-        const readable = new ReadableStream({
-          start(controller) {
-            stream.on('data', (chunk) => { try { controller.enqueue(chunk); } catch (e) { stream.destroy(); } });
-            stream.on('end', () => { try { controller.close(); } catch (e) {} });
-            stream.on('error', (err) => { try { controller.error(err); } catch (e) {} });
-          },
-          cancel() { stream.destroy(); }
-        });
+        const readable = createNodeReadable(normalized, { start, end });
 
         return new Response(readable, {
           status: 206,
@@ -371,15 +337,7 @@ app.whenReady().then(() => {
       }
 
       // Full content response
-      const stream = fs.createReadStream(normalized);
-      const readable = new ReadableStream({
-        start(controller) {
-          stream.on('data', (chunk) => { try { controller.enqueue(chunk); } catch (e) { stream.destroy(); } });
-          stream.on('end', () => { try { controller.close(); } catch (e) {} });
-          stream.on('error', (err) => { try { controller.error(err); } catch (e) {} });
-        },
-        cancel() { stream.destroy(); }
-      });
+      const readable = createNodeReadable(normalized);
 
       return new Response(readable, {
         status: 200,
@@ -395,242 +353,223 @@ app.whenReady().then(() => {
     }
   });
 
-  const { session } = require('electron');
-  session.defaultSession.webRequest.onBeforeSendHeaders({
-    urls: ['*://*/*']
-  }, (details, callback) => {
-    details.requestHeaders = details.requestHeaders || {};
-    
-    // General User-Agent override for compatibility
-    details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  const probeNodeConnectivity = async () => {
+    const dns = require('dns').promises;
+    const http = require('http');
 
-    const url = details.url.toLowerCase();
-    if (url.startsWith('http')) {
-      try {
-        const urlObj = new URL(details.url);
-        const host = urlObj.hostname.toLowerCase();
-        
-        // YouTube Referer/Origin bypass to resolve Error 153 configuration error
-        if (host.includes('youtube.com') || host.includes('youtube-nocookie.com')) {
-          details.requestHeaders['Referer'] = 'https://www.youtube.com/';
-          details.requestHeaders['Origin'] = 'https://www.youtube.com';
-        }
-        // Specific streaming providers / hosts referer bypass
-        else if (host.includes('animecix') || host.includes('watchanimeworld') || host.includes('docci') || host.includes('github') || host.includes('wikimedia') || host.includes('consumet')) {
-          details.requestHeaders['Referer'] = urlObj.origin + '/';
-          details.requestHeaders['Origin'] = urlObj.origin;
-        }
-        // Wikipedia / Wikimedia flags & images User-Agent requirement
-        else if (host.includes('wikimedia.org') || host.includes('wikipedia.org')) {
-          details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
-        }
-        // Stremio Addon Store logos & external images hotlink bypass
-        else if (details.resourceType === 'image' && !url.startsWith('file://') && !url.startsWith('media://') && !url.startsWith('media-img://')) {
-          delete details.requestHeaders['Referer'];
-          delete details.requestHeaders['Origin'];
-          details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
-        }
-      } catch (e) {
-        console.error('[Session] Error parsing URL in header interceptor:', e.message);
-      }
+    // Method 1: Fast IPv4 DNS Lookup via OS resolver
+    try {
+      await Promise.any([
+        dns.lookup('google.com', { family: 4 }),
+        dns.lookup('cloudflare.com', { family: 4 }),
+        dns.lookup('one.one.one.one', { family: 4 })
+      ]);
+      return true;
+    } catch (_) {}
+
+    // Method 2: Direct HTTP 204 socket probe (lightweight, no TLS overhead)
+    const socketProbe = (url) => new Promise((resolve) => {
+      const req = http.get(url, { headers: { 'User-Agent': 'MEEM/3.0' }, timeout: 2000 }, (res) => {
+        res.resume();
+        resolve(res.statusCode === 200 || res.statusCode === 204 || res.statusCode === 301 || res.statusCode === 302);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+    });
+
+    try {
+      const results = await Promise.all([
+        socketProbe('http://www.google.com/generate_204'),
+        socketProbe('http://connectivitycheck.gstatic.com/generate_204'),
+        socketProbe('http://1.1.1.1')
+      ]);
+      return results.some(r => r === true);
+    } catch (_) {
+      return true; // Default to online on error to avoid false red indicator
     }
-    
-    callback({ requestHeaders: details.requestHeaders });
+  };
+
+  ipcMain.handle('check-network-status', async () => {
+    return probeNodeConnectivity();
   });
+
+
+  if (session && session.defaultSession) {
+    // ── METAHUB NORMALIZER ────────────────────────────────────────────────
+    // Normalize any legacy/alternate metahub URLs directly to images.metahub.space
+    session.defaultSession.webRequest.onBeforeRequest({
+      urls: ['*://*.metahub.space/*', '*://metahub.space/*']
+    }, (details, callback) => {
+      let url = details.url;
+      const imdbMatch = url.match(/tt\d+/i);
+      const imdbId = imdbMatch ? imdbMatch[0] : null;
+
+      if (url.includes('images.metahub.space') && (url.endsWith('/img') || url.includes('/img?'))) {
+        return callback({}); // Pass through unaltered
+      }
+
+      if (url.includes('/background/') && imdbId) {
+        return callback({ redirectURL: `https://images.metahub.space/background/large/${imdbId}/img` });
+      } else if ((url.includes('/poster/') || url.includes('/img') || url.includes('/logo/')) && imdbId) {
+        const type = url.includes('/logo/') ? 'logo' : 'poster';
+        return callback({ redirectURL: `https://images.metahub.space/${type}/medium/${imdbId}/img` });
+      }
+
+      const newUrl = url.replace(/https?:\/\/(live|episodes)\.metahub\.space/gi, 'https://images.metahub.space');
+      if (newUrl !== url) {
+        return callback({ redirectURL: newUrl });
+      }
+      callback({});
+    });
+
+    session.defaultSession.webRequest.onBeforeSendHeaders({
+      urls: ['*://*/*']
+    }, (details, callback) => {
+
+      details.requestHeaders = details.requestHeaders || {};
+      
+      const url = details.url.toLowerCase();
+
+      // ── 1. YouTube & googlevideo.com streams ────────────────────────────
+      if (url.includes('googlevideo.com') || url.includes('youtube.com') || url.includes('youtube-nocookie.com')) {
+        if (url.includes('c=android_vr')) {
+          details.requestHeaders['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.40.16 (Linux; U; Android 10; en_US; Quest 2)';
+        } else if (url.includes('c=android') || url.includes('c=tvhtml5')) {
+          details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Linux; GoogleTV 12; Chromecast) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.178 Safari/537.36';
+        } else {
+          details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+        }
+        details.requestHeaders['Referer'] = 'https://www.youtube.com/';
+        details.requestHeaders['Origin'] = 'https://www.youtube.com';
+        delete details.requestHeaders['Sec-Fetch-Site'];
+        delete details.requestHeaders['Sec-Fetch-Mode'];
+        delete details.requestHeaders['Sec-Fetch-Dest'];
+        return callback({ cancel: false, requestHeaders: details.requestHeaders });
+      }
+
+      // ── 2. IPTV stream links, M3U playlists, HLS segments ─────────────
+      const isIptvRequest = url.includes('.m3u8') ||
+                            url.includes('.m3u') ||
+                            url.includes('.ts?') ||
+                            url.includes('.ts') && (url.includes('/live/') || url.includes('iptv') || url.includes('stream')) ||
+                            url.includes('/live/') ||
+                            url.includes('/get.php') ||
+                            url.includes('iptv') ||
+                            url.includes('nexotv') ||
+                            url.includes('player_api');
+
+      if (isIptvRequest) {
+        details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+        details.requestHeaders['Accept'] = '*/*';
+        delete details.requestHeaders['Origin'];
+        if (!details.requestHeaders['Referer'] || details.requestHeaders['Referer'].includes('file://')) {
+          try {
+            const u = new URL(details.url);
+            details.requestHeaders['Referer'] = `${u.protocol}//${u.host}/`;
+          } catch (e) {}
+        }
+      } else {
+        details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      }
+
+      if (url.startsWith('http')) {
+        try {
+          const urlObj = new URL(details.url);
+          const host = urlObj.hostname.toLowerCase();
+          
+          if (host.includes('animecix') || host.includes('watchanimeworld') || host.includes('docci') || host.includes('github') || host.includes('wikimedia') || host.includes('consumet')) {
+            details.requestHeaders['Referer'] = urlObj.origin + '/';
+            details.requestHeaders['Origin'] = urlObj.origin;
+          }
+          else if (host.includes('wikimedia.org') || host.includes('wikipedia.org')) {
+            details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+          }
+          else if (details.resourceType === 'image' && !url.startsWith('file://') && !url.startsWith('media://') && !url.startsWith('media-img://')) {
+            delete details.requestHeaders['Referer'];
+            delete details.requestHeaders['Origin'];
+            details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+          }
+        } catch (e) {
+          console.error('[Session] Error parsing URL in header interceptor:', e.message);
+        }
+      }
+      
+      callback({ requestHeaders: details.requestHeaders });
+    });
+
+    session.defaultSession.webRequest.onHeadersReceived({
+      urls: ['*://*/*']
+    }, (details, callback) => {
+      const responseHeaders = details.responseHeaders || {};
+      
+      // ── RADICAL 404 IMAGE INTERCEPTOR ──────────────────────────────────────
+      // Intercept 404 responses for poster/background CDN requests and redirect to
+      // a transparent pixel Data URI so Chromium's network engine never emits a 404 error!
+      if (details.statusCode === 404 && details.url) {
+        const u = details.url.toLowerCase();
+        if (u.includes('cinemeta.strem.io') || u.includes('metahub.space') || u.includes('/poster/') || u.includes('/background/')) {
+          return callback({
+            redirectURL: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg=='
+          });
+        }
+      }
+
+      responseHeaders['Access-Control-Allow-Origin'] = ['*'];
+      responseHeaders['Access-Control-Allow-Headers'] = ['*'];
+      responseHeaders['Access-Control-Allow-Methods'] = ['GET, POST, OPTIONS, PUT, DELETE, HEAD'];
+      callback({ responseHeaders });
+    });
+
+  }
 
   const win = createWindow();
 
-  // ─── PREMIUM TRAY WINDOW SYSTEM ───
-  let trayWindow = null;
-
+  // ─── STANDARD ELECTRON TRAY ───
   let trayState = {
     status: 'Idle',
     isPlaying: false,
-    progress: 0,
     syncEnabled: true,
-    image: null,
-    volume: 100,
-    mediaType: 'movie'
   };
 
-  const createTrayWindow = () => {
-    trayWindow = new BrowserWindow({
-      width: 220,
-      height: 200,
-      show: false,
-      frame: false,
-      fullscreenable: false,
-      resizable: false,
-      transparent: true,
-      skipTaskbar: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: path.join(__dirname, 'src', 'renderer', 'tray', 'preload.js'),
-        backgroundThrottling: false
-      }
-    });
-
-    trayWindow.loadFile(path.join(__dirname, 'src', 'renderer', 'tray', 'index.html'));
-
-    trayWindow.on('blur', () => {
-      // Mark as recently blurred to prevent immediate re-opening by tray click
-      trayWindow._isBlurring = true;
-      trayWindow.hide();
-      trayWindow.setAlwaysOnTop(false);
-      setTimeout(() => { if (trayWindow) trayWindow._isBlurring = false; }, 200);
-    });
-  };
-
-  const getTrayWindowPosition = () => {
-    const windowBounds = trayWindow.getBounds();
-    const trayBounds = tray.getBounds();
-    
-    // Find the display where the tray icon is located
-    const activeDisplay = screen.getDisplayMatching(trayBounds);
-    const { workArea, bounds: displayBounds } = activeDisplay;
-
-    let x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
-    let y;
-
-    // Detect Taskbar Position
-    const isBottom = workArea.y === displayBounds.y && workArea.height < displayBounds.height && workArea.y + workArea.height >= displayBounds.y + displayBounds.height - 100;
-    const isTop = workArea.y > displayBounds.y;
-    const isLeft = workArea.x > displayBounds.x;
-    const isRight = workArea.x === displayBounds.x && workArea.width < displayBounds.width;
-
-    if (isTop) {
-      y = Math.round(trayBounds.y + trayBounds.height + 12);
-    } else if (isLeft) {
-      x = Math.round(trayBounds.x + trayBounds.width + 12);
-      y = Math.round(trayBounds.y + (trayBounds.height / 2) - (windowBounds.height / 2));
-    } else if (isRight) {
-      x = Math.round(trayBounds.x - windowBounds.width - 12);
-      y = Math.round(trayBounds.y + (trayBounds.height / 2) - (windowBounds.height / 2));
-    } else {
-      // Default: Bottom — raise a bit more to avoid overlap
-      y = Math.round(trayBounds.y - windowBounds.height - 12);
-    }
-
-    // Boundary check for X (ensure it stays within the current display)
-    if (x + windowBounds.width > workArea.x + workArea.width) {
-      x = workArea.x + workArea.width - windowBounds.width - 12;
-    }
-    if (x < workArea.x) {
-      x = workArea.x + 12;
-    }
-
-    // Boundary check for Y
-    if (y + windowBounds.height > workArea.y + workArea.height) {
-      y = workArea.y + workArea.height - windowBounds.height - 12;
-    }
-    if (y < workArea.y) {
-      y = workArea.y + 12;
-    }
-
-    return { x, y };
-  };
-
-  const toggleTrayWindow = () => {
-    if (!trayWindow) createTrayWindow();
-    
-    // If we just hid because of a blur, don't re-open on the same click
-    if (trayWindow._isBlurring) return;
-
-    if (trayWindow.isVisible()) {
-      trayWindow.hide();
-    } else {
-      const { x, y } = getTrayWindowPosition();
-      trayWindow.setPosition(x, y, false);
-      trayWindow.setAlwaysOnTop(true, 'pop-up-menu');
-      trayWindow.show();
-      trayWindow.focus();
-      // Sync state to window on open
-      trayWindow.webContents.send('update-tray-ui', trayState);
-    }
+  const updateTrayMenu = () => {
+    if (!tray || tray.isDestroyed()) return;
+    const safeSend = (channel, ...args) => {
+      if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
+    };
+    const contextMenu = Menu.buildFromTemplate([
+      { label: `MEEM v${app.getVersion()}`, enabled: false },
+      { type: 'separator' },
+      { label: `Status: ${trayState.status}`, enabled: false },
+      { 
+        label: trayState.isPlaying ? 'Pause Playback' : 'Resume Playback', 
+        click: () => safeSend('player-control', 'toggle') 
+      },
+      { type: 'separator' },
+      { label: 'Pause Downloads', click: () => safeSend('downloads-control', 'pause-all') },
+      { label: 'Settings', click: () => { if (win && !win.isDestroyed()) { win.show(); safeSend('switch-view', 'settings'); } } },
+      { label: 'Show MEEM', click: () => { if (win && !win.isDestroyed()) win.show(); } },
+      { type: 'separator' },
+      { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } }
+    ]);
+    tray.setContextMenu(contextMenu);
   };
 
   // Initialize Tray
   const iconPath = path.join(__dirname, 'src', 'renderer', 'imgs', 'appicon.ico');
   tray = new Tray(iconPath);
-  tray.setToolTip('MediaVault');
-  
-  createTrayWindow();
+  tray.setToolTip('MEEM');
+  updateTrayMenu();
 
-  tray.on('click', () => toggleTrayWindow());
-  tray.on('right-click', () => toggleTrayWindow());
   tray.on('double-click', () => {
     if (win && !win.isDestroyed()) win.show();
   });
 
-  // Action Handler from Tray Window
-  ipcMain.on('tray-action', (event, action, data) => {
-    if (action === 'show-app') {
-      if (win && !win.isDestroyed()) win.show();
-      trayWindow.hide();
-    } else if (action === 'quit-app') {
-      app.isQuitting = true;
-      app.quit();
-    } else if (action === 'pause-downloads') {
-      if (win && !win.isDestroyed()) win.webContents.send('downloads-control', 'pause-all');
-    } else if (action === 'toggle-sync') {
-      trayState.syncEnabled = !trayState.syncEnabled;
-      if (win && !win.isDestroyed()) win.webContents.send('sync-toggle', trayState.syncEnabled);
-      trayWindow.webContents.send('update-tray-ui', trayState);
-    } else if (action === 'open-settings') {
-      if (win && !win.isDestroyed()) {
-        win.show();
-        win.webContents.send('switch-view', 'settings');
-      }
-      trayWindow.hide();
-    } else if (action === 'close-tray') {
-      trayWindow.hide();
-    } else if (action === 'toggle-play') {
-      if (win && !win.isDestroyed()) win.webContents.send('player-control', 'toggle');
-    } else if (action === 'prev-track') {
-      if (win && !win.isDestroyed()) win.webContents.send('player-control', 'prev');
-    } else if (action === 'next-track') {
-      if (win && !win.isDestroyed()) win.webContents.send('player-control', 'next');
-    } else if (action === 'set-volume') {
-      const volume = parseInt(data);
-      if (isNaN(volume)) return;
-      trayState.volume = volume;
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('player-control', { action: 'volume', value: volume });
-      }
-    }
-  });
-
-  ipcMain.on('update-tray-height', (event, height) => {
-    if (trayWindow && !trayWindow.isDestroyed()) {
-      const bounds = trayWindow.getBounds();
-      const newHeight = Math.round(height);
-      if (bounds.height !== newHeight) {
-        // Resize first
-        trayWindow.setSize(bounds.width, newHeight, false);
-        
-        // Then reposition so it stays 'attached' to the icon
-        const { x, y } = getTrayWindowPosition();
-        trayWindow.setPosition(x, y, false);
-      }
-    }
-  });
-
-
-
   // Listeners for Dynamic Updates from Renderer
-  ipcMain.on('update-tray-status', (event, { status, isPlaying, progress, syncEnabled, image, volume, mediaType }) => {
-    trayState.status = status || trayState.status;
-    trayState.isPlaying = isPlaying !== undefined ? !!isPlaying : trayState.isPlaying;
-    if (progress !== undefined) trayState.progress = progress;
+  ipcMain.on('update-tray-status', (event, { status, isPlaying, syncEnabled }) => {
+    if (status !== undefined) trayState.status = status;
+    if (isPlaying !== undefined) trayState.isPlaying = !!isPlaying;
     if (syncEnabled !== undefined) trayState.syncEnabled = !!syncEnabled;
-    if (image !== undefined) trayState.image = image;
-    if (volume !== undefined) trayState.volume = volume;
-    if (mediaType !== undefined) trayState.mediaType = mediaType;
-    
-    if (trayWindow && !trayWindow.isDestroyed()) {
-      trayWindow.webContents.send('update-tray-ui', trayState);
-    }
+    updateTrayMenu();
   });
 
   // Initialize all modular IPC handlers with smart logging
@@ -738,15 +677,12 @@ app.whenReady().then(() => {
   log('SYSTEM', 'All IPC handlers and persistent services initialized', 'success');
 
   // ─── REAL INTERNET CONNECTIVITY MONITOR ───────────────────────────────────
-  // navigator.onLine in Electron only checks network adapter — not actual internet.
-  // We use net.isOnline() (Chromium's real connectivity check) and push updates to the renderer.
-  {
-    let _lastOnlineState = null;
-
-    function broadcastConnectivity() {
+  // net.isOnline() in Electron only checks Chromium's internal DNS check — not actual internet.
+  // After travel/ISP changes it can get stuck returning false. We probe real endpoints instead.
+  let _lastOnlineState = null;
+  async function broadcastConnectivity() {
       try {
-        const { net } = require('electron');
-        const isOnline = net.isOnline();
+        const isOnline = await probeNodeConnectivity();
         if (isOnline !== _lastOnlineState) {
           _lastOnlineState = isOnline;
           const mainWin = getMainWindow();
@@ -757,26 +693,27 @@ app.whenReady().then(() => {
       } catch (e) { /* ignore */ }
     }
 
-    // Check immediately on startup then every 10 seconds
+    // Check immediately on startup then every 15 seconds
     setTimeout(broadcastConnectivity, 1500);
-    setInterval(broadcastConnectivity, 10000);
+    setInterval(broadcastConnectivity, 15000);
 
     // Also wire up Electron's native online/offline events
     const { powerMonitor } = require('electron');
     try {
       powerMonitor.on('unlock-screen', broadcastConnectivity);
     } catch (e) { /* powerMonitor event optional */ }
-  }
   // ──────────────────────────────────────────────────────────────────────────
 
 
-  // CLEAN LOG BRIDGE: Filters noisy renderer logs
+  // LOG BRIDGE: Renderer → Main process log forwarding (filters noisy messages)
   ipcMain.on('log-bridge', (event, data) => {
     if (!data) return;
     const { level = 'log', msg = '' } = data;
-    // Filter out redundant noise
     if (msg.includes('[RENDER-SOCIAL]') || msg.includes('[SCAN]') || msg.includes('[INIT]')) return;
-    log('RENDERER', msg, level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info');
+    const logLevel = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info';
+    log('RENDERER', msg, logLevel);
+    // Also persist to debug.log (replaces the old console monkey-patch)
+    writeToDebugFile(`RENDERER/${logLevel.toUpperCase()}`, msg);
   });
 
   // SHUTDOWN & ERROR HANDLERS

@@ -1,6 +1,4 @@
-if (typeof global.WebSocket === 'undefined') {
-  global.WebSocket = class DummyWebSocket {};
-}
+// NOTE: global.WebSocket is polyfilled in main.js before this module loads.
 
 const { app } = require('electron');
 const path = require('path');
@@ -14,6 +12,7 @@ const {
   loginUser,
   registerUser
 } = require('../shared/cloudAuth');
+const { log } = require('./utils/logger');
 
 if (!isConfigured()) {
   console.warn('[STORE] Supabase config missing. Set SUPABASE_URL and SUPABASE_ANON_KEY (or publishable key) in .env');
@@ -58,7 +57,27 @@ let _cachedSupabaseSession = null;
 let _refreshPromise = null;
 
 async function getAuthenticatedClient(session = null) {
-  let effectiveSession = (session && session.access_token) ? session : _cachedSupabaseSession;
+  const isCredentialsUser = inMemorySession && inMemorySession.authenticated && !inMemorySession._supabaseSession;
+  let effectiveSession = (session && session.access_token) ? session : null;
+
+  if (!effectiveSession && !isCredentialsUser) {
+    if (_cachedSupabaseSession && _cachedSupabaseSession.access_token) {
+      effectiveSession = _cachedSupabaseSession;
+    } else {
+      try {
+        const local = readLocalAppData() || {};
+        if (local._supabaseSession && local._supabaseSession.access_token) {
+          effectiveSession = local._supabaseSession;
+          _cachedSupabaseSession = effectiveSession;
+          // Quiet background session restoration log
+          // console.log('[STORE] Restored Supabase session from disk in getAuthenticatedClient.');
+        }
+      } catch (e) {
+        console.warn('[STORE] Failed to read local Supabase session from disk:', e.message);
+      }
+    }
+  }
+
   if (effectiveSession && effectiveSession.access_token) {
     const { createClient } = require('@supabase/supabase-js');
     const { getSupabaseUrl, getSupabaseAnonKey } = require('../shared/supabaseEnv');
@@ -154,6 +173,29 @@ async function getAuthenticatedClient(session = null) {
   const serviceRoleKey = getSupabaseServiceRoleKey();
   if (serviceRoleKey) {
     console.log('[STORE] No Supabase JWT found — using service_role client for main-process DB access.');
+    
+    // Auto-logout the user if they were marked authenticated but have no JWT
+    const localData = readLocalAppData() || {};
+    if (localData.authenticated) {
+      console.log('[STORE] User was authenticated but has no valid JWT. Forcing logout...');
+      inMemorySession = null;
+      _cachedSupabaseSession = null;
+      const clearedData = {
+        authenticated: false,
+        user: null,
+        profiles: [],
+        activeProfileId: null,
+        installedAddons: Array.isArray(localData.installedAddons) ? localData.installedAddons : []
+      };
+      writeLocalAppData(clearedData, true);
+      
+      const { getMainWindow } = require('./windowManager');
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('force-logout');
+      }
+    }
+
     const { createClient } = require('@supabase/supabase-js');
     return createClient(getSupabaseUrl(), serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false }
@@ -326,7 +368,10 @@ async function fetchNormalizedProfileDataByHardware(hardwareId, profileId) {
       type: row.type,
       media_type: row.type,
       title: row.title,
+      name: row.title,
       poster: row.poster_path,
+      poster_path: row.poster_path,
+      posterPath: row.poster_path,
       rating: row.rating ? Number(row.rating) : null,
       listedAt: row.added_at ? new Date(row.added_at).getTime() : Date.now(),
       source: row.source || null,
@@ -336,7 +381,13 @@ async function fetchNormalizedProfileDataByHardware(hardwareId, profileId) {
       backdrop_path: row.backdrop_path || null,
       backdrop: row.backdrop_path || null,
       release_date: row.release_date || null,
-      overview: row.overview || null
+      overview: row.overview || null,
+      streamUrl: row.stream_url || row.streamUrl || null,
+      radioUrl: row.radio_url || row.radioUrl || null,
+      favicon: row.favicon || null,
+      logo: row.logo || null,
+      country: row.country || null,
+      category: row.category || null
     }));
 
     const playback = {};
@@ -442,9 +493,13 @@ if (app && typeof app.on === 'function') {
       diskWriteTimeout = null;
     }
     try {
-      ensureDir(DATA_DIR);
-      fs.writeFileSync(DATA_FILE, JSON.stringify(inMemorySession, null, 2), 'utf8');
-      console.log('[STORE] Flushed local state to disk synchronously before quit');
+      if (inMemorySession && Object.keys(inMemorySession).length > 0) {
+        ensureDir(DATA_DIR);
+        fs.writeFileSync(DATA_FILE, JSON.stringify(inMemorySession, null, 2), 'utf8');
+        console.log('[STORE] Flushed local state to disk synchronously before quit');
+      } else {
+        console.log('[STORE] inMemorySession is empty/null, skipping flush to avoid corruption');
+      }
     } catch (e) {
       console.error('[STORE] Failed to flush local state on quit:', e.message);
     }
@@ -478,19 +533,7 @@ function getHardwareId() {
   return hardwareId;
 }
 
-/**
- * Loads user state and profiles directly from Supabase / Vercel Serverless.
- * Uses motherboard UUID (hardware ID) to auto-authenticate.
- */
-function agentDebugLog(location, message, data, hypothesisId) {
-  try {
-    fetch('http://127.0.0.1:7931/ingest/60af14fc-79d5-4d4f-83c0-b6c1edf50143', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '03757c' },
-      body: JSON.stringify({ sessionId: '03757c', location, message, data: data || {}, hypothesisId, timestamp: Date.now(), runId: 'pre-fix' })
-    }).catch(() => {});
-  } catch (_) { /* ignore */ }
-}
+
 
 async function loadData() {
   const local = readLocalAppData() || {};
@@ -504,7 +547,8 @@ async function loadData() {
   // Restore cached Supabase session from disk so saveData works after restart
   if (local._supabaseSession && local._supabaseSession.access_token) {
     _cachedSupabaseSession = local._supabaseSession;
-    console.log('[STORE] Restored Supabase session from disk.');
+     // Quiet background session restoration log
+     // console.log('[STORE] Restored Supabase session from disk.');
   }
 
   if (local && (local.banned === true || local.banned === 'true')) {
@@ -513,7 +557,8 @@ async function loadData() {
   }
 
   try {
-    console.log(`[STORE] Loading cloud session for hardware ID: ${hardwareId}`);
+    // Mute redundant loading logs
+    // console.log(`[STORE] Loading cloud session for hardware ID: ${hardwareId}`);
     let data = null;
     try {
       const banned = await checkHardwareBan(hardwareId);
@@ -598,7 +643,9 @@ async function loadData() {
             mergedProfiles.push({
               ...localProf,
               ...loadedProf,
-              // Keep local-only settings that are not stored in Supabase profiles
+              // Keep local-only settings and preserve local avatar/banner over old/null cloud values
+              avatar: localProf.avatar || loadedProf.avatar || null,
+              banner: localProf.banner || loadedProf.banner || local.globalBanner || null,
               trakt: loadedProf.trakt || localProf.trakt || null,
               libraryFolders: loadedProf.libraryFolders || localProf.libraryFolders || undefined
             });
@@ -614,6 +661,7 @@ async function loadData() {
         tmdbKey: data.user.tmdb_api_key || local.tmdbKey || '',
         subdlKey: data.user.subdl_api_key || local.subdlKey || '',
         fanartKey: data.user.fanart_api_key || local.fanartKey || '',
+        globalBanner: local.globalBanner || data.globalBanner || null,
         profiles: mergedProfiles.length ? mergedProfiles : (local.profiles || []),
         activeProfileId: data.profiles?.[0]?.id || local.activeProfileId || null,
         authenticated: true,
@@ -758,7 +806,8 @@ async function saveData(data, session = null) {
       }, 3, 700);
 
 
-      console.log('[STORE] API keys successfully synchronized via update_user_settings RPC.');
+      // Quiet API key sync log
+      // console.log('[STORE] API keys successfully synchronized via update_user_settings RPC.');
 
       if (Array.isArray(data.profiles) && data.profiles.length) {
         for (const profile of data.profiles) {
@@ -779,8 +828,14 @@ async function saveData(data, session = null) {
                 profile_pin: profile.vaultPin || profile.pin || null,
                 banner: profile.banner || null
               }, { onConflict: 'id' });
-            if (profileError) throw profileError;
-          }, 3, 700);
+            if (profileError) {
+              if (profileError.code === '42501' || (profileError.message && profileError.message.includes('row-level security'))) {
+                log('STORE', `Profile sync skipped — RLS policy active for profile ${profile.id}.`, 'warn');
+                return;
+              }
+              throw profileError;
+            }
+          }, 2, 500);
 
           // 2. Sync watchlist_items
           const localWatchlist = profile.watchlist || [];
@@ -806,24 +861,34 @@ async function saveData(data, session = null) {
            if (localWatchlist.length > 0) {
             const watchlistRows = localWatchlist.map(item => ({
               profile_id: profile.id,
-              media_id: item.id,
+              media_id: item.id || item.radioUrl || item.streamUrl || item.url || item.path || ('wl_' + Math.random().toString(36).substr(2, 6)),
               type: item.type || item.media_type || 'movie',
-              title: item.title || 'Untitled',
-              poster_path: item.poster || null,
+              title: item.title || item.name || 'Untitled',
+              poster_path: item.poster_path || item.posterPath || item.favicon || item.logo || item.poster || null,
               rating: item.rating ? Number(item.rating) : null,
               added_at: item.listedAt ? new Date(item.listedAt).toISOString() : new Date().toISOString(),
               source: item.source || null,
               mal_id: item.mal_id ? String(item.mal_id) : (item.malId ? String(item.malId) : null),
               anime_id: item.anime_id ? String(item.anime_id) : null,
-              backdrop_path: item.backdrop_path || item.backdrop || null,
+              backdrop_path: item.backdrop_path || item.backdrop || item.favicon || item.logo || null,
               release_date: item.release_date || null,
-              overview: item.overview || null
+              overview: item.overview || null,
+              stream_url: item.streamUrl || item.url || null,
+              radio_url: item.radioUrl || item.url || null,
+              favicon: item.favicon || null,
+              logo: item.logo || item.tvgLogo || null,
+              country: item.country || null,
+              category: item.category || item.groupTitle || null,
+              path: item.path || null,
+              item_data: item
             }));
 
             const { error: upsertWlError } = await client
               .from('watchlist_items')
               .upsert(watchlistRows, { onConflict: 'profile_id,media_id' });
-            if (upsertWlError) throw upsertWlError;
+            if (upsertWlError) {
+              console.warn('[STORE] watchlist_items upsert warning:', upsertWlError.message || upsertWlError);
+            }
           }
 
           // 3. Sync playback_history
@@ -919,27 +984,10 @@ async function saveData(data, session = null) {
             if (delListsError) throw delListsError;
           }
 
-          // Leave shared lists that the user removed locally
-          const { data: userMemberships, error: membError } = await client
-            .from('list_members')
-            .select('list_id')
-            .eq('user_id', data.user.id)
-            .eq('status', 'joined');
-          if (!membError && userMemberships && userMemberships.length > 0) {
-            const localListsIds = new Set(localLists.map(x => x.id));
-            const membershipsToRemove = userMemberships
-              .filter(m => !localListsIds.has(m.list_id))
-              .map(m => m.list_id);
-            
-            if (membershipsToRemove.length > 0) {
-              const { error: leaveError } = await client
-                .from('list_members')
-                .delete()
-                .eq('user_id', data.user.id)
-                .in('list_id', membershipsToRemove);
-              if (leaveError) console.error('[STORE] Failed to leave shared lists:', leaveError.message);
-            }
-          }
+          // NOTE: Auto-leave on sync was REMOVED — it caused a race condition where
+          // newly-accepted invitations were immediately deleted by the next saveData call
+          // before the local custom_lists had a chance to include the new shared list.
+          // Membership removal now only happens via explicit user action (Leave List button).
 
           for (const localList of localLists) {
             let listId = localList.id;
@@ -1023,7 +1071,14 @@ async function saveData(data, session = null) {
               const { error: upsertItemsError } = await client
                 .from('list_items')
                 .upsert(itemRows, { onConflict: 'list_id,media_id' });
-              if (upsertItemsError) throw upsertItemsError;
+              if (upsertItemsError) {
+                console.warn('[STORE] list_items upsert failed for list', listId, 'retrying with insert fallback:', upsertItemsError.message || upsertItemsError);
+                const fallbackRows = itemRows.map(row => ({ ...row, list_id: listId }));
+                const { error: insertFallbackError } = await client
+                  .from('list_items')
+                  .insert(fallbackRows);
+                if (insertFallbackError) throw insertFallbackError;
+              }
             }
           }
           } catch (profErr) {
@@ -1031,7 +1086,8 @@ async function saveData(data, session = null) {
             appendSyncLog('Failed to sync profile ' + profile.id + ': ' + (profErr.message || String(profErr)));
           }
         }
-        console.log('[STORE] Profiles synchronized to Supabase.');
+         // Quiet profiles sync log
+         // console.log('[STORE] Profiles synchronized to Supabase.');
         writeLocalAppData(inMemorySession);
       }
     } catch (err) {
@@ -1330,6 +1386,27 @@ function initStoreIpc(ipcMain) {
     }
   });
 
+  ipcMain.handle('cloud-delete-playback-position', async (e, { profileId, mediaId }) => {
+    try {
+      if (!profileId || !mediaId) return { error: 'profileId and mediaId are required' };
+      const client = await getAuthenticatedClient();
+      const { error } = await client
+        .from('playback_history')
+        .delete()
+        .eq('profile_id', profileId)
+        .eq('media_id', mediaId);
+      if (error) {
+        console.error('[STORE] cloud-delete-playback-position supabase delete failed:', error.message);
+        return { error: error.message };
+      }
+      console.log(`[STORE] cloud-delete-playback-position success for media: ${mediaId} under profile: ${profileId}`);
+      return { success: true };
+    } catch (err) {
+      console.error('[STORE] cloud-delete-playback-position failed:', err.message || err);
+      return { error: err.message || String(err) };
+    }
+  });
+
 
   // Profile-specific Cloud mutations (CRUD)
   ipcMain.handle('cloud-create-profile', async (e, profileData) => {
@@ -1573,13 +1650,14 @@ function initStoreIpc(ipcMain) {
         return { success: false, blocked: true, message: 'الشخص دا قافل الدعوات !' };
       }
       
-      // 3. Perform insert
+      // 3. Perform insert with status = 'pending' so get_pending_invitations can find it
       const { error: insertError } = await client
         .from('list_members')
         .insert({
           list_id: listId,
           user_id: targetUserId,
-          role: 'member'
+          role: 'member',
+          status: 'pending'
         });
         
       if (insertError) {
@@ -1635,11 +1713,8 @@ function initStoreIpc(ipcMain) {
 
         try {
           sharedLists = await fetchShared(client) || [];
-          if (sharedLists.length === 0) {
-            throw new Error('RLS blocked or no lists found');
-          }
         } catch (sharedError) {
-          console.warn('[STORE] Auth/RLS issue fetching shared lists, retrying with service_role client...');
+          console.warn('[STORE] Auth/RLS issue fetching shared lists, retrying with service_role client...', sharedError.message);
           const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
           const serviceRoleKey = getSupabaseServiceRoleKey();
           if (serviceRoleKey) {
@@ -1655,6 +1730,107 @@ function initStoreIpc(ipcMain) {
       return { success: true, listsData, sharedLists };
     } catch (err) {
       console.error('[STORE] cloud-refresh-custom-lists failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+  
+  ipcMain.handle('cloud-delete-custom-list', async (e, { listId, profileId }) => {
+    try {
+      const session = getInMemorySession();
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) throw new Error('User not authenticated');
+
+      let client = await getAuthenticatedClient();
+
+      const runQuery = async (dbClient) => {
+        // Check ownership first
+        const { data: listData, error: fetchErr } = await dbClient
+          .from('custom_lists')
+          .select('profile_id')
+          .eq('id', listId)
+          .maybeSingle();
+
+        if (fetchErr) throw fetchErr;
+
+        if (listData && listData.profile_id === profileId) {
+          // Owner -> Delete list entirely
+          const { error: deleteErr } = await dbClient
+            .from('custom_lists')
+            .delete()
+            .eq('id', listId);
+          if (deleteErr) throw deleteErr;
+        } else {
+          // Member -> Leave/Remove membership
+          const { error: leaveErr } = await dbClient
+            .from('list_members')
+            .delete()
+            .eq('list_id', listId)
+            .eq('user_id', currentUserId);
+          if (leaveErr) throw leaveErr;
+        }
+      };
+
+      try {
+        await runQuery(client);
+      } catch (queryErr) {
+        console.warn('[STORE] Auth/RLS issue during delete-custom-list, retrying with service_role client...');
+        const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+        const serviceRoleKey = getSupabaseServiceRoleKey();
+        if (serviceRoleKey) {
+          const { createClient } = require('@supabase/supabase-js');
+          const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          });
+          await runQuery(serviceClient);
+        } else {
+          throw queryErr;
+        }
+      }
+
+      return { success: true };
+    } catch (err) {
+      console.error('[STORE] cloud-delete-custom-list failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('cloud-remove-list-item', async (e, { listId, mediaId }) => {
+    try {
+      const session = getInMemorySession();
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) throw new Error('User not authenticated');
+
+      let client = await getAuthenticatedClient();
+
+      const runQuery = async (dbClient) => {
+        const { error: deleteErr } = await dbClient
+          .from('list_items')
+          .delete()
+          .eq('list_id', listId)
+          .eq('media_id', String(mediaId));
+        if (deleteErr) throw deleteErr;
+      };
+
+      try {
+        await runQuery(client);
+      } catch (queryErr) {
+        console.warn('[STORE] Auth/RLS issue during remove-list-item, retrying with service_role client...');
+        const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+        const serviceRoleKey = getSupabaseServiceRoleKey();
+        if (serviceRoleKey) {
+          const { createClient } = require('@supabase/supabase-js');
+          const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          });
+          await runQuery(serviceClient);
+        } else {
+          throw queryErr;
+        }
+      }
+
+      return { success: true };
+    } catch (err) {
+      console.error('[STORE] cloud-remove-list-item failed:', err.message);
       return { success: false, error: err.message };
     }
   });
@@ -1716,38 +1892,23 @@ function initStoreIpc(ipcMain) {
       const currentUserId = session?.user?.id;
       if (!currentUserId) throw new Error('User not authenticated');
 
-      let client = await getAuthenticatedClient();
-      
-      const runQuery = async (dbClient) => {
-        const { data, error } = await dbClient
-          .from('list_members')
-          .update({ status: 'joined' })
-          .eq('id', membershipId)
-          .eq('user_id', currentUserId)
-          .select();
-          
-        if (error) throw error;
-        if (!data || data.length === 0) {
-          throw new Error('Update failed or no rows affected');
-        }
-      };
+      // Use the SECURITY DEFINER RPC — runs as postgres role, bypasses ALL RLS
+      // Security enforced inside the SQL function via WHERE user_id = p_user_id
+      const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+      const serviceRoleKey = getSupabaseServiceRoleKey();
+      const { createClient } = require('@supabase/supabase-js');
+      const dbClient = serviceRoleKey
+        ? createClient(getSupabaseUrl(), serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
+        : await getAuthenticatedClient();
 
-      try {
-        await runQuery(client);
-      } catch (queryErr) {
-        console.warn('[STORE] Auth/RLS issue during accept-invitation, retrying with service_role client...');
-        const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
-        const serviceRoleKey = getSupabaseServiceRoleKey();
-        if (serviceRoleKey) {
-          const { createClient } = require('@supabase/supabase-js');
-          const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
-            auth: { persistSession: false, autoRefreshToken: false }
-          });
-          await runQuery(serviceClient);
-        } else {
-          throw queryErr;
-        }
-      }
+      const { data: accepted, error } = await dbClient.rpc('accept_invitation', {
+        p_membership_id: membershipId,
+        p_user_id: currentUserId
+      });
+
+      if (error) throw error;
+
+      console.log(`[STORE] cloud-accept-invitation: RPC returned ${accepted} for membership ${membershipId}`);
       return { success: true };
     } catch (err) {
       console.error('[STORE] cloud-accept-invitation failed:', err.message);
@@ -1755,7 +1916,44 @@ function initStoreIpc(ipcMain) {
     }
   });
 
+
   ipcMain.handle('cloud-decline-invitation', async (e, { membershipId }) => {
+    try {
+      const session = getInMemorySession();
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) throw new Error('User not authenticated');
+
+      const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+      const serviceRoleKey = getSupabaseServiceRoleKey();
+      let dbClient;
+
+      if (serviceRoleKey) {
+        const { createClient } = require('@supabase/supabase-js');
+        dbClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+          auth: { persistSession: false, autoRefreshToken: false }
+        });
+      } else {
+        dbClient = await getAuthenticatedClient();
+      }
+
+      // Direct delete without chained select which fails on RLS
+      const { error } = await dbClient
+        .from('list_members')
+        .delete()
+        .eq('id', membershipId)
+        .eq('user_id', currentUserId);
+
+      if (error) throw error;
+      
+      console.log(`[STORE] cloud-decline-invitation: successfully declined membership ${membershipId}`);
+      return { success: true };
+    } catch (err) {
+      console.error('[STORE] cloud-decline-invitation failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('cloud-delete-chat-message', async (e, { messageId }) => {
     try {
       const session = getInMemorySession();
       const currentUserId = session?.user?.id;
@@ -1764,23 +1962,33 @@ function initStoreIpc(ipcMain) {
       let client = await getAuthenticatedClient();
       
       const runQuery = async (dbClient) => {
-        const { data, error } = await dbClient
-          .from('list_members')
-          .delete()
-          .eq('id', membershipId)
-          .eq('user_id', currentUserId)
-          .select();
-          
-        if (error) throw error;
-        if (!data || data.length === 0) {
-          throw new Error('Delete failed or no rows affected');
+        const { data: msg, error: msgError } = await dbClient
+          .from('collection_messages')
+          .select('list_id')
+          .eq('id', messageId)
+          .maybeSingle();
+        if (msgError) throw msgError;
+        if (!msg) throw new Error('Message not found');
+
+        const listId = msg.list_id;
+
+        const { data: isOwner, error: ownerErr } = await dbClient.rpc('is_list_owner', { p_list_id: listId, p_user_id: currentUserId });
+        if (ownerErr) throw ownerErr;
+        if (!isOwner) {
+          throw new Error('Only the list leader can delete messages');
         }
+
+        const { error: deleteErr } = await dbClient
+          .from('collection_messages')
+          .delete()
+          .eq('id', messageId);
+        if (deleteErr) throw deleteErr;
       };
 
       try {
         await runQuery(client);
       } catch (queryErr) {
-        console.warn('[STORE] Auth/RLS issue during decline-invitation, retrying with service_role client...');
+        console.warn('[STORE] Auth/RLS issue deleting chat message, retrying with service_role client...');
         const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
         const serviceRoleKey = getSupabaseServiceRoleKey();
         if (serviceRoleKey) {
@@ -1795,7 +2003,124 @@ function initStoreIpc(ipcMain) {
       }
       return { success: true };
     } catch (err) {
-      console.error('[STORE] cloud-decline-invitation failed:', err.message);
+      console.error('[STORE] cloud-delete-chat-message failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('cloud-kick-list-member', async (e, { listId, targetUserId }) => {
+    try {
+      const session = getInMemorySession();
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) throw new Error('User not authenticated');
+
+      let client = await getAuthenticatedClient();
+
+      const runQuery = async (dbClient) => {
+        const { data: isOwner, error: ownerErr } = await dbClient.rpc('is_list_owner', { p_list_id: listId, p_user_id: currentUserId });
+        if (ownerErr) throw ownerErr;
+        if (!isOwner) {
+          throw new Error('Only the list leader can kick members');
+        }
+
+        const { error: kickErr } = await dbClient
+          .from('list_members')
+          .delete()
+          .eq('list_id', listId)
+          .eq('user_id', targetUserId);
+        if (kickErr) throw kickErr;
+      };
+
+      try {
+        await runQuery(client);
+      } catch (queryErr) {
+        console.warn('[STORE] Auth/RLS issue kicking list member, retrying with service_role client...');
+        const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+        const serviceRoleKey = getSupabaseServiceRoleKey();
+        if (serviceRoleKey) {
+          const { createClient } = require('@supabase/supabase-js');
+          const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          });
+          await runQuery(serviceClient);
+        } else {
+          throw queryErr;
+        }
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('[STORE] cloud-kick-list-member failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('cloud-transfer-list-ownership', async (e, { listId, targetProfileId }) => {
+    try {
+      const session = getInMemorySession();
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) throw new Error('User not authenticated');
+
+      let client = await getAuthenticatedClient();
+
+      const runQuery = async (dbClient) => {
+        const { data: isOwner, error: ownerErr } = await dbClient.rpc('is_list_owner', { p_list_id: listId, p_user_id: currentUserId });
+        if (ownerErr) throw ownerErr;
+        if (!isOwner) {
+          throw new Error('Only the list leader can transfer leadership');
+        }
+
+        const { data: targetProfile, error: profErr } = await dbClient
+          .from('account_profiles')
+          .select('user_id')
+          .eq('id', targetProfileId)
+          .maybeSingle();
+        if (profErr) throw profErr;
+        if (!targetProfile) throw new Error('Target profile not found');
+        const targetUserId = targetProfile.user_id;
+
+        const { error: insertErr } = await dbClient
+          .from('list_members')
+          .insert({
+            list_id: listId,
+            user_id: currentUserId,
+            role: 'member',
+            status: 'joined'
+          });
+        if (insertErr && insertErr.code !== '23505') throw insertErr;
+
+        const { error: updateErr } = await dbClient
+          .from('custom_lists')
+          .update({ profile_id: targetProfileId })
+          .eq('id', listId);
+        if (updateErr) throw updateErr;
+
+        const { error: deleteErr } = await dbClient
+          .from('list_members')
+          .delete()
+          .eq('list_id', listId)
+          .eq('user_id', targetUserId);
+        if (deleteErr) throw deleteErr;
+      };
+
+      try {
+        await runQuery(client);
+      } catch (queryErr) {
+        console.warn('[STORE] Auth/RLS issue transferring ownership, retrying with service_role client...');
+        const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+        const serviceRoleKey = getSupabaseServiceRoleKey();
+        if (serviceRoleKey) {
+          const { createClient } = require('@supabase/supabase-js');
+          const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          });
+          await runQuery(serviceClient);
+        } else {
+          throw queryErr;
+        }
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('[STORE] cloud-transfer-list-ownership failed:', err.message);
       return { success: false, error: err.message };
     }
   });
@@ -1903,12 +2228,10 @@ function initStoreIpc(ipcMain) {
           return [];
         }
 
-        // Check authorization
-        const { data: isOwner, error: ownerErr } = await dbClient.rpc('is_list_owner', { p_list_id: listId, p_user_id: currentUserId });
-        if (ownerErr) throw ownerErr;
-        const { data: isMember, error: memberErr } = await dbClient.rpc('is_list_member', { p_list_id: listId, p_user_id: currentUserId });
-        if (memberErr) throw memberErr;
-        if (!isOwner && !isMember) {
+        // Use is_list_participant — matches the RLS policy on collection_messages exactly
+        const { data: isParticipant, error: participantErr } = await dbClient.rpc('is_list_participant', { list_uuid: listId, user_uuid: currentUserId });
+        if (participantErr) throw participantErr;
+        if (!isParticipant) {
           throw new Error('Not authorized to access this list');
         }
         
@@ -1921,7 +2244,8 @@ function initStoreIpc(ipcMain) {
             profile_id,
             account_profiles (
               name,
-              avatar
+              avatar,
+              avatar_border_color
             )
           `)
           .eq('list_id', listId)
@@ -1976,12 +2300,11 @@ function initStoreIpc(ipcMain) {
       let data;
 
       const runQuery = async (dbClient) => {
-        // Check authorization
-        const { data: isOwner, error: ownerErr } = await dbClient.rpc('is_list_owner', { p_list_id: listId, p_user_id: currentUserId });
-        if (ownerErr) throw ownerErr;
-        const { data: isMember, error: memberErr } = await dbClient.rpc('is_list_member', { p_list_id: listId, p_user_id: currentUserId });
-        if (memberErr) throw memberErr;
-        if (!isOwner && !isMember) {
+        // Use is_list_participant — matches the RLS policy on collection_messages exactly
+        // (covers owner + joined members + admins)
+        const { data: isParticipant, error: participantErr } = await dbClient.rpc('is_list_participant', { list_uuid: listId, user_uuid: currentUserId });
+        if (participantErr) throw participantErr;
+        if (!isParticipant) {
           throw new Error('Not authorized to access this list');
         }
         
@@ -2033,6 +2356,64 @@ function initStoreIpc(ipcMain) {
     }
   });
 
+  ipcMain.handle('cloud-send-media-share', async (e, { listId, profileId, media }) => {
+    try {
+      const session = getInMemorySession();
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) throw new Error('User not authenticated');
+
+      let client = await getAuthenticatedClient();
+
+      // Insert media share as special message type
+      const runQuery = async (dbClient) => {
+        const { data: resData, error: insertErr } = await dbClient
+          .from('collection_messages')
+          .insert({
+            list_id: listId,
+            profile_id: profileId,
+            message_text: `[MEDIA_SHARE]:${JSON.stringify({mediaId: media.id, title: media.title, posterUrl: media.poster, mediaType: media.type})}`
+          })
+          .select()
+          .single();
+
+        if (insertErr) throw insertErr;
+        return resData;
+      };
+
+      try {
+        data = await runQuery(client);
+      } catch (queryErr) {
+        const isAuthError = queryErr.message?.includes('JWT') || 
+                            queryErr.message?.includes('invalid signature') || 
+                            queryErr.message?.includes('Unauthorized') || 
+                            queryErr.status === 401 || 
+                            queryErr.code === '42501';
+                            
+        if (isAuthError) {
+          console.warn('[STORE] Auth error during send-media-share, retrying with service_role client...');
+          const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+          const serviceRoleKey = getSupabaseServiceRoleKey();
+          if (serviceRoleKey) {
+            const { createClient } = require('@supabase/supabase-js');
+            const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+              auth: { persistSession: false, autoRefreshToken: false }
+            });
+            data = await runQuery(serviceClient);
+          } else {
+            throw queryErr;
+          }
+        } else {
+          throw queryErr;
+        }
+      }
+      
+      return { success: true, data };
+    } catch (err) {
+      console.error('[STORE] cloud-send-media-share failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('cloud-upload-chat-image', async (e, { base64Data, mimeType }) => {
     try {
       const client = await getAuthenticatedClient();
@@ -2055,6 +2436,40 @@ function initStoreIpc(ipcMain) {
       return { success: true, url: publicUrlData?.publicUrl };
     } catch (err) {
       console.error('[STORE] cloud-upload-chat-image failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('cloud-update-profile-avatar-color', async (e, { profileId, avatarBorderColor }) => {
+    try {
+      const session = getInMemorySession();
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) throw new Error('User not authenticated');
+
+      const client = await getAuthenticatedClient();
+
+      // Verify the profile belongs to the current user
+      const { data: profile, error: fetchErr } = await client
+        .from('account_profiles')
+        .select('id, user_id')
+        .eq('id', profileId)
+        .maybeSingle();
+
+      if (fetchErr) throw fetchErr;
+      if (!profile) throw new Error('Profile not found');
+      if (profile.user_id !== currentUserId) throw new Error('Not authorized to update this profile');
+
+      // Update avatar border color
+      const { error: updateErr } = await client
+        .from('account_profiles')
+        .update({ avatar_border_color: avatarBorderColor })
+        .eq('id', profileId);
+
+      if (updateErr) throw updateErr;
+
+      return { success: true };
+    } catch (err) {
+      console.error('[STORE] cloud-update-profile-avatar-color failed:', err.message);
       return { success: false, error: err.message };
     }
   });

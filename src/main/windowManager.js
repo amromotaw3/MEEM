@@ -59,7 +59,7 @@ function createWindow() {
       webSecurity: true,
       webviewTag: false,
       enableRemoteModule: false,
-      sandbox: false,
+      sandbox: true,
       plugins: true
     }
   });
@@ -130,7 +130,7 @@ function createWindow() {
           return;
         }
         const data = loadData();
-        const baseDir = data.downloadPath || (data.libraryFolders && data.libraryFolders[0]) || path.join(app.getPath('downloads'), 'MediaVault_Downloads');
+        const baseDir = data.downloadPath || (data.libraryFolders && data.libraryFolders[0]) || path.join(app.getPath('downloads'), 'MEEM_Downloads');
 
         const seriesMatch = filename.match(/(.*)[. ]S(\d{1,2})E(\d{1,3})/i) ||
           filename.match(/(.*)[. ](\d{1,2})x(\d{1,3})/i) ||
@@ -176,6 +176,23 @@ function createWindow() {
 }
 
 function initWindowIpc(ipcMain) {
+  ipcMain.on('get-supabase-env', (event) => {
+    try {
+      const { getSupabaseUrl, getSupabaseAnonKey, isConfigured } = require('../shared/supabaseEnv');
+      if (isConfigured()) {
+        event.returnValue = {
+          supabaseUrl: getSupabaseUrl(),
+          supabaseAnonKey: getSupabaseAnonKey()
+        };
+      } else {
+        event.returnValue = null;
+      }
+    } catch (e) {
+      console.error('[IPC] Failed to get supabase env:', e.message);
+      event.returnValue = null;
+    }
+  });
+
   ipcMain.on('win-minimize', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     win?.minimize();
@@ -303,12 +320,12 @@ function openChatWindow(listId) {
   }
 
   chatWindow = new BrowserWindow({
-    width: 460,
-    height: 780,
-    minWidth: 380,
-    minHeight: 500,
+    width: 360,
+    height: 600,
+    minWidth: 320,
+    minHeight: 400,
     frame: true,
-    title: 'MediaVault Chat',
+    title: 'List Chat',
     backgroundColor: '#0d0d18',
     icon: iconPath,
     show: false,
@@ -319,7 +336,7 @@ function openChatWindow(listId) {
       webSecurity: true,
       webviewTag: false,
       enableRemoteModule: false,
-      sandbox: false,
+      sandbox: true,
       plugins: true
     }
   });
@@ -397,7 +414,7 @@ function createPlayerWindow(options = {}) {
       webSecurity: true,
       webviewTag: false,
       enableRemoteModule: false,
-      sandbox: false,
+      sandbox: true,
       plugins: true
     }
   });

@@ -88,7 +88,14 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
   let cancelled = false, childProcess = null;
   const mainWindow = getMainWindow();
   
-  activeDownloads.set(downloadId, { cancel: () => { cancelled = true; if (childProcess) childProcess.kill(); } });
+  activeDownloads.set(downloadId, { 
+    cancel: () => { 
+      cancelled = true; 
+      try { if (childProcess) childProcess.kill('SIGKILL'); } catch(e) {} 
+      try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch(e) {}
+      mainWindow?.webContents?.send?.('download-cancelled', { id: downloadId, name: displayName });
+    } 
+  });
   
   return new Promise((resolve, reject) => {
     mainWindow?.webContents?.send?.('download-progress', { id: downloadId, name: displayName, percent: 1, downloaded: 'Starting...', total: 'Fetching...', status: 'downloading' });
@@ -242,10 +249,19 @@ async function downloadThumbnail(url, outputPath) {
 async function downloadDirect(url, outputPath, downloadId, displayName) {
   const mainWindow = getMainWindow();
   let cancelled = false;
+  let response = null;
+  let ws = null;
   
-  activeDownloads.set(downloadId, { cancel: () => { cancelled = true; } });
+  activeDownloads.set(downloadId, { 
+    cancel: () => { 
+      cancelled = true; 
+      try { if (response && response.data) response.data.destroy(); } catch(e) {}
+      try { if (ws) ws.destroy(); } catch(e) {}
+      try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch(e) {}
+      mainWindow?.webContents?.send?.('download-cancelled', { id: downloadId, name: displayName });
+    } 
+  });
 
-  let response;
   let currentUrl = url;
 
   // Check if host is local/private
@@ -296,7 +312,7 @@ async function downloadDirect(url, outputPath, downloadId, displayName) {
 
     const totalBytes = parseInt(response.headers['content-length']) || 0;
     let downloadedBytes = 0;
-    const ws = fs.createWriteStream(outputPath);
+    ws = fs.createWriteStream(outputPath);
 
     response.data.on('data', (chunk) => {
       if (cancelled) {
@@ -443,7 +459,10 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
           console.error('[Downloader] wtClient error:', err.message || err);
         });
       }
-      torrent = wtClient.add(magnetWithTrackers, { path: path.dirname(outputPath) });
+      torrent = wtClient.add(magnetWithTrackers, { 
+        path: path.dirname(outputPath),
+        deselect: true
+      });
       torrent.fileIdx = opts.fileIdx; // Explicitly attach for reliable access
     } catch (e) {
       clearInterval(heartbeatInterval);
@@ -453,7 +472,8 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
     }
 
     // Attach events DIRECTLY on the torrent object (not inside callback)
-    torrent.on('metadata', () => {
+    const onMetadata = () => {
+      if (metadataReceived) return;
       metadataReceived = true;
       clearInterval(heartbeatInterval);
       clearTimeout(discoveryTimeout);
@@ -477,6 +497,8 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
           torrent.files.forEach((f, idx) => {
             if (!selectedIdxs.includes(idx)) {
               f.deselect();
+            } else {
+              f.select();
             }
           });
           torrent.targetFile = selectedIdxs.length === 1 ? torrent.files[selectedIdxs[0]] : null;
@@ -486,29 +508,97 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
 
           if (largeVideos.length > 1) {
             // Season Pack: Deselect everything except the actual video episodes
-            torrent.files.forEach(f => { if (!largeVideos.includes(f)) f.deselect(); });
+            torrent.files.forEach(f => {
+              if (largeVideos.includes(f)) f.select();
+              else f.deselect();
+            });
             torrent.targetFile = null; // null implies batch mode
           } else {
             // Single Movie: Select only the largest file definitively
             const targetFile = torrent.files.reduce((prev, curr) => (prev.length > curr.length) ? prev : curr);
-            torrent.files.forEach(f => { if (f !== targetFile) f.deselect(); });
+            torrent.files.forEach(f => {
+              if (f === targetFile) f.select();
+              else f.deselect();
+            });
             torrent.targetFile = targetFile;
           }
         }
       }
       
       mainWindow?.webContents?.send?.('download-progress', { id: downloadId, name: displayName, percent: 0, status: 'metadata_ready', statusText: 'Metadata received...' });
-    });
+    };
+
+    torrent.on('metadata', onMetadata);
+
+    // Solve race condition if metadata is already populated
+    if (torrent.metadata || (torrent.files && torrent.files.length > 0)) {
+      onMetadata();
+    }
 
     torrent.on('ready', () => {
-      metadataReceived = true;
-      clearTimeout(discoveryTimeout);
+      onMetadata();
     });
 
-    torrent.on('download', () => {
+    const finishTorrent = () => {
       if (cancelled) return;
+      cancelled = true;
+      clearTimeout(discoveryTimeout);
+      clearInterval(heartbeatInterval);
+      try {
+        let fileToMove = torrent.targetFile;
+        // If no specific target was set (batch mode), pick the largest file
+        if (!fileToMove && torrent.files && torrent.files.length > 0) {
+          fileToMove = torrent.files.reduce((prev, curr) => (prev.length > curr.length) ? prev : curr);
+        }
+        if (fileToMove) {
+          const srcPath = path.join(path.dirname(outputPath), fileToMove.path);
+          // Determine proper output path with correct extension
+          const actualExt = path.extname(fileToMove.name);
+          const targetPath = actualExt ? outputPath.replace(/\.mp4$/i, actualExt) : outputPath;
+          if (fs.existsSync(srcPath) && srcPath !== targetPath) {
+            try { fs.renameSync(srcPath, targetPath); } catch(e) { 
+              try { fs.copyFileSync(srcPath, targetPath); } catch(e2) { 
+                console.warn('[Downloader] File copy also failed:', e2.message); 
+              }
+            }
+          }
+          console.log(`[Downloader] Torrent done. Moved: "${fileToMove.name}" -> "${path.basename(targetPath)}"`);
+        }
+      } catch(e) { console.warn('[Downloader] File move error:', e.message); }
+      // Clean up the torrent store and remove client
+      try {
+        wtClient.remove(torrent.infoHash, { destroyStore: true }, (err) => {
+          if (err) console.error('[Downloader] Error removing torrent:', err);
+        });
+      } catch(e) { /* ignore cleanup errors */ }
+      resolve();
+    };
+
+    torrent.on('done', finishTorrent);
+
+    torrent.on('download', () => {
+      if (cancelled || isPaused) return;
       metadataReceived = true;
       clearTimeout(discoveryTimeout);
+
+      // Check if all selected files are done
+      let allSelectedDone = false;
+      if (torrent.targetFile) {
+        if (torrent.targetFile.progress >= 1.0) {
+          allSelectedDone = true;
+        }
+      } else if (torrent.files && torrent.files.length > 0) {
+        const selectedFiles = torrent.files.filter(f => f.progress > -1);
+        if (selectedFiles.length > 0 && selectedFiles.every(f => f.progress >= 1.0)) {
+          allSelectedDone = true;
+        }
+      }
+
+      if (allSelectedDone && !cancelled) {
+        console.log('[Downloader] All selected files completed. Finishing torrent.');
+        finishTorrent();
+        return;
+      }
       
       // Throttle UI updates to every 500ms
       const now = Date.now();
@@ -534,42 +624,9 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
         total: formatBytes(totalBytes),
         speed: formatBytes(torrent.downloadSpeed) + '/s',
         peers: torrent.numPeers,
-        status: 'downloading'
+        status: 'downloading',
+        canPause: true
       });
-    });
-
-    torrent.on('done', () => {
-      if (cancelled) return;
-      clearTimeout(discoveryTimeout);
-      try {
-        let fileToMove = torrent.targetFile;
-        // If no specific target was set (batch mode), pick the largest file
-        if (!fileToMove && torrent.files && torrent.files.length > 0) {
-          fileToMove = torrent.files.reduce((prev, curr) => (prev.length > curr.length) ? prev : curr);
-        }
-        if (fileToMove) {
-          const srcPath = path.join(path.dirname(outputPath), fileToMove.path);
-          // Determine proper output path with correct extension
-          const actualExt = path.extname(fileToMove.name);
-          const targetPath = actualExt ? outputPath.replace(/\.mp4$/i, actualExt) : outputPath;
-          if (fs.existsSync(srcPath) && srcPath !== targetPath) {
-            try { fs.renameSync(srcPath, targetPath); } catch(e) { 
-              try { fs.copyFileSync(srcPath, targetPath); } catch(e2) { 
-                console.warn('[Downloader] File copy also failed:', e2.message); 
-              }
-            }
-          }
-          console.log(`[Downloader] Torrent done. Moved: "${fileToMove.name}" -> "${path.basename(targetPath)}"`);
-        }
-      } catch(e) { console.warn('[Downloader] File move error:', e.message); }
-      // Clean up the torrent's temp directory structure
-      try {
-        const torrentDir = path.join(path.dirname(outputPath), torrent.name);
-        if (fs.existsSync(torrentDir) && fs.statSync(torrentDir).isDirectory()) {
-          fs.rmSync(torrentDir, { recursive: true, force: true });
-        }
-      } catch(e) { /* ignore cleanup errors */ }
-      resolve();
     });
 
     torrent.on('error', (err) => {
@@ -577,13 +634,65 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
       if (!cancelled) reject(err);
     });
 
-    activeDownloads.set(downloadId, { cancel: () => { cancelled = true; clearTimeout(discoveryTimeout); try { wtClient.remove(torrent.infoHash); } catch(e) {} } });
+    let isPaused = false;
+    activeDownloads.set(downloadId, { 
+      cancel: () => { 
+        cancelled = true; 
+        clearTimeout(discoveryTimeout); 
+        try { wtClient.remove(torrent.infoHash); } catch(e) {} 
+      },
+      pause: () => {
+        isPaused = true;
+        try { torrent.pause(); } catch(e) {}
+        const progress = torrent.targetFile ? torrent.targetFile.progress : torrent.progress;
+        const downloadedBytes = torrent.targetFile ? torrent.targetFile.downloaded : torrent.downloaded;
+        let totalBytes = torrent.targetFile ? torrent.targetFile.length : 0;
+        if (!torrent.targetFile) {
+          totalBytes = torrent.files.filter(f => f.progress > -1).reduce((acc, f) => acc + f.length, 0);
+          if (totalBytes === 0) totalBytes = torrent.length;
+        }
+        mainWindow?.webContents.send('download-progress', { 
+          id: downloadId, 
+          name: displayName, 
+          percent: (progress * 100).toFixed(1),
+          downloaded: formatBytes(downloadedBytes),
+          total: formatBytes(totalBytes),
+          speed: 'Paused',
+          peers: 0,
+          status: 'paused',
+          canPause: true
+        });
+      },
+      resume: () => {
+        isPaused = false;
+        try { torrent.resume(); } catch(e) {}
+        const progress = torrent.targetFile ? torrent.targetFile.progress : torrent.progress;
+        const downloadedBytes = torrent.targetFile ? torrent.targetFile.downloaded : torrent.downloaded;
+        let totalBytes = torrent.targetFile ? torrent.targetFile.length : 0;
+        if (!torrent.targetFile) {
+          totalBytes = torrent.files.filter(f => f.progress > -1).reduce((acc, f) => acc + f.length, 0);
+          if (totalBytes === 0) totalBytes = torrent.length;
+        }
+        mainWindow?.webContents.send('download-progress', { 
+          id: downloadId, 
+          name: displayName, 
+          percent: (progress * 100).toFixed(1),
+          downloaded: formatBytes(downloadedBytes),
+          total: formatBytes(totalBytes),
+          speed: 'Resuming...',
+          peers: torrent.numPeers,
+          status: 'downloading',
+          canPause: true
+        });
+      }
+    });
   });
 }
 
 function initDownloaderIpc(ipcMain) {
   ipcMain.handle('start-download', async (_e, opts) => {
     let { url, name, type, season, episode, isMusicMode } = opts;
+    const isTorrent = url.startsWith('magnet:') || url.includes('.torrent') || opts.fileIdx !== undefined;
     const mainWindow = getMainWindow();
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     
@@ -653,10 +762,10 @@ function initDownloaderIpc(ipcMain) {
     }
 
     // --- SMART PATH RESOLUTION ---
-    let rootDir = path.join(app.getPath('videos'), 'MediaVault');
+    let rootDir = path.join(app.getPath('videos'), 'MEEM');
     if (process.platform === 'android') {
         // On Android, use the public Downloads folder for better visibility
-        rootDir = path.join(app.getPath('downloads'), 'MediaVault');
+        rootDir = path.join(app.getPath('downloads'), 'MEEM');
     }
     const profileName = opts.profileName || 'Default';
     const profileSafe = profileName.replace(/[<>:"/\\|?*]/g, '_');
@@ -706,7 +815,7 @@ function initDownloaderIpc(ipcMain) {
             }
         }
     }
-    let finalName = `${safeName}.mp4`;
+    let finalName = isTorrent ? safeName : `${safeName}.mp4`;
     
     // Smart Parsing & Routing
     let pSeason = season;
@@ -744,7 +853,7 @@ function initDownloaderIpc(ipcMain) {
             // Append show structure to the properly resolved base directory
             finalDir = path.join(finalDir, showTitle, `Season ${pSeason}`);
         }
-        finalName = opts.type === 'torrent' ? safeName : `${showTitle} - S${sNum}E${eNum}.mp4`;
+        finalName = isTorrent ? safeName : `${showTitle} - S${sNum}E${eNum}.mp4`;
         
     } else if (category === 'Movies') {
         // Movie -> \Movies\Movie Title (Year)\Movie Title.mp4
@@ -755,7 +864,7 @@ function initDownloaderIpc(ipcMain) {
         
         // Append movie folder to the properly resolved base directory
         finalDir = path.join(finalDir, `${movieTitle}${yearTxt}`);
-        finalName = opts.type === 'torrent' ? safeName : `${movieTitle}.mp4`;
+        finalName = isTorrent ? safeName : `${movieTitle}.mp4`;
     }
 
     ensureDir(TEMP_DIR);
@@ -839,8 +948,25 @@ function initDownloaderIpc(ipcMain) {
 
   ipcMain.handle('cancel-download', (_e, id) => { 
     const dl = activeDownloads.get(id); 
-    if (dl?.cancel) { dl.cancel(); activeDownloads.delete(id); } 
+    if (dl?.cancel) {
+      try { dl.cancel(); } catch (e) {}
+    }
+    activeDownloads.delete(id); 
+    const mainWindow = getMainWindow();
+    mainWindow?.webContents?.send?.('download-cancelled', { id });
     return true; 
+  });
+
+  ipcMain.handle('pause-download', (_e, id) => {
+    const dl = activeDownloads.get(id);
+    if (dl?.pause) { dl.pause(); }
+    return true;
+  });
+
+  ipcMain.handle('resume-download', (_e, id) => {
+    const dl = activeDownloads.get(id);
+    if (dl?.resume) { dl.resume(); }
+    return true;
   });
 
   ipcMain.handle('fetch-url-metadata', async (_e, url) => {

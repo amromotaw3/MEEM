@@ -79,9 +79,9 @@ export const LocalSyncView = () => {
             {!discoveredPC ? (
                 <div className="discovery-status">
                     {isScanning ? (
-                        <p><i className="fas fa-spinner fa-spin"></i> Searching for MediaVault PCs on your Wi-Fi...</p>
+                        <p><i className="fas fa-spinner fa-spin"></i> Searching for MEEM PCs on your Wi-Fi...</p>
                     ) : (
-                        <p>No PC found. Ensure MediaVault is running on your PC and both devices are on the same Wi-Fi.</p>
+                        <p>No PC found. Ensure MEEM is running on your PC and both devices are on the same Wi-Fi.</p>
                     )}
                 </div>
             ) : (

@@ -23,6 +23,52 @@
     return baseKey;
   }
 
+  function escapeHTML(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  function normalizePlaybackMeta(meta = {}, pbKey = null) {
+    const tmdbCache = window.appData?.tmdbCache || {};
+    const cacheEntry = (pbKey && (tmdbCache[pbKey] || tmdbCache[meta.id] || tmdbCache[meta.tmdbId])) || {};
+    let poster = meta.poster_path || meta.posterPath || meta.poster || meta.cover || meta.thumbnail || cacheEntry.posterPath || cacheEntry.poster_path || null;
+    let backdrop = meta.backdrop_path || meta.backdropPath || meta.backdrop || meta.background || meta.cover || cacheEntry.backdropPath || cacheEntry.backdrop_path || null;
+
+    if (!poster && meta.id && String(meta.id).startsWith('tt')) {
+      poster = window.getTMDBImageUrl(meta.id, false);
+    }
+    if (!backdrop && meta.id && String(meta.id).startsWith('tt')) {
+      backdrop = window.getTMDBImageUrl(meta.id, true);
+    }
+
+    return {
+      ...meta,
+      poster_path: poster || null,
+      backdrop_path: backdrop || null,
+      cover: meta.cover || poster || null
+    };
+  }
+
+  function getCacheEntry(showId) {
+    if (!showId) return null;
+    const cache = appData.tmdbCache || {};
+    const cinemeta = appData.cinemetaCache || {};
+    if (cache[showId]) return cache[showId];
+    if (cinemeta[showId]) return cinemeta[showId];
+    
+    if (typeof showId === 'string' && (showId.includes('/') || showId.includes('\\'))) {
+      const target = showId.replace(/\\/g, '/').toLowerCase();
+      for (const key of Object.keys(cache)) {
+        if (key.replace(/\\/g, '/').toLowerCase() === target) return cache[key];
+      }
+      for (const key of Object.keys(cinemeta)) {
+        if (key.replace(/\\/g, '/').toLowerCase() === target) return cinemeta[key];
+      }
+    }
+    return null;
+  }
+
   function togglePlayerMode(mode) {
     const musicPoster = $('#music-poster-container');
     const videoEl = $('#video-element');
@@ -119,7 +165,23 @@
 
   // ── Video Player ──
   async function playVideo(item, show, extra = {}) {
+    // Determine if this is external (internet) content.
+    // Local file paths do NOT require the disclaimer — only external streams do.
+    const path = item?.path || item?.url || '';
+    const isExternalContent = item?.torrentMagnet ||
+      (path && !isLocalFilePath(path) && /^https?:\/\//i.test(path));
+
+    if (isExternalContent && typeof showDisclaimerAndProceed === 'function') {
+      showDisclaimerAndProceed(() => _doPlayVideo(item, show, extra));
+      return;
+    }
+    _doPlayVideo(item, show, extra);
+  }
+
+  async function _doPlayVideo(item, show, extra = {}) {
+    window.isTransitioningEpisode = true;
     if (!isAgeAllowed(item) || (show && !isAgeAllowed(show))) {
+      window.isTransitioningEpisode = false;
       showToast('This content is restricted by age rating filters.');
       return;
     }
@@ -137,7 +199,10 @@
     }
 
     // Refresh stale torrent stream URLs before playing (Electron only)
-    if (window.api?.isElectron && item?.torrentMagnet && (!item.path || isStaleStreamUrl(item.path))) {
+    const hasValidLocalStream = item.path && /^https?:\/\/(127\.0\.0\.1|localhost):1147\d\//i.test(item.path);
+    if (hasValidLocalStream) {
+      window._activeStreamUrl = item.path;
+    } else if (window.api?.isElectron && item?.torrentMagnet && (!item.path || isStaleStreamUrl(item.path))) {
       try {
         showToast('Resuming torrent stream...');
         const res = await window.api.invoke('start-torrent-stream', item.torrentMagnet, item.fileIdx ?? null);
@@ -147,6 +212,7 @@
           item.url = newUrl;
           item.torrentFiles = res.files;
           if (res.fileIdx != null) item.fileIdx = res.fileIdx;
+          window._activeStreamUrl = newUrl;
         } else {
           showToast('Failed to resume torrent stream: ' + (res?.error || 'Unknown error'));
           return;
@@ -160,9 +226,10 @@
     const isMobile = !!(window.Capacitor);
     const useNativeDesktop = !isMobile && window.api?.isElectron && !isNativePlayerWindow();
     if (useNativeDesktop) {
+      showToast('Opening in MEEM Player...');
       const res = await requestNativePlayback(item, show);
       if (res?.success !== false) return;
-      showToast('Failed to open native player' + (res?.error ? ': ' + res.error : ''));
+      showToast('Failed to open MEEM player' + (res?.error ? ': ' + res.error : ''));
       return;
     }
 
@@ -173,17 +240,20 @@
       const pbKey = getPlaybackKey(item);
       if (currentProfile) {
         if (!currentProfile.playback) currentProfile.playback = {};
+        const normalizedMeta = normalizePlaybackMeta({
+          ...(currentProfile.playback[pbKey]?.meta || {}),
+          ...item,
+          title: item.title || item.name || (currentProfile.playback[pbKey]?.meta?.title) || null,
+          type: item.type || item.media_type || (item.format ? item.format.toLowerCase() : null) || (currentProfile.playback[pbKey]?.meta?.type) || null,
+          path: item.path || item.id || null
+        }, pbKey);
+
         currentProfile.playback[pbKey] = {
           ...(currentProfile.playback[pbKey] || {}),
           lastWatched: Date.now(),
-          meta: item
+          meta: normalizedMeta
         };
-        persist();
       }
-
-      window.api.openInExternalPlayer(item.path || item.id);
-      showToast('Opening in External Player...');
-      return;
     }
 
     if (currentItem) {
@@ -238,9 +308,101 @@
       console.log('[playVideo] Detected tracks:', d);
       showToast(`${a} ${s}`.trim());
     }
-    // Auto-resolve show if it's an episode but show is missing
-    if (!show && (item.season !== undefined || item.episode !== undefined)) {
-      show = (appData.shows || []).find(s => (s.episodes || []).some(e => getPlaybackKey(e) === getPlaybackKey(item)));
+    // Auto-resolve show if it's an episode but show is missing or has no episodes list
+    if ((!show || !show.episodes || !show.episodes.length) && (item.season !== undefined || item.episode !== undefined)) {
+      const resolved = (appData.shows || []).find(s => (s.episodes || []).some(e => getPlaybackKey(e) === getPlaybackKey(item)));
+      if (resolved) {
+        show = resolved;
+      } else {
+        // Try to reconstruct show using cache (discover/streaming shows)
+        const showId = item.showId || (show && show.id);
+        if (showId) {
+          currentShowId = showId;
+          const fetchId = String(showId).startsWith('tt') || String(showId).startsWith('tmdb:') ? showId : `tmdb:${showId}`;
+          const altId = String(showId).startsWith('tmdb:') ? showId.replace('tmdb:', '') : `tmdb:${showId}`;
+          const cache = getCacheEntry(showId) || getCacheEntry(fetchId) || getCacheEntry(altId);
+          if (cache) {
+            const eps = [];
+            if (cache.seasons) {
+              Object.keys(cache.seasons).forEach(s => {
+                Object.keys(cache.seasons[s]).forEach(e => {
+                  const epInfo = cache.seasons[s][e];
+                  eps.push({
+                    id: epInfo.id || `${showId}:${s}:${e}`,
+                    title: epInfo.name || epInfo.title || `Episode ${e}`,
+                    season: parseInt(s),
+                    episode: parseInt(e),
+                    type: 'stream',
+                    isStream: true,
+                    thumbnail: epInfo.still_path || epInfo.local_still || ''
+                  });
+                });
+              });
+            }
+            if (eps.length) {
+              show = {
+                id: showId,
+                title: show?.title || cache.title || item.showName || 'TV Show',
+                episodes: eps,
+                type: 'show',
+                tmdbId: cache.tmdbId || cache.id || (String(showId).startsWith('tmdb:') ? showId.replace('tmdb:', '') : null),
+                imdb_id: cache.imdb_id || cache.imdbId || (String(showId).startsWith('tt') ? showId : null)
+              };
+            }
+          } else {
+            console.log('[playVideo] Cache missing, fetching series info dynamically from Cinemeta:', fetchId);
+            window.api.invoke('cinemeta-details', { id: fetchId, type: 'series' }).then(res => {
+              const meta = res?.meta || res;
+              if (meta && meta.videos && meta.videos.length) {
+                appData.cinemetaCache = appData.cinemetaCache || {};
+                appData.cinemetaCache[showId] = meta;
+                appData.cinemetaCache[fetchId] = meta;
+                meta.seasons = meta.seasons || {};
+                meta.videos.forEach(v => {
+                  const s = v.season || 1;
+                  meta.seasons[s] = meta.seasons[s] || {};
+                  meta.seasons[s][v.episode] = {
+                    episode_number: v.episode,
+                    name: v.name || v.title || '',
+                    still_path: v.thumbnail || '',
+                    overview: v.overview || ''
+                  };
+                });
+                if (typeof persist === 'function') persist();
+                if (currentShowId === showId) {
+                  const eps = [];
+                  meta.videos.forEach(v => {
+                    eps.push({
+                      id: v.id || `${showId}:${v.season}:${v.episode}`,
+                      title: v.name || v.title || `Episode ${v.episode}`,
+                      season: parseInt(v.season),
+                      episode: parseInt(v.episode),
+                      type: 'stream',
+                      isStream: true,
+                      thumbnail: v.thumbnail || ''
+                    });
+                  });
+                  currentShow = {
+                    id: showId,
+                    title: meta.title || meta.name || item.showName || 'TV Show',
+                    episodes: eps,
+                    type: 'show',
+                    tmdbId: meta.tmdbId || meta.id || (String(showId).startsWith('tmdb:') ? showId.replace('tmdb:', '') : null),
+                    imdb_id: meta.imdb_id || meta.imdbId || (String(showId).startsWith('tt') ? showId : null)
+                  };
+                  currentEpisodes = eps;
+                  const pbKey = getPlaybackKey(currentItem);
+                  currentEpisodeIndex = currentEpisodes.findIndex(e => getPlaybackKey(e) === pbKey);
+                  if (currentEpisodeIndex === -1 && item.season !== undefined) {
+                    currentEpisodeIndex = currentEpisodes.findIndex(e => e.season === parseInt(item.season) && e.episode === parseInt(item.episode));
+                  }
+                  populateSidePanel();
+                }
+              }
+            }).catch(err => console.error('[playVideo] Cinemeta dynamic fallback failed:', err));
+          }
+        }
+      }
     }
 
     if (show) {
@@ -248,6 +410,9 @@
       currentShowId = show.id;
       currentEpisodes = show.episodes || [];
       currentEpisodeIndex = currentEpisodes.findIndex(e => getPlaybackKey(e) === getPlaybackKey(item));
+      if (currentEpisodeIndex === -1 && item.season !== undefined && item.episode !== undefined) {
+        currentEpisodeIndex = currentEpisodes.findIndex(e => String(e.season) === String(item.season) && String(e.episode) === String(item.episode));
+      }
       const showMetaForPlayback = getMetadataForItem(show);
       const resolvedImdbId = show.imdb_id || show.imdbId || show.cinemetaId || showMetaForPlayback?.imdb_id || showMetaForPlayback?.cinemetaId;
       if (resolvedImdbId && String(resolvedImdbId).startsWith('tt')) {
@@ -256,6 +421,9 @@
       }
     } else if (item.season !== undefined && currentShow) {
       currentEpisodeIndex = currentEpisodes.findIndex(e => getPlaybackKey(e) === getPlaybackKey(item));
+      if (currentEpisodeIndex === -1 && item.season !== undefined && item.episode !== undefined) {
+        currentEpisodeIndex = currentEpisodes.findIndex(e => String(e.season) === String(item.season) && String(e.episode) === String(item.episode));
+      }
     } else {
       currentShow = null;
       currentEpisodes = [];
@@ -288,6 +456,111 @@
     $('#player-title').textContent = displayTitle;
     currentItem.displayTitle = displayTitle; // Store for mini-player usage
     $('#player-show-name').textContent = show?.title || '';
+    if ($('#music-poster-container')) $('#music-poster-container').style.display = 'none';
+
+    // Update Loading Screen Clearlogo (Official Title Logo PNG only)
+    const loadingLogoEl = $('#player-loading-logo');
+    
+    function isRealLogoUrl(url) {
+      if (!url || typeof url !== 'string') return false;
+      const lower = url.toLowerCase();
+
+      // 1. Explicit keyword rejections (posters, backdrops, covers, stills, thumbnails)
+      if (
+        lower.includes('/poster/') ||
+        lower.includes('/posters/') ||
+        lower.includes('/backdrop/') ||
+        lower.includes('/backdrops/') ||
+        lower.includes('/cover/') ||
+        lower.includes('/covers/') ||
+        lower.includes('/still/') ||
+        lower.includes('/stills/') ||
+        lower.includes('poster.jpg') ||
+        lower.includes('backdrop.jpg') ||
+        lower.includes('cover.jpg')
+      ) {
+        return false;
+      }
+
+      // 2. Filename match against any known poster/backdrop property
+      const posters = [
+        item.poster, item.poster_path, item.posterPath, item.cover, item.thumbnail, item.image,
+        item.backdrop, item.backdrop_path, item.backdropPath,
+        show?.poster, show?.poster_path, show?.posterPath, show?.cover, show?.thumbnail,
+        show?.backdrop, show?.backdrop_path, show?.backdropPath
+      ].filter(Boolean);
+
+      for (const p of posters) {
+        if (typeof p === 'string') {
+          const pFile = p.split('/').pop().split('?')[0].toLowerCase();
+          const urlFile = url.split('/').pop().split('?')[0].toLowerCase();
+          if (pFile && urlFile && pFile.length > 3 && (pFile === urlFile || lower.includes(pFile))) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
+    let logoUrl = null;
+    const candidateLogos = [
+      item.clearlogo, Array.isArray(item.clearlogos) ? item.clearlogos[0] : null,
+      show?.clearlogo, Array.isArray(show?.clearlogos) ? show?.clearlogos[0] : null,
+      (typeof item.logo === 'string' && isRealLogoUrl(item.logo)) ? item.logo : null,
+      (typeof show?.logo === 'string' && isRealLogoUrl(show?.logo)) ? show?.logo : null
+    ].filter(Boolean);
+
+    for (const cand of candidateLogos) {
+      if (isRealLogoUrl(cand)) {
+        logoUrl = cand;
+        break;
+      }
+    }
+
+    if (!logoUrl) {
+      const searchKeys = [item.id, show?.id, item.imdb_id, item.imdbId, show?.imdb_id, item.tmdbId, show?.tmdbId].filter(Boolean);
+      for (const k of searchKeys) {
+        const cleanK = String(k).replace('tmdb:', '').replace('stremio:', '');
+        const cacheEntry = (appData.tmdbCache || {})[k] || (appData.tmdbCache || {})[cleanK] || (appData.cinemetaCache || {})[k] || (appData.cinemetaCache || {})[cleanK];
+        if (cacheEntry) {
+          const cacheLogos = [
+            cacheEntry.clearlogo, Array.isArray(cacheEntry.clearlogos) ? cacheEntry.clearlogos[0] : null, cacheEntry.logo
+          ].filter(Boolean);
+          for (const cand of cacheLogos) {
+            if (isRealLogoUrl(cand)) {
+              logoUrl = cand;
+              break;
+            }
+          }
+          if (logoUrl) break;
+        }
+      }
+    }
+
+    if (loadingLogoEl) {
+      if (logoUrl && isRealLogoUrl(logoUrl)) {
+        loadingLogoEl.src = localImg(logoUrl);
+        loadingLogoEl.style.display = 'block';
+      } else {
+        loadingLogoEl.removeAttribute('src');
+        loadingLogoEl.style.display = 'none';
+
+        // Async fetch clearlogo from Fanart / TMDB if TMDB/IMDB ID is present
+        const tmdbOrImdb = item.imdb_id || item.imdbId || item.id || show?.id;
+        if (tmdbOrImdb && window.api?.invoke) {
+          window.api.invoke('get-media-images', { id: tmdbOrImdb, type: item.type || 'movie' }).then(res => {
+            if (res && Array.isArray(res.clearlogos) && res.clearlogos.length > 0) {
+              const freshLogo = res.clearlogos[0];
+              if (loadingLogoEl && isRealLogoUrl(freshLogo)) {
+                loadingLogoEl.src = localImg(freshLogo);
+                loadingLogoEl.style.display = 'block';
+              }
+            }
+          }).catch(() => null);
+        }
+      }
+    }
+
     $('#player-loading').style.display = 'flex';
     // Hide overlay when entering player view
     if (typeof window.closeUnifiedDetail === 'function') {
@@ -304,6 +577,8 @@
     if (loaderPct) loaderPct.textContent = '';
     const playerErr = document.getElementById('player-error-overlay');
     if (playerErr) playerErr.style.display = 'none';
+    const diagCard = document.getElementById('player-torrent-diag');
+    if (diagCard) diagCard.style.display = 'none';
 
     // Codec Warning for high-end audio
     if (item.title.match(/atmos|truehd|dts|remux/i)) {
@@ -422,6 +697,197 @@
       if (track) pathUrl = track.path;
     }
 
+    // ── YouTube Stream & Details Fetching ──
+    let ytVideoId = item.videoId || (item.id && typeof item.id === 'string' ? item.id.replace(/^(yt:|youtube:)/, '') : null);
+    const itemUrlOrPath = item.url || item.path || (typeof item.id === 'string' ? item.id : '');
+    if (!ytVideoId && itemUrlOrPath) {
+      const match = itemUrlOrPath.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+      if (match) ytVideoId = match[1];
+    }
+    const isYTMedia = item.type === 'youtube' || item.isYoutube || (!!ytVideoId && /^[a-zA-Z0-9_-]{11}$/.test(ytVideoId));
+
+    if (isYTMedia && ytVideoId) {
+      try {
+        $('#player-loading').style.display = 'flex';
+        $('#player-progress-text').textContent = 'Extracting YouTube Direct Stream...';
+        const ytInfo = await window.api.invoke('youtube-get-video-info', { videoId: ytVideoId, quality: 'best' });
+        if (ytInfo && ytInfo.success && ytInfo.details && ytInfo.details.streamUrl) {
+          pathUrl = ytInfo.details.streamUrl;
+          item.path = pathUrl;
+          item.url = pathUrl;
+          item.youtubeDetails = ytInfo.details;
+          if (ytInfo.details.title) item.title = ytInfo.details.title;
+          if (ytInfo.details.author) $('#player-show-name').textContent = ytInfo.details.author;
+          $('#player-title').textContent = item.title;
+
+          // Record in YouTube Watch History
+          window.api.invoke('youtube-add-history', item).catch(() => {});
+
+          // Prepare captions metadata for tracks panel
+          currentMediaMetadata = currentMediaMetadata || {};
+          if (ytInfo.details.captions && ytInfo.details.captions.length) {
+            currentMediaMetadata.subtitle = ytInfo.details.captions.map((c, idx) => ({
+              typeIndex: idx,
+              lang: c.languageCode || 'en',
+              title: `${c.name}${c.isAutoGenerated ? ' (Auto)' : ''}`.trim(),
+              format: 'vtt',
+              baseUrl: c.baseUrl
+            }));
+            // Render tracks panel so captions appear immediately
+            renderTracksPanel(currentMediaMetadata);
+          }
+        } else {
+          // Fallback stream resolution via yt-dlp
+          $('#player-progress-text').textContent = 'Resolving video stream...';
+          const fallbackUrl = await window.api.invoke('resolve-trailer-stream', `https://www.youtube.com/watch?v=${ytVideoId}`);
+          if (fallbackUrl && fallbackUrl.startsWith('http')) {
+            pathUrl = fallbackUrl;
+            item.path = pathUrl;
+            item.url = pathUrl;
+          }
+        }
+      } catch (ytErr) {
+        console.error('[playVideo] YouTube resolution error:', ytErr);
+        try {
+          const fallbackUrl = await window.api.invoke('resolve-trailer-stream', `https://www.youtube.com/watch?v=${ytVideoId}`);
+          if (fallbackUrl && fallbackUrl.startsWith('http')) {
+            pathUrl = fallbackUrl;
+            item.path = pathUrl;
+            item.url = pathUrl;
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Toggle YouTube Download Button in player control bar
+    const ytDlBtn = $('#btn-player-yt-download');
+    const ytDlMenu = $('#player-yt-download-menu');
+    if (ytDlBtn) {
+      ytDlBtn.style.display = (isYTMedia && ytVideoId) ? 'inline-flex' : 'none';
+      ytDlBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (ytDlMenu) {
+          ytDlMenu.style.display = ytDlMenu.style.display === 'flex' ? 'none' : 'flex';
+        }
+      };
+    }
+
+    const btnYtDlVid = $('#btn-yt-dl-video');
+    if (btnYtDlVid) {
+      btnYtDlVid.onclick = async (e) => {
+        e.stopPropagation();
+        if (ytDlMenu) ytDlMenu.style.display = 'none';
+        if (!ytVideoId) return;
+        showToast('Starting YouTube Video download to Social folder...');
+        try {
+          const dlRes = await window.api.invoke('youtube-download-media', {
+            videoId: ytVideoId,
+            mode: 'video',
+            title: item.title || `youtube_${ytVideoId}`
+          });
+          if (dlRes && dlRes.success) {
+            showToast(`✅ Video saved to Social folder: ${dlRes.filename}`);
+          } else {
+            showToast(`❌ Download failed: ${dlRes?.error || 'Unknown error'}`);
+          }
+        } catch (err) {
+          showToast(`❌ Download error: ${err.message}`);
+        }
+      };
+    }
+
+    const btnYtDlAud = $('#btn-yt-dl-audio');
+    if (btnYtDlAud) {
+      btnYtDlAud.onclick = async (e) => {
+        e.stopPropagation();
+        if (ytDlMenu) ytDlMenu.style.display = 'none';
+        if (!ytVideoId) return;
+        showToast('Starting YouTube Audio (MP3) download to Downloads folder...');
+        try {
+          const dlRes = await window.api.invoke('youtube-download-media', {
+            videoId: ytVideoId,
+            mode: 'mp3',
+            title: item.title || `youtube_${ytVideoId}`
+          });
+          if (dlRes && dlRes.success) {
+            showToast(`✅ MP3 saved to Downloads folder: ${dlRes.filename}`);
+          } else {
+            showToast(`❌ Audio download failed: ${dlRes?.error || 'Unknown error'}`);
+          }
+        } catch (err) {
+          showToast(`❌ Audio download error: ${err.message}`);
+        }
+      };
+    }
+
+    // ─── YouTube Quality Selector ───────────────────────────────────────
+    const ytQualityBtn = $('#btn-player-yt-quality');
+    const ytQualityMenu = $('#player-yt-quality-menu');
+    const ytQualityLabel = $('#player-yt-quality-label');
+
+    if (ytQualityBtn) {
+      ytQualityBtn.style.display = (isYTMedia && ytVideoId) ? 'inline-flex' : 'none';
+      ytQualityBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (ytQualityMenu) {
+          const open = ytQualityMenu.style.display === 'flex';
+          ytQualityMenu.style.display = open ? 'none' : 'flex';
+          if (ytDlMenu) ytDlMenu.style.display = 'none';
+        }
+      };
+    }
+
+    // Wire quality option buttons
+    document.querySelectorAll('.yt-quality-opt').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        if (ytQualityMenu) ytQualityMenu.style.display = 'none';
+        if (!ytVideoId) return;
+
+        const selectedQ = btn.dataset.quality;
+        const label = selectedQ === 'best' ? 'Auto' : `${selectedQ}p`;
+        if (ytQualityLabel) ytQualityLabel.textContent = label;
+
+        // Highlight selected
+        document.querySelectorAll('.yt-quality-opt').forEach(b => {
+          b.style.background = 'rgba(255,255,255,0.04)';
+          b.style.fontWeight = '600';
+        });
+        btn.style.background = 'rgba(0,173,181,0.25)';
+        btn.style.fontWeight = '700';
+
+        showToast(`Switching quality to ${label}...`);
+        try {
+          const curTime = window._playerEngine ? window._playerEngine.currentTime : 0;
+          const res = await window.api.invoke('youtube-get-video-info', { videoId: ytVideoId, quality: selectedQ });
+          if (res && res.success && res.details?.streamUrl) {
+            const engine = window._playerEngine;
+            if (engine) {
+              const newUrl = res.details.streamUrl;
+              if (typeof engine.load === 'function') {
+                await engine.load(newUrl, { startTime: curTime });
+              } else {
+                engine.src = newUrl;
+                engine.currentTime = curTime;
+                engine.play();
+              }
+              showToast(`✅ Quality: ${label}`);
+            }
+          } else {
+            showToast(`❌ Could not get stream for ${label}`);
+          }
+        } catch (err) {
+          showToast(`❌ Quality switch error: ${err.message}`);
+        }
+      };
+    });
+
+    // Close YT menus on outside click
+    document.addEventListener('click', () => {
+      if (ytDlMenu) ytDlMenu.style.display = 'none';
+      if (ytQualityMenu) ytQualityMenu.style.display = 'none';
+    }, { once: true });
+
     if (!pathUrl) {
       const resolvedImdb = item.imdb_id || item.imdbId || (item.id && String(item.id).startsWith('tt') ? item.id : null);
       if (item.tmdbId || resolvedImdb || item.id) {
@@ -432,9 +898,9 @@
           imdb_id: resolvedImdb,
           media_type: item.type === 'show' ? 'tv' : 'movie'
         };
-        if (typeof openDiscoverDetail === 'function') {
+        if (typeof window.openDiscoverDetail === 'function') {
           $('#player-loading').style.display = 'none';
-          openDiscoverDetail(detailItem);
+          window.openDiscoverDetail(detailItem);
           showToast('Redirecting to choose a streaming link...');
           return;
         }
@@ -525,47 +991,50 @@
 
     let startTime = extra.startTime;
     if (startTime === undefined) {
-      if (pb && pb.time > 2) {
+      if (pb && pb.time > 2 && !pb.watched) {
         startTime = pb.time;
       } else {
         startTime = 0;
         // Attempt Trakt lookup if connected as a fallback/support
-        try {
-          const creds = await window.api.invoke('trakt-connection-status');
-          if (creds && creds.connected) {
-            console.log('[RESUME] Attempting Trakt playback progress fallback lookup...');
-            const traktProgress = await window.api.invoke('trakt-playback-progress');
-            if (traktProgress && Array.isArray(traktProgress)) {
-              const cache = (appData.tmdbCache || {})[pbKey] || {};
-              const imdbId = item.id || item.imdbId || item.imdb_id || cache.imdb_id || cache.imdbId;
-              
-              if (imdbId && String(imdbId).startsWith('tt')) {
-                const match = traktProgress.find(tp => {
-                  const type = tp.type;
-                  const detail = tp[type];
-                  if (!detail) return false;
-                  if (type === 'movie') {
-                    return detail.ids?.imdb === imdbId;
-                  } else {
-                    const isEpMatch = tp.show?.ids?.imdb === imdbId;
-                    const matchSeason = item.season !== undefined ? (detail.season === parseInt(item.season)) : true;
-                    const matchEpisode = item.episode !== undefined ? (detail.number === parseInt(item.episode)) : true;
-                    return isEpMatch && matchSeason && matchEpisode;
-                  }
-                });
+        // Only if it's not marked watched locally
+        if (!(pb && pb.watched)) {
+          try {
+            const creds = await window.api.invoke('trakt-connection-status');
+            if (creds && creds.connected) {
+              console.log('[RESUME] Attempting Trakt playback progress fallback lookup...');
+              const traktProgress = await window.api.invoke('trakt-playback-progress');
+              if (traktProgress && Array.isArray(traktProgress)) {
+                const cache = (appData.tmdbCache || {})[pbKey] || {};
+                const imdbId = item.id || item.imdbId || item.imdb_id || cache.imdb_id || cache.imdbId;
+                
+                if (imdbId && String(imdbId).startsWith('tt')) {
+                  const match = traktProgress.find(tp => {
+                    const type = tp.type;
+                    const detail = tp[type];
+                    if (!detail) return false;
+                    if (type === 'movie') {
+                      return detail.ids?.imdb === imdbId;
+                    } else {
+                      const isEpMatch = tp.show?.ids?.imdb === imdbId;
+                      const matchSeason = item.season !== undefined ? (detail.season === parseInt(item.season)) : true;
+                      const matchEpisode = item.episode !== undefined ? (detail.number === parseInt(item.episode)) : true;
+                      return isEpMatch && matchSeason && matchEpisode;
+                    }
+                  });
 
-                if (match) {
-                  const dur = knownDur || (item.type === 'movie' ? 7200 : 2700);
-                  const computedTime = (match.progress / 100) * dur;
-                  startTime = computedTime;
-                  console.log(`[RESUME] Found playback progress on Trakt: ${match.progress}% (${formatTime(startTime)})`);
-                  showToast(`Resuming from Trakt: ${match.progress.toFixed(0)}%`);
+                  if (match) {
+                    const dur = knownDur || (item.type === 'movie' ? 7200 : 2700);
+                    const computedTime = (match.progress / 100) * dur;
+                    startTime = computedTime;
+                    console.log(`[RESUME] Found playback progress on Trakt: ${match.progress}% (${formatTime(startTime)})`);
+                    showToast(`Resuming from Trakt: ${match.progress.toFixed(0)}%`);
+                  }
                 }
               }
             }
+          } catch (traktErr) {
+            console.warn('[RESUME] Trakt progress fallback fetch failed:', traktErr.message);
           }
-        } catch (traktErr) {
-          console.warn('[RESUME] Trakt progress fallback fetch failed:', traktErr.message);
         }
       }
     }
@@ -606,19 +1075,53 @@
 
     try {
       const engineLoaded = await engine.load(finalUrl, { startTime: startTime, paused: false, duration: knownDur });
+      window.isTransitioningEpisode = false;
       if (!engineLoaded) throw new Error('Engine failed to load media');
     } catch (err) {
-      console.error('[playVideo] engine.load failed, attempting HTML5 fallback:', err);
-      // Try basic HTML5 fallback to ensure playback (audio) still works
-      try {
-        const fallbackUrl = toMediaPlayUrl(item.path || finalUrl);
-        video.src = fallbackUrl;
-        await video.play();
-      } catch (e) {
-        console.error('[playVideo] HTML5 fallback failed:', e);
-        showToast('Playback failed');
-        $('#player-loading').style.display = 'none';
-        return;
+      window.isTransitioningEpisode = false;
+      console.error('[playVideo] engine.load failed, attempting stream re-resolution fallback:', err);
+      
+      let recovered = false;
+      if (isYTMedia || (finalUrl && finalUrl.includes('googlevideo.com'))) {
+        try {
+          const ytId = item.ytId || item.youtubeId || (typeof getYouTubeId === 'function' ? getYouTubeId(item.path || item.url) : null);
+          const searchParam = ytId ? `https://www.youtube.com/watch?v=${ytId}` : (item.path || item.url);
+          console.log('[playVideo] Attempting fresh YouTube stream re-resolution for:', searchParam);
+          const freshUrl = await window.api.invoke('resolve-trailer-stream', searchParam);
+          if (freshUrl && freshUrl.startsWith('http')) {
+            finalUrl = freshUrl;
+            item.path = freshUrl;
+            item.url = freshUrl;
+            const reLoaded = await engine.load(finalUrl, { startTime: startTime, paused: false, duration: knownDur });
+            if (reLoaded) recovered = true;
+          }
+        } catch (reErr) {
+          console.error('[playVideo] Re-resolution fallback failed:', reErr.message);
+        }
+      } else if (finalUrl && (finalUrl.includes('11470') || item.torrentMagnet) && !finalUrl.includes('transcode=')) {
+        try {
+          console.log('[playVideo] Attempting torrent audio transcode fallback for:', finalUrl);
+          showToast('Retrying stream with audio transcode...');
+          const transcodeUrl = finalUrl.includes('?') ? `${finalUrl}&transcode=true` : `${finalUrl}?transcode=true`;
+          const reLoaded = await engine.load(transcodeUrl, { startTime: startTime, paused: false, duration: knownDur });
+          if (reLoaded) recovered = true;
+        } catch (tcErr) {
+          console.error('[playVideo] Transcode fallback failed:', tcErr.message);
+        }
+      }
+
+      if (!recovered) {
+        // Basic HTML5 fallback
+        try {
+          const fallbackUrl = toMediaPlayUrl(item.path || finalUrl);
+          video.src = fallbackUrl;
+          await video.play();
+        } catch (e) {
+          console.error('[playVideo] HTML5 fallback failed:', e);
+          showToast('Playback failed');
+          $('#player-loading').style.display = 'none';
+          return;
+        }
       }
     }
 
@@ -674,16 +1177,7 @@
 
         const isFinished = pb.watched || (dur > 0 && (time / dur) > 0.9);
 
-        const entry = {
-          ...pb,
-          time,
-          duration: dur,
-          lastWatched: Date.now(),
-          watched: isFinished,
-          source: currentItem.torrentMagnet ? 'torrent' : (currentItem.isStream ? 'stream' : 'local'),
-          torrentMagnet: currentItem.torrentMagnet || pb.torrentMagnet || null,
-          fileIdx: currentItem.fileIdx != null ? currentItem.fileIdx : (pb.fileIdx != null ? pb.fileIdx : null),
-          meta: {
+        let playbackMeta = {
             ...(pb.meta || {}),
             id: currentItem.id || ((appData.tmdbCache || {})[pbKey]?.tmdbId) || ((appData.tmdbCache || {})[pbKey]?.id) || null,
             imdb_id: currentItem.imdb_id || currentItem.imdbId || ((appData.tmdbCache || {})[pbKey]?.imdb_id) || ((appData.tmdbCache || {})[pbKey]?.imdbId) || null,
@@ -699,7 +1193,20 @@
             backdrop_path: currentItem.backdrop_path || currentItem.backdropPath || ((appData.tmdbCache || {})[pbKey]?.backdropPath) || ((appData.tmdbCache || {})[pbKey]?.backdrop_path) || (pb.meta && pb.meta.backdrop_path) || null,
             thumbnail: currentItem.thumbnail || (pb.meta && pb.meta.thumbnail) || null,
             showName: currentItem.showName || ((appData.tmdbCache || {})[pbKey]?.showName) || (pb.meta && pb.meta.showName) || null
-          }
+          };
+
+        playbackMeta = normalizePlaybackMeta(playbackMeta, pbKey);
+
+        const entry = {
+          ...pb,
+          time,
+          duration: dur,
+          lastWatched: Date.now(),
+          watched: isFinished,
+          source: currentItem.torrentMagnet ? 'torrent' : (currentItem.isStream ? 'stream' : 'local'),
+          torrentMagnet: currentItem.torrentMagnet || pb.torrentMagnet || null,
+          fileIdx: currentItem.fileIdx != null ? currentItem.fileIdx : (pb.fileIdx != null ? pb.fileIdx : null),
+          meta: playbackMeta
         };
 
         // Update in-memory profile (instant)
@@ -847,33 +1354,35 @@
           try { video.load(); } catch (e) { /* ignore */ }
         }
 
-        // Force-hide player DOM immediately to avoid UI freeze/desync
-        try {
-          const playerContainerEl = document.getElementById('player-container') || $('#player-container');
-          if (playerContainerEl) {
-            playerContainerEl.style.display = 'none';
-            playerContainerEl.classList.remove('active', 'visible');
-          }
-          const viewPlayerEl = document.getElementById('view-player') || $('#view-player');
-          if (viewPlayerEl) {
-            viewPlayerEl.classList.remove('active');
-            viewPlayerEl.style.display = 'none';
-          }
+        // Force-hide player DOM immediately to avoid UI freeze/desync (only when exiting to dashboard)
+        if (shouldSwitchView) {
+          try {
+            const playerContainerEl = document.getElementById('player-container') || $('#player-container');
+            if (playerContainerEl) {
+              playerContainerEl.style.display = 'none';
+              playerContainerEl.classList.remove('active', 'visible');
+            }
+            const viewPlayerEl = document.getElementById('view-player') || $('#view-player');
+            if (viewPlayerEl) {
+              viewPlayerEl.classList.remove('active');
+              viewPlayerEl.style.display = 'none';
+            }
 
-          // Force-show the previous view explicitly
-          const targetViewName = playerSourceView || appData.lastView || 'movies';
-          let previousViewEl = null;
-          try { previousViewEl = (typeof views !== 'undefined' && views[targetViewName]) ? views[targetViewName] : document.getElementById('view-' + targetViewName); } catch (e) {}
-          if (previousViewEl) {
-            previousViewEl.classList.add('active');
-            previousViewEl.style.display = 'block';
+            // Force-show the previous view explicitly
+            const targetViewName = playerSourceView || appData.lastView || 'movies';
+            let previousViewEl = null;
+            try { previousViewEl = (typeof views !== 'undefined' && views[targetViewName]) ? views[targetViewName] : document.getElementById('view-' + targetViewName); } catch (e) {}
+            if (previousViewEl) {
+              previousViewEl.classList.add('active');
+              previousViewEl.style.display = 'block';
+            }
+          } catch (e) {
+            console.warn('[Player] DOM force-hide/show failed:', e);
           }
-        } catch (e) {
-          console.warn('[Player] DOM force-hide/show failed:', e);
         }
 
-        // 4: Ensure backend stops (local HTTP server + torrent engine)
-        if (window.api && window.api.invoke) {
+        // 4: Ensure backend stops (local HTTP server + torrent engine) - only when exiting player window
+        if (shouldSwitchView && window.api && window.api.invoke) {
           await window.api.invoke('stop-torrent-stream');
         }
 
@@ -903,6 +1412,9 @@
 
         // Reset current item so UI fully reflects closed player
         currentItem = null;
+        window._fixAudioActive = false;
+        const btnTA = $('#btn-transcode-audio');
+        if (btnTA) btnTA.style.color = '';
       } catch (e) {
         console.error('[Player] exitPlayer nuke error:', e);
       }
@@ -921,6 +1433,7 @@
       document.body.classList.add('mini-player-active');
     }
     if (shouldSwitchView) {
+      window.isTransitioningEpisode = false;
       if (playerSourceView) switchView(playerSourceView);
       else switchView(appData.lastView || 'movies');
     }
@@ -928,7 +1441,9 @@
     renderContinueWatchingDiscover();
 
     // Sync Tray to reflect Idle state after player exit
-    syncTray();
+    if (typeof window.syncTray === 'function') {
+      window.syncTray();
+    }
     console.log('[Player] exitPlayer completed');
   }
   function openPanel(id) {
@@ -1001,7 +1516,48 @@
       // If selecting a track (not 'no'), check if it has an extractUrl (FFprobe/FFmpeg)
       if (index !== 'no' && index !== false && currentMediaMetadata?.subtitle) {
         const subMeta = currentMediaMetadata.subtitle.find(s => s.typeIndex === index);
-        if (subMeta?.extractUrl) {
+        if (subMeta?.baseUrl) {
+          // YouTube closed captions dynamically fetched as WebVTT blob
+          const ytVidId = currentItem.videoId || String(currentItem.id || '').replace(/^(yt:|youtube:)/, '');
+          showToast('Loading captions...');
+          window.api.invoke('youtube-get-captions', { videoId: ytVidId, lang: subMeta.lang }).then(cRes => {
+            if (cRes && cRes.success && cRes.vtt) {
+              const blob = new Blob([cRes.vtt], { type: 'text/vtt' });
+              const vttBlobUrl = URL.createObjectURL(blob);
+              // Remove any previous yt caption tracks
+              video.querySelectorAll('track[data-yt-caption]').forEach(t => t.remove());
+              const track = document.createElement('track');
+              track.kind = 'subtitles';
+              track.label = subMeta.title || 'YouTube Captions';
+              track.srclang = subMeta.lang || 'en';
+              track.src = vttBlobUrl;
+              track.setAttribute('data-ffmpeg-sub', 'true');
+              track.setAttribute('data-yt-caption', 'true');
+              video.appendChild(track);
+              // Activate track after load
+              const activateTrack = () => {
+                for (let i = 0; i < video.textTracks.length; i++) {
+                  if (video.textTracks[i].label === track.label) {
+                    video.textTracks[i].mode = 'showing';
+                    if (typeof window.attachTrackToOverlay === 'function') {
+                      window.attachTrackToOverlay(video.textTracks[i]);
+                    }
+                    showToast(`✅ Captions: ${cRes.language || subMeta.lang}`);
+                    return;
+                  }
+                }
+              };
+              track.addEventListener('load', activateTrack, { once: true });
+              // Fallback if load event doesn't fire
+              setTimeout(activateTrack, 400);
+            } else {
+              showToast(`❌ No captions available: ${cRes?.error || 'Unknown error'}`);
+            }
+          }).catch(err => {
+            console.error('[Player] YouTube caption fetch failed:', err);
+            showToast('❌ Caption load failed');
+          });
+        } else if (subMeta?.extractUrl) {
           // Dynamically inject a <track> pointing to FFmpeg WebVTT extraction endpoint
           const track = document.createElement('track');
           track.kind = 'subtitles';
@@ -1128,7 +1684,11 @@
     if (!listContainer) return;
 
     const addonSubsSection = listContainer.parentElement;
-    if (!hasEnabledOpenSubtitlesAddon()) {
+    const canSub = typeof hasEnabledOpenSubtitlesAddon === 'function'
+      ? hasEnabledOpenSubtitlesAddon()
+      : (window.hasEnabledOpenSubtitlesAddon ? window.hasEnabledOpenSubtitlesAddon() : (window.AppCapabilities ? window.AppCapabilities.can('subtitles') : false));
+
+    if (!canSub) {
       if (addonSubsSection) addonSubsSection.style.display = 'none';
       listContainer.innerHTML = '';
       return;
@@ -1230,39 +1790,112 @@
     bass: [6, 3, 0, 0, -1]
   };
 
-  $('#btn-transcode-audio').onclick = () => {
-    if (!video || !video.src || !video.src.startsWith('http')) return;
-    
-    if (video.src.includes('127.0.0.1:1147') || video.src.includes('localhost:1147')) {
-      try {
-        const urlObj = new URL(video.src);
-        if (urlObj.searchParams.get('transcode') === 'true') {
-          showToast('Audio fix is already active');
-          return;
+  $('#btn-transcode-audio').onclick = async () => {
+    if (!video) return;
+
+    // ── Source detection ─────────────────────────────────────────────────────
+    // video.src is EMPTY when mpv is active (mpv owns its own renderer).
+    // We fall back to currentItem so the button always works for local files.
+    const rawSrc = video.src || '';
+    const isLocalServer = rawSrc.includes('127.0.0.1:52686') || rawSrc.includes('localhost:52686');
+    const isInternal   = rawSrc.includes('127.0.0.1:1147')  || rawSrc.includes('localhost:1147');
+    const isLocalFile  = !!(currentItem && currentItem.path && !currentItem.path.startsWith('http') && !isInternal);
+
+    if (!isInternal && !isLocalServer && !isLocalFile) {
+      showToast('⚠️ Fix Audio is only available for torrents and local files');
+      return;
+    }
+
+    try {
+      // ── TOGGLE OFF ───────────────────────────────────────────────────────
+      if (window._fixAudioActive) {
+        window._fixAudioActive = false;
+        $('#btn-transcode-audio').style.color = '';
+
+        const savedTime = engine.currentTime || 0;
+        let offSrc = '';
+
+        if (isLocalServer) {
+          // Came from HTTP stream — parse path from URL
+          try {
+            const urlObj = new URL(rawSrc);
+            const filePath = urlObj.searchParams.get('path');
+            offSrc = typeof toMediaPlayUrl === 'function'
+              ? toMediaPlayUrl(filePath)
+              : 'media:///' + filePath.replace(/\\/g, '/');
+          } catch (e) {
+            offSrc = typeof toMediaPlayUrl === 'function'
+              ? toMediaPlayUrl(currentItem.path)
+              : 'media:///' + (currentItem.path || '').replace(/\\/g, '/');
+          }
+        } else if (isInternal) {
+          // Torrent — remove transcode param
+          try {
+            const urlObj = new URL(rawSrc);
+            urlObj.searchParams.delete('transcode');
+            urlObj.searchParams.delete('start');
+            offSrc = urlObj.toString();
+          } catch (e) { offSrc = rawSrc; }
+        } else {
+          // Local file (mpv path) — reconstruct media:// URL
+          offSrc = typeof toMediaPlayUrl === 'function'
+            ? toMediaPlayUrl(currentItem.path)
+            : 'media:///' + (currentItem.path || '').replace(/\\/g, '/');
         }
-        
-        showToast('Applying audio fix (transcoding)...');
-        urlObj.searchParams.set('transcode', 'true');
-        
-        const currentTime = video.currentTime;
-        if (currentTime > 0) {
-          urlObj.searchParams.set('start', currentTime.toString());
+
+        showToast('🔊 Switched back to direct stream');
+        await engine.load(offSrc);
+        if (savedTime > 2) {
+          await new Promise(r => setTimeout(r, 600));
+          engine.seek(savedTime);
         }
-        
-        video.src = urlObj.toString();
-        // Since transcode re-encodes from the start parameter, the video itself will see time 0 as the 'current' time for the segment
-        // Wait, if we set video.src, the video resets to 0. But the stream itself STARTS at 'currentTime'.
-        // This causes the progress bar to show 0:00 instead of 35:00.
-        // Actually, for a quick "Audio fix" it's better than silence. 
-        // We'll let it play from the offset.
-        video.play().catch(e => console.warn('Failed to auto-resume after transcode:', e));
-        
-        $('#btn-transcode-audio').style.color = 'var(--accent)';
-      } catch (e) {
-        console.error('Error applying audio transcode:', e);
+        engine.play();
+        return;
       }
-    } else {
-      showToast('Audio fix is only available for internal streams');
+
+      // ── TOGGLE ON ────────────────────────────────────────────────────────
+      const savedTime = engine.currentTime || 0;
+      let targetSrc = '';
+
+      if (isLocalFile) {
+        // Local file (media:// or mpv) — route through localhost HTTP server
+        const filePath = currentItem.path;
+        if (!filePath) { showToast('❌ Local path not found'); return; }
+
+        showToast('🔄 Preparing audio fix...');
+        const localServerUrl = await window.api.invoke('start-local-server', filePath);
+        if (!localServerUrl) { showToast('❌ Could not start local stream'); return; }
+
+        const remuxUrlObj = new URL(localServerUrl);
+        remuxUrlObj.searchParams.set('transcode', 'true');
+        if (savedTime > 2) remuxUrlObj.searchParams.set('start', Math.floor(savedTime).toString());
+        targetSrc = remuxUrlObj.toString();
+
+      } else if (isInternal || isLocalServer) {
+        // Torrent / existing HTTP stream
+        try {
+          const urlObj = new URL(rawSrc);
+          urlObj.searchParams.set('transcode', 'true');
+          if (savedTime > 2) urlObj.searchParams.set('start', Math.floor(savedTime).toString());
+          targetSrc = urlObj.toString();
+        } catch (e) { showToast('⚠️ Fix Audio cannot be applied to this source'); return; }
+      } else {
+        showToast('⚠️ Fix Audio cannot be applied to this source');
+        return;
+      }
+
+      window._fixAudioActive = true;
+      showToast('🎧 Fix Audio active — synced stream');
+      $('#btn-transcode-audio').style.color = 'var(--accent)';
+
+      await engine.load(targetSrc);
+      await new Promise(r => setTimeout(r, 800));
+      engine.play();
+
+    } catch (e) {
+      window._fixAudioActive = false;
+      console.error('[Player] Audio remux switch error:', e);
+      showToast('❌ Failed to switch stream: ' + e.message);
     }
   };
 
@@ -1619,7 +2252,7 @@
         // 3. Smart Match with TMDB (Search across ALL seasons for Anime/Packs)
         if (currentShow && epNum) {
           const showId = currentItem.showId || currentShow.id;
-          const tmdb = (appData.tmdbCache || {})[showId];
+          const tmdb = (typeof window.getMetadataForItem === 'function' ? window.getMetadataForItem({ id: showId, tmdbId: currentItem.tmdbId || currentShow.tmdbId }) : null) || getCacheEntry(showId);
 
           if (tmdb && tmdb.seasons) {
             let foundEp = null;
@@ -1652,9 +2285,13 @@
             console.log('[SIDE-PANEL] Metadata missing, fetching for show:', showId);
             currentItem.metaFetched = true;
             const type = currentItem.type || 'tv';
-            ensureSeasonMetadata(showId, currentItem.season || 1, type).then(() => {
-              populateSidePanel();
-            });
+            if (typeof window.ensureSeasonMetadata === 'function') {
+              window.ensureSeasonMetadata(showId, currentItem.season || 1, type).then(() => {
+                populateSidePanel();
+              });
+            } else {
+              console.error('[SIDE-PANEL] window.ensureSeasonMetadata not available');
+            }
           }
         }
 
@@ -1718,7 +2355,24 @@
 
     if (!currentEpisodes.length) return;
 
-    const tmdb = currentShow ? (appData.tmdbCache || {})[currentShow.id] : null;
+    let tmdb = null;
+    if (currentShow) {
+      tmdb = (typeof window.getMetadataForItem === 'function' ? window.getMetadataForItem(currentShow) : null) || getCacheEntry(currentShow.id) || getCacheEntry(currentShow.tmdbId);
+    }
+    const activeSeason = currentEpisodes[currentEpisodeIndex]?.season || currentItem?.season || 1;
+    if (currentShow && (!tmdb || !tmdb.seasons || !tmdb.seasons[activeSeason]) && !currentShow._metaFetched) {
+      currentShow._metaFetched = true;
+      const type = currentShow.type || 'tv';
+      console.log('[SIDE-PANEL] Pre-fetching metadata for season:', activeSeason);
+      const resolveId = currentShow.tmdbId || currentShow.id;
+      if (typeof window.ensureSeasonMetadata === 'function') {
+        window.ensureSeasonMetadata(resolveId, activeSeason, type).then(() => {
+          populateSidePanel();
+        });
+      } else {
+        console.error('[SIDE-PANEL] window.ensureSeasonMetadata not available');
+      }
+    }
 
     currentEpisodes.forEach((ep, i) => {
       const sn = ep.season || 1;
@@ -1727,7 +2381,11 @@
       const tE = tmdbEps[epNum] || tmdbEps[String(ep.episode)];
 
       const epTitle = tE?.name || ep.title;
-      const still = tE?.local_still ? `file:///${tE.local_still.replace(/\\/g, '/')}` : (tE?.still_path ? `https://image.tmdb.org/t/p/w300${tE.still_path}` : '');
+      const still = tE?.local_still 
+        ? (typeof localImg === 'function' ? localImg(tE.local_still) : window.localImg ? window.localImg(tE.local_still) : tE.local_still) 
+        : (tE?.still_path 
+            ? (tE.still_path.startsWith('http') ? tE.still_path : `https://image.tmdb.org/t/p/w300${tE.still_path}`) 
+            : '');
 
       const d = document.createElement('div');
       d.className = 'panel-ep-item' + (i === currentEpisodeIndex ? ' active' : '');
@@ -1753,24 +2411,63 @@
     const next = currentEpisodes[ni];
     let cd = 5;
 
-    // Calculate Rich Title for Up Next (SxxExx - Title)
+    // Reset countdown text initially
+    const cdEl = $('#auto-next-countdown');
+    if (cdEl) cdEl.textContent = String(cd);
+
+    // Calculate Rich Title & Still for Up Next (SxxExx - Title)
     let displayTitle = cleanTechnicalTitle(next.title);
+    let stillUrl = '';
+    let bgUrl = currentShow?.backdrop_path || currentShow?.backdrop || currentItem?.backdrop_path || currentItem?.poster_path || currentShow?.poster || '';
+
     if (currentShow) {
-      const tmdb = (appData.tmdbCache || {})[currentShow.id];
+      const showId = currentShow.id;
+      const tmdbId = currentShow.tmdbId;
+      const tmdb = (typeof window.getMetadataForItem === 'function' ? window.getMetadataForItem(currentShow) : null) || getCacheEntry(showId) || getCacheEntry(tmdbId);
       const sn = next.season || 1;
       const tmdbEps = (tmdb && tmdb.seasons && tmdb.seasons[sn]) ? tmdb.seasons[sn] : {};
       const epNum = parseInt(next.episode);
       const tE = tmdbEps[epNum] || tmdbEps[String(next.episode)];
       if (tE?.name) {
-        displayTitle = `S${String(sn).padStart(2, '0')}E${String(next.episode).padStart(2, '0')} ┬╖ ${tE.name}`;
+        displayTitle = `S${String(sn).padStart(2, '0')}E${String(next.episode).padStart(2, '0')} · ${tE.name}`;
+      } else if (next.title && !next.title.startsWith('Episode')) {
+        displayTitle = `S${String(sn).padStart(2, '0')}E${String(next.episode).padStart(2, '0')} · ${next.title}`;
       } else if (!isNaN(epNum)) {
         displayTitle = `S${String(sn).padStart(2, '0')}E${String(next.episode).padStart(2, '0')}`;
       }
+
+      // Episode still: prefer TMDB still, fallback to local still
+      if (tE?.still_path) {
+        stillUrl = tE.still_path.startsWith('http') ? tE.still_path : `https://image.tmdb.org/t/p/w780${tE.still_path}`;
+      } else if (tE?.local_still) {
+        stillUrl = typeof localImg === 'function' ? localImg(tE.local_still) : window.localImg ? window.localImg(tE.local_still) : tE.local_still;
+      }
+    }
+
+    // Episode thumbnail fallback chain
+    if (!stillUrl) stillUrl = next.thumbnail || bgUrl || 'imgs/no-backdrop.png';
+
+    const nextImg = $('#auto-next-img');
+    if (nextImg) {
+      const safeStill = (typeof localImg === 'function' ? localImg(stillUrl) : window.localImg ? window.localImg(stillUrl) : stillUrl) || stillUrl;
+      nextImg.src = safeStill;
+      nextImg.onerror = () => {
+        nextImg.onerror = null;
+        const safeBg = (typeof localImg === 'function' ? localImg(bgUrl) : window.localImg ? window.localImg(bgUrl) : bgUrl) || bgUrl;
+        nextImg.src = safeBg || 'imgs/no-backdrop.png';
+      };
+    }
+
+    // Set blurred background to show banner
+    const bgEl = $('#auto-next-bg');
+    if (bgEl && bgUrl) {
+      const safeBgUrl = (typeof localImg === 'function' ? localImg(bgUrl) : window.localImg ? window.localImg(bgUrl) : bgUrl) || bgUrl;
+      bgEl.style.backgroundImage = `url('${safeBgUrl}')`;
     }
 
     $('#auto-next-title').textContent = displayTitle;
     const ov = $('#auto-next-overlay');
-    ov.style.display = 'block';
+    ov.style.display = 'flex';
 
     const fill = $('#auto-next-bar-fill');
     fill.style.transition = 'none';
@@ -1783,35 +2480,120 @@
 
     autoNextTimer = setInterval(async () => {
       cd--;
+      if (cdEl) cdEl.textContent = String(cd);
       if (cd <= 0) {
         clearInterval(autoNextTimer);
         autoNextTimer = null;
         ov.style.display = 'none';
-        // CRITICAL: Force-stop the old video and reset state
-        // before loading the next episode. Without this, the
-        // HTML5 video element stays in 'ended' state and the
-        // new .play() call is silently ignored.
-        try { await engine.stop(); } catch (e) { }
+        
         currentEpisodeIndex = ni;
 
         // SMART AUTONEXT: Resolve sources if needed
         if (!next.path || next.path.startsWith('magnet:') || next.isScraped || (!next.path.startsWith('http') && !next.path.includes(':') && !next.path.includes('/') && !next.path.includes('\\'))) {
-          console.log('[AutoNext] Resolving source for:', next.title);
-          if (typeof openDiscoverDetail === 'function') {
-            openDiscoverDetail(next, currentShow ? (currentShow.media_type || 'tv') : 'tv');
-            // Wait for detail to open then try to auto-load streams
-            setTimeout(() => {
-              const epItems = document.querySelectorAll('.episode-item');
-              if (epItems && epItems[ni]) epItems[ni].click(); // This triggers loadStreams
-            }, 1000);
-          } else {
-            playVideo(next, currentShow);
-          }
+          playNextEpisodeAuto(next);
         } else {
           playVideo(next, currentShow);
         }
       }
     }, 1000);
+  }
+
+  async function playNextEpisodeAuto(next) {
+    window.isTransitioningEpisode = true;
+    showToast('Loading next episode...');
+    const loadingEl = $('#player-loading');
+    if (loadingEl) loadingEl.style.display = 'flex';
+    
+    try {
+      const showId = currentShow?.id || next.showId || next.id;
+      const showMeta = currentShow;
+      const sn = next.season || 1;
+      const epNum = next.episode;
+
+      let tmdbId = showMeta?.tmdbId || (String(showId).startsWith('tmdb:') ? showId.replace('tmdb:', '') : (/^\d+$/.test(String(showId)) ? showId : null));
+      if (tmdbId && String(tmdbId).includes(':')) tmdbId = String(tmdbId).split(':')[0];
+
+      let imdbId = showMeta?.imdb_id || showMeta?.imdbId || (String(showId).startsWith('tt') ? showId : null);
+      if (imdbId && String(imdbId).includes(':')) imdbId = String(imdbId).split(':')[0];
+
+      const kitsuId = showMeta?.kitsuId || (String(showId).startsWith('kitsu:') ? showId.replace('kitsu:', '') : null);
+
+      const query = {
+        imdbId,
+        tmdbId,
+        kitsuId,
+        type: 'tv',
+        season: sn,
+        episode: epNum,
+        title: showMeta?.title || showMeta?.name || next.showName || 'Playback'
+      };
+
+      console.log('[AutoNext] Querying addons for next episode:', query);
+      const streams = await window.api.searchAddons(query);
+      if (!streams || !streams.length) {
+        throw new Error('No links found for next episode');
+      }
+
+      const playableStreams = streams.filter(s => s.type !== 'browser' && (s.url || s.infoHash));
+      if (!playableStreams.length) {
+        throw new Error('No playable links found');
+      }
+
+      // Find a stream from the same addon if possible
+      let selectedStream = playableStreams.find(s => s.addon === currentItem?.addonName);
+      if (!selectedStream) {
+        selectedStream = playableStreams[0];
+      }
+
+      showToast(`Playing next episode from ${selectedStream.addon || 'addon'}...`);
+
+      let finalUrl = selectedStream.url?.startsWith('http') ? selectedStream.url : null;
+      let torrentMagnet = null;
+      let torrentFiles = null;
+      let fileIdx = selectedStream.fileIdx;
+
+      if (selectedStream.type === 'torrent') {
+        if (!finalUrl) {
+          const streamUrlOrHash = selectedStream.url || selectedStream.infoHash;
+          const res = await window.api.invoke('start-torrent-stream', streamUrlOrHash, selectedStream.fileIdx);
+          if (!res || !res.success) throw new Error(res?.error || 'Failed to start torrent stream');
+          finalUrl = res.localUrl || res.url;
+          torrentFiles = res.files;
+          torrentMagnet = streamUrlOrHash;
+          fileIdx = selectedStream.fileIdx ?? res.fileIdx;
+        }
+      }
+
+      if (!finalUrl) throw new Error('Failed to resolve playable URL');
+
+      const nextPlayItem = {
+        ...next,
+        id: next.id || selectedStream.infoHash || selectedStream.url,
+        title: next.title || `Episode ${epNum}`,
+        path: finalUrl,
+        torrentMagnet,
+        fileIdx,
+        torrentFiles,
+        tmdbId,
+        showName: showMeta?.title || showMeta?.name,
+        type: 'tv',
+        season: sn,
+        episode: epNum,
+        isStream: true,
+        addonName: selectedStream.addon
+      };
+
+      playVideo(nextPlayItem, currentShow);
+    } catch (err) {
+      window.isTransitioningEpisode = false;
+      console.error('[AutoNext] playback failed:', err);
+      showToast('Auto-play failed: ' + err.message);
+      
+      if (typeof window.openDiscoverDetail === 'function') {
+        window.openDiscoverDetail(next, 'tv');
+      }
+      if (loadingEl) loadingEl.style.display = 'none';
+    }
   }
   function cancelAutoNext() { clearInterval(autoNextTimer); autoNextTimer = null; $('#auto-next-overlay').style.display = 'none'; }
 
@@ -1856,7 +2638,7 @@
 
 
 
-  function playMusic(item) {
+  async function playMusic(item) {
     if (typeof item === 'string') {
       const found = (appData.music || []).find(m => m.id === item || m.path === item);
       if (found) {
@@ -1871,12 +2653,33 @@
     }
     currentItem = { ...item, type: 'music' };
     
-    // Use local-file:// protocol
-    video.src = 'local-file:///' + item.path.replace(/\\/g, '/');
-    video.play().catch(err => {
-      console.error('[MUSIC] Playback error:', err);
-      showToast('Playback failed');
-    });
+    let streamSrc = '';
+    const isYtTrack = item.videoId || item.type === 'youtube_music' || (item.id && (String(item.id).startsWith('yt:') || String(item.id).startsWith('youtube:')));
+    const vidId = item.videoId || (item.id ? String(item.id).replace(/^(yt:|youtube:)/, '') : null);
+
+    if (isYtTrack && vidId) {
+      try {
+        showToast('Streaming YouTube Music track...');
+        const info = await window.api.invoke('youtube-get-video-info', vidId);
+        if (info && info.success && info.details && info.details.streamUrl) {
+          streamSrc = info.details.streamUrl;
+        }
+      } catch (e) {
+        console.error('[MUSIC] YouTube stream error:', e);
+      }
+    }
+
+    if (!streamSrc && item.path) {
+      streamSrc = item.path.startsWith('http') ? item.path : ('local-file:///' + item.path.replace(/\\/g, '/'));
+    }
+
+    if (streamSrc) {
+      video.src = streamSrc;
+      video.play().catch(err => {
+        console.error('[MUSIC] Playback error:', err);
+        showToast('Playback failed');
+      });
+    }
 
     const { title, artist, cover } = getMusicMeta(item);
 
@@ -1948,6 +2751,7 @@
   window.playMusic = playMusic;
   window.playNextMusic = playNextMusic;
   window.playPrevMusic = playPrevMusic;
+  window.playNextEpisodeAuto = playNextEpisodeAuto;
   if (typeof playStream !== 'undefined') window.playStream = playStream;
   if (typeof exitPlayer !== 'undefined') window.exitPlayer = exitPlayer;
   if (typeof saveProgress !== 'undefined') window.saveProgress = saveProgress;

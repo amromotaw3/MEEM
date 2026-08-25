@@ -181,7 +181,7 @@
       
       if (tmdbCache[item.id]) continue;
       
-      const isShow = item.type === 'show' || !!(item.episodes);
+      const isShow = item.type === 'show' || item.type === 'series' || item.type === 'tv' || !!(item.episodes);
       const isMovie = item.type === 'movie';
       const cached = cache[item.id];
       
@@ -190,6 +190,7 @@
         const mismatch = (isShow && cachedType === 'movie') || (isMovie && (cachedType === 'tv' || cachedType === 'series'));
         if (mismatch) {
           delete cache[item.id];
+          if (appData.banners) delete appData.banners[item.id];
         } else {
           // If no mismatch, check if banner is missing and retry download
           if (!appData.banners[item.id] && (cached.poster || cached.backdrop)) {
@@ -326,7 +327,7 @@
         const y = (r.releaseInfo || r.year || '').toString().slice(0, 4); 
         const p = r.poster || ''; 
         e.innerHTML = `
-          ${p ? `<img class="tmdb-result-poster" src="${p}" onerror="this.src='imgs/poster-placeholder.png'">` : `<div class="tmdb-result-poster" style="display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03)"><i class="fas fa-film" style="opacity:0.2"></i></div>`}
+          ${p ? `<img class="tmdb-result-poster" src="${p}" onerror="this.src='imgs/no-backdrop.png'">` : `<div class="tmdb-result-poster" style="display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03)"><i class="fas fa-film" style="opacity:0.2"></i></div>`}
           <div class="tmdb-result-info">
             <div class="tmdb-result-title" title="${escapeHTML(t)}">${escapeHTML(t)}</div>
             <div class="tmdb-result-meta-row">
@@ -487,7 +488,7 @@
           results.push({
             title: item.name || item.title,
             year: (item.first_air_date || item.release_date || '').slice(0, 4),
-            image: item.backdrop || item.background || (item.poster_path ? item.poster_path : 'imgs/poster-placeholder.png'),
+            image: item.backdrop || item.background || (item.poster_path ? item.poster_path : 'imgs/no-backdrop.png'),
             source: 'cinemeta'
           });
         });
@@ -520,7 +521,7 @@
             '<span style="background:#00d4ff; color:#fff; font-size:9px; padding:2px 6px; border-radius:4px; margin-left:8px; font-weight:800;">CINEMETA</span>';
 
           div.innerHTML = `
-            <img src="${item.image}" onerror="this.src='imgs/poster-placeholder.png'; this.style.opacity='0.3';" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.6; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);">
+            <img src="${item.image}" onerror="this.src='imgs/no-backdrop.png'; this.style.opacity='0.3';" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.6; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);">
             <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 70%); display: flex; flex-direction: column; justify-content: flex-end; padding: 20px; z-index: 2;">
               <div style="display:flex; align-items:center;">
                 <div style="font-weight: 800; font-size: 16px; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.5); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHTML(item.title)}</div>

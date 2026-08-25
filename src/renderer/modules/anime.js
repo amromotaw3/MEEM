@@ -38,14 +38,14 @@
     },
 
     // Fetch specific episode still/metadata from TMDB
-    async fetchTmdbStill(imdbId, episodeNum) {
+    async fetchTmdbStill(imdbId, episodeNum, seasonNum = 1) {
       const tmdbKey = appData.tmdbKey;
       if (!tmdbKey) return null;
 
       try {
         const tvId = await this.getTmdbTvId(imdbId);
         if (tvId) {
-          const seasonUrl = `https://api.themoviedb.org/3/tv/${tvId}/season/1/episode/${episodeNum}?api_key=${tmdbKey}`;
+          const seasonUrl = `https://api.themoviedb.org/3/tv/${tvId}/season/${seasonNum}/episode/${episodeNum}?api_key=${tmdbKey}`;
           const res = await fetch(seasonUrl);
           if (res.ok) {
             const epData = await res.json();
@@ -65,8 +65,8 @@
     },
 
     // Resolve specific episode data (returns { thumbnail, title, overview })
-    async resolveEpisode(show, kitsuId, malId, imdbId, episodeNum) {
-      const cacheKey = `${show.id || show.title || 'anime'}_E${episodeNum}`;
+    async resolveEpisode(show, kitsuId, malId, imdbId, episodeNum, seasonNum = 1) {
+      const cacheKey = `${show.id || show.title || 'anime'}_S${seasonNum}_E${episodeNum}`;
       if (this.cache[cacheKey]) {
         return this.cache[cacheKey];
       }
@@ -102,7 +102,7 @@
 
       // 2. Try TMDB if thumbnail not found or Kitsu isn't available
       if (!result.thumbnail && imdbId && String(imdbId).startsWith('tt')) {
-        const tmdbData = await this.fetchTmdbStill(imdbId, episodeNum);
+        const tmdbData = await this.fetchTmdbStill(imdbId, episodeNum, seasonNum);
         if (tmdbData) {
           if (tmdbData.thumbnail) result.thumbnail = tmdbData.thumbnail;
           if (!result.title) result.title = tmdbData.title;
@@ -117,7 +117,8 @@
 
   // Discover Scroll Helper
   window.scrollRow = (btn, dir) => {
-    const row = btn.closest('.discover-section').querySelector('.discover-row');
+    const row = btn.closest('.discover-section')?.querySelector('.discover-row, .media-row, .card-grid-row');
+    if (!row) return;
     const amount = row.clientWidth * 0.8 * dir;
     row.scrollBy({ left: amount, behavior: 'smooth' });
   };
@@ -358,12 +359,11 @@
           if (bPath.startsWith('http') || bPath.startsWith('local-file')) {
             backdropUrl = bPath;
           } else {
-            const metaId = item.id || item.tmdbId;
-            backdropUrl = metaId ? `https://images.metahub.space/background/medium/${metaId}${String(metaId).startsWith('tt') && !String(metaId).endsWith('/background.jpg') ? '/background.jpg' : ''}` : 'imgs/no-backdrop.png';
+            // metahub.space is currently down; use TMDB ElfHosted fallback directly
+            backdropUrl = 'imgs/no-backdrop.png';
           }
         } else if (pPath) {
-          const metaId = item.id || item.tmdbId;
-          backdropUrl = metaId ? `https://images.metahub.space/poster/medium/${metaId}${String(metaId).startsWith('tt') && !String(metaId).endsWith('/poster.jpg') ? '/poster.jpg' : ''}` : 'imgs/no-backdrop.png';
+          backdropUrl = 'imgs/no-backdrop.png';
         }
 
         card.innerHTML = `
@@ -388,6 +388,11 @@
       });
       section.style.display = 'block';
     } else {
+      const hasMediaAddon = (appData.addons || []).some(a => a.type === 'catalog' || a.type === 'content' || a.id === 'cinemeta' || a.id === 'tmdb-addon');
+      if (!hasMediaAddon) {
+        section.style.display = 'none';
+        return;
+      }
       row.innerHTML = `
         <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px dashed rgba(255,255,255,0.12); margin: 0 10px;">
           <div style="width: 50px; height: 50px; background: var(--accent-glow); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 15px; box-shadow: 0 0 30px var(--accent-glow);">
@@ -470,12 +475,29 @@
     }));
 
     // Option 3: Remove from list
-    const removeBtn = createBtn('fa-trash-alt', 'Remove from List', () => {
+    const removeBtn = createBtn('fa-trash-alt', 'Remove from List', async () => {
       const key = getPlaybackKey(item);
       if (currentProfile?.playback && currentProfile.playback[key]) {
         delete currentProfile.playback[key];
         persist();
-        renderContinueWatchingDiscover();
+
+        if (window.api && window.api.invoke) {
+          try {
+            await window.api.invoke('cloud-delete-playback-position', {
+              profileId: currentProfile.id,
+              mediaId: key
+            });
+          } catch (err) {
+            console.error('[PLAYBACK] Failed to delete playback position from cloud:', err);
+          }
+        }
+
+        if (typeof renderContinueWatchingDiscover === 'function') {
+          renderContinueWatchingDiscover();
+        }
+        if (typeof renderEmptySearchState === 'function') {
+          renderEmptySearchState();
+        }
         showToast('Removed from Continue Watching');
       }
     });
@@ -515,10 +537,38 @@
       const card = document.createElement('div');
       card.className = 'discover-card';
       const title = item.title || item.name || 'Unknown';
-      let posterUrl = item.poster || '';
+
+      // Comprehensive poster resolution matching Movies / Shows views
+      const tmdbCached = (window.appData?.tmdbCache && item.id && window.appData.tmdbCache[item.id]) || item.tmdbData;
+      const cinemetaCached = (window.appData?.cinemetaCache && (item.imdb_id || item.imdbId || item.id) && window.appData.cinemetaCache[item.imdb_id || item.imdbId || item.id]);
+      
+      let posterUrl = item.poster || item.poster_path || item.bannerPath || item.banner || item.customPoster || item.cover || '';
+      
+      if (!posterUrl && tmdbCached) {
+        const p = tmdbCached.posterPath || tmdbCached.poster_path || tmdbCached.backdropPath || tmdbCached.backdrop_path;
+        if (p) {
+          posterUrl = p.startsWith('http') ? p : (p.startsWith('/') ? `https://image.tmdb.org/t/p/w500${p}` : p);
+        }
+      }
+      
+      if (!posterUrl && cinemetaCached && cinemetaCached.poster) {
+        posterUrl = cinemetaCached.poster;
+      }
+      
+      if (!posterUrl && typeof ensureThumbnail === 'function' && (item.isLocal || (item.path && !item.path.startsWith('http')))) {
+        try {
+          const thumb = ensureThumbnail(item);
+          if (thumb) posterUrl = thumb;
+        } catch (_) {}
+      }
+
+      if (posterUrl && typeof posterUrl === 'string' && posterUrl.startsWith('/') && !posterUrl.startsWith('//') && !posterUrl.match(/^\/[a-zA-Z]:/)) {
+        posterUrl = `https://image.tmdb.org/t/p/w500${posterUrl}`;
+      }
+
       const inLib = localTitles.has(title.toLowerCase());
-      const year = (item.release_date || item.first_air_date || '').slice(0, 4);
-      const rating = parseFloat(item.vote_average) || 0;
+      const year = (item.release_date || item.first_air_date || item.year || '').toString().slice(0, 4);
+      const rating = parseFloat(item.vote_average || item.rating || tmdbCached?.rating || 0) || 0;
 
       card.innerHTML = `
         <div class="discover-poster-wrap">
@@ -538,6 +588,12 @@
       card.onclick = () => openDiscoverDetail(item);
       if (typeof enableHoverPreview === 'function') enableHoverPreview(card, item, '.discover-poster-wrap');
       grid.appendChild(card);
+
+      // Trigger async poster fetch from Cinemeta/TMDB if no poster exists yet
+      const itemId = item.imdb_id || item.imdbId || (String(item.id || '').startsWith('tt') ? item.id : null);
+      if (!posterUrl && itemId && typeof window.getTraktOrImdbPoster === 'function') {
+        window.getTraktOrImdbPoster(item, null, card);
+      }
     });
   }
 
@@ -678,10 +734,179 @@
     }
   }
 
+  function renderLocalHomeDashboard(content) {
+    let localHomeEl = $('#discover-local-home');
+    if (!localHomeEl) {
+      localHomeEl = document.createElement('div');
+      localHomeEl.id = 'discover-local-home';
+      localHomeEl.style.cssText = 'display:flex; flex-direction:column; gap: 32px; padding: 20px 0; width:100%;';
+      content.appendChild(localHomeEl);
+    }
+    localHomeEl.style.display = 'flex';
+
+    const localMovies = appData.movies || [];
+    const localShows = appData.shows || [];
+    const activeProf = (window.appData?.profiles?.find(p => p.id === window.appData?.activeProfileId) || window.currentProfile);
+    const watchlist = (activeProf?.watchlist || appData.watchlist || []);
+
+    localHomeEl.innerHTML = `
+      ${window.AppCapabilities?.can('youtube') ? `
+      <!-- Section 0: YouTube Trending -->
+      <div class="discover-section" id="home-local-youtube-section">
+        <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+          <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
+            <i class="fab fa-youtube" style="color:#ff0000;"></i> YouTube Trending
+          </h3>
+        </div>
+        <div id="home-local-youtube-row" class="discover-row" style="display:flex; gap:18px; overflow-x:auto; padding:6px 4px 18px; scrollbar-width:thin;"></div>
+      </div>` : ''}
+
+      <!-- Section 1: Local Movies -->
+      <div class="discover-section">
+        <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+          <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
+            <i class="fas fa-film" style="color:var(--accent);"></i> Local Movies
+          </h3>
+          <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${localMovies.length} movies</span>
+        </div>
+        <div id="home-local-movies-row" class="discover-row" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:20px;"></div>
+      </div>
+
+      <!-- Section 2: Local Shows -->
+      <div class="discover-section">
+        <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+          <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
+            <i class="fas fa-tv" style="color:#a855f7;"></i> Local TV Shows
+          </h3>
+          <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${localShows.length} shows</span>
+        </div>
+        <div id="home-local-shows-row" class="discover-row" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:20px;"></div>
+      </div>
+
+      <!-- Section 3: Recent Watchlist -->
+      <div class="discover-section">
+        <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+          <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
+            <i class="fas fa-bookmark" style="color:#ec4899;"></i> Recent Watchlist
+          </h3>
+          <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${watchlist.length} items</span>
+        </div>
+        <div id="home-watchlist-row" class="discover-row" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:20px;"></div>
+      </div>
+    `;
+
+    // Fetch and render YouTube Trending if active
+    if (window.AppCapabilities?.can('youtube')) {
+      const ytRow = $('#home-local-youtube-row');
+      if (ytRow) {
+        window.api.invoke('youtube-get-trending').then(res => {
+          if (res && res.success && res.videos && res.videos.length > 0) {
+            renderYouTubeDiscoverRow('#home-local-youtube-row', res.videos);
+          } else {
+            ytRow.innerHTML = '<div style="padding:20px; color:var(--text-muted); font-size:0.8rem">No YouTube trending items available.</div>';
+          }
+        }).catch(err => console.warn('[LocalHome] YouTube load failed:', err));
+      }
+    }
+
+    // Render Section 1: Local Movies
+    const moviesRow = $('#home-local-movies-row');
+    if (moviesRow) {
+      if (!localMovies.length) {
+        moviesRow.innerHTML = `<div style="grid-column:1/-1; padding:30px; text-align:center; background:rgba(255,255,255,0.02); border-radius:16px; color:rgba(255,255,255,0.4);">
+          No local movies added yet. Add media folders in the Library screen.
+        </div>`;
+      } else {
+        renderDiscoverGrid('#home-local-movies-row', localMovies.slice(0, 12));
+      }
+    }
+
+    // Render Section 2: Local Shows
+    const showsRow = $('#home-local-shows-row');
+    if (showsRow) {
+      if (!localShows.length) {
+        showsRow.innerHTML = `<div style="grid-column:1/-1; padding:30px; text-align:center; background:rgba(255,255,255,0.02); border-radius:16px; color:rgba(255,255,255,0.4);">
+          No local TV shows added yet.
+        </div>`;
+      } else {
+        renderDiscoverGrid('#home-local-shows-row', localShows.slice(0, 12));
+      }
+    }
+
+    // Render Section 3: Watchlist
+    const watchlistRow = $('#home-watchlist-row');
+    if (watchlistRow) {
+      if (!watchlist.length) {
+        watchlistRow.innerHTML = `<div style="grid-column:1/-1; padding:30px; text-align:center; background:rgba(255,255,255,0.02); border-radius:16px; color:rgba(255,255,255,0.4);">
+          Your Watchlist is empty. Add titles to see them here.
+        </div>`;
+      } else {
+        renderDiscoverGrid('#home-watchlist-row', watchlist.slice(0, 12));
+      }
+    }
+  }
+
   async function loadDiscover(force = false) {
     if ($('#discover-genre-view')) $('#discover-genre-view').style.display = 'none';
     if ($('#discover-results')) $('#discover-results').style.display = 'none';
     if ($('#discover-content')) $('#discover-content').style.display = 'block';
+    // Reset genre pills to Trending
+    document.querySelectorAll('#discover-genre-pills .genre-pill').forEach(p => {
+      p.classList.toggle('active', p.dataset.genre === 'trending');
+    });
+    document.querySelectorAll('#discover-sidebar .nav-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.genre === 'trending');
+    });
+
+    const hasCatalog = !!window.AppCapabilities?.can('catalog');
+    const hasYoutube = !!window.AppCapabilities?.can('youtube');
+
+    const addons = appData.installedAddons || [];
+    const hasMediaAddon = addons.some(a => {
+      if (a.enabled === false) return false;
+      const u = String(a.url || a.manifestUrl || '').toLowerCase();
+      const id = String(a.id || '').toLowerCase();
+      const n = String(a.name || '').toLowerCase();
+      const types = Array.isArray(a.types) ? a.types.map(t => String(t).toLowerCase()) : [];
+
+      const hasMediaTypes = types.some(t => t.includes('movie') || t.includes('series') || t.includes('tv') || t.includes('anime') || t.includes('youtube') || t.includes('video'));
+      const isKnownAddon = u.includes('cinemeta') || u.includes('tmdb') || u.includes('strem') || id.includes('cinemeta') || id.includes('tmdb') || n.includes('cinemeta') || n.includes('tmdb') || id.includes('youtube') || u.includes('youtube');
+
+      return hasMediaTypes || isKnownAddon;
+    });
+
+    const content = $('#discover-content');
+    let localHomeEl = $('#discover-local-home');
+
+    // If no media addons at all, show local dashboard
+    if (!hasMediaAddon) {
+      isDiscoverLoading = false;
+      if (content) {
+        content.style.display = 'block';
+        if ($('#discover-hero')) $('#discover-hero').style.display = 'none';
+        if ($('#discover-continue-section')) $('#discover-continue-section').style.display = 'none';
+        $$('#discover-content > .discover-section').forEach(s => s.style.display = 'none');
+        if ($('#discover-empty-state')) $('#discover-empty-state').style.display = 'none';
+
+        renderLocalHomeDashboard(content);
+      }
+      return;
+    }
+
+    if (localHomeEl) localHomeEl.style.display = 'none';
+    if ($('#discover-empty-state')) $('#discover-empty-state').style.display = 'none';
+
+    // Only show Hero banner and Continue section if Catalog is available
+    if ($('#discover-hero')) $('#discover-hero').style.display = hasCatalog ? '' : 'none';
+    if ($('#discover-continue-section')) $('#discover-continue-section').style.display = '';
+
+    // Show/Hide Movie & Series catalog sections based on whether a Catalog addon is present
+    const movieSeriesRows = ['#in-cinemas-row', '#top10-tv-row', '#top10-movie-row', '#popular-movies-row', '#popular-series-row', '#anime-row'];
+    movieSeriesRows.forEach(sel => {
+      const el = $(sel);
+      const section = el?.closest('.discover-section');
+      if (section) section.style.display = hasCatalog ? 'block' : 'none';
+    });
 
     if (isDiscoverLoading && !force) return;
     
@@ -697,56 +922,29 @@
 
     setTimeout(() => renderContinueWatchingDiscover(), 100);
 
-    const rows = ['#trending-row', '#trending-series-row', '#popular-movies-row', '#top-rated-row', '#anime-row', '#upcoming-row'];
-    rows.forEach(sel => {
-      const row = $(sel);
-      if (!row) return;
-      row.innerHTML = '';
-      for (let i = 0; i < 6; i++) {
-        const skel = document.createElement('div');
-        skel.className = 'discover-card-skeleton';
-        skel.innerHTML = `
-          <div class="discover-poster-wrap" style="aspect-ratio:2/3.1;background:var(--bg-surface-2);border-radius:12px;animation:pulse 1.5s infinite"></div>
-          <div style="height:12px;width:70%;background:var(--bg-surface-1);margin-top:10px;border-radius:4px;animation:pulse 1.5s infinite"></div>
-        `;
-        row.appendChild(skel);
-      }
-    });
-
-    $$('.discover-section').forEach(s => s.style.display = 'block');
+    if (hasCatalog) {
+      movieSeriesRows.forEach(sel => {
+        const row = $(sel);
+        if (!row) return;
+        row.innerHTML = '';
+        for (let i = 0; i < 6; i++) {
+          const skel = document.createElement('div');
+          skel.className = 'discover-card-skeleton';
+          skel.innerHTML = `
+            <div class="discover-poster-wrap" style="aspect-ratio:2/3.1;background:var(--bg-surface-2);border-radius:12px;animation:pulse 1.5s infinite"></div>
+            <div style="height:12px;width:70%;background:var(--bg-surface-1);margin-top:10px;border-radius:4px;animation:pulse 1.5s infinite"></div>
+          `;
+          row.appendChild(skel);
+        }
+      });
+    }
     
-    const fetchAndRender = async (selector, apiCall) => {
-      try {
-        const data = await apiCall;
-        if (!data || data.error) {
-          const row = $(selector);
-          if (row) {
-            if (!selector.includes('anime')) {
-              row.innerHTML = `<div style="padding:20px;color:var(--text-muted);font-size:0.8rem">${data?.error || 'Section requires TMDB API Key.'}</div>`;
-            } else {
-              row.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:0.8rem">Failed to load Anime content.</div>';
-            }
-          }
-          return;
-        }
-        const items = (data.results || []).filter(item => item.adult !== true);
-        renderDiscoverRow(selector, items);
-        if ((selector === '#trending-row' || selector === '#anime-row') && items.length > 0) {
-          addDiscoverHeroItem(items[0]);
-        }
-      } catch (err) {
-        console.error(`Failed to load ${selector}:`, err);
-      }
-    };
-
-    const fetchCinemetaAndRender = async (selector, type, catalogId) => {
+    const fetchCinemetaAndRender = async (selector, type, catalogId, isTop10 = false) => {
+      if (!hasCatalog) return;
+      const row = $(selector);
       try {
         const data = await window.api.invoke('cinemeta-catalog', { type, id: catalogId });
-        if (!data || !data.metas || data.metas.length === 0) {
-          const row = $(selector);
-          if (row) row.innerHTML = `<div style="padding:20px;color:var(--text-muted);font-size:0.8rem">Failed to load from Cinemeta.</div>`;
-          return;
-        }
+        if (!data || !data.metas || data.metas.length === 0) return;
         const items = data.metas.map(m => ({
           id: m.id,
           imdb_id: m.id,
@@ -759,8 +957,8 @@
           release_date: m.releaseInfo,
           year: m.releaseInfo
         }));
-        renderDiscoverRow(selector, items);
-        if ((selector === '#trending-row' || selector === '#trending-series-row') && items.length > 0) {
+        renderDiscoverRow(selector, items, isTop10);
+        if ((selector === '#in-cinemas-row' || selector === '#top10-movie-row' || selector === '#top10-tv-row') && items.length > 0) {
           addDiscoverHeroItem(items[0]);
         }
       } catch (err) {
@@ -769,13 +967,11 @@
     };
 
     const fetchCinemetaGenreAndRender = async (selector, genre) => {
+      if (!hasCatalog) return;
+      const row = $(selector);
       try {
         const data = await window.api.cinemetaDiscoverByGenre(genre);
-        if (!data || !data.results || data.results.length === 0) {
-          const row = $(selector);
-          if (row) row.innerHTML = `<div style="padding:20px;color:var(--text-muted);font-size:0.8rem">Failed to load from Cinemeta.</div>`;
-          return;
-        }
+        if (!data || !data.results || data.results.length === 0) return;
         const items = data.results.map(m => ({
           id: m.id,
           imdb_id: m.id,
@@ -789,7 +985,7 @@
           release_date: m.releaseInfo,
           year: m.releaseInfo
         }));
-        renderDiscoverRow(selector, items);
+        renderDiscoverRow(selector, items, false);
         if (items.length > 0) {
           addDiscoverHeroItem(items[0]);
         }
@@ -798,22 +994,132 @@
       }
     };
 
-    try {
-      await Promise.all([
-        fetchCinemetaAndRender('#trending-row', 'movie', 'top'),
-        fetchCinemetaAndRender('#trending-series-row', 'tv', 'top'),
-        fetchCinemetaAndRender('#popular-movies-row', 'movie', 'imdbRating'),
-        fetchCinemetaAndRender('#top-rated-row', 'tv', 'imdbRating'),
-        fetchCinemetaGenreAndRender('#anime-row', 'Animation'),
-        fetchCinemetaAndRender('#upcoming-row', 'movie', 'year')
-      ]);
-
-      const hasContent = $('#trending-row')?.querySelector('.discover-card');
-      if (!hasContent) {
-        setTimeout(() => {
-          if (currentView === 'discover' && !isDiscoverLoading) loadDiscover();
-        }, 5000);
+    const fetchYouTubeCategoryAndRender = async (selector, sectionId, title, iconClass, query = null) => {
+      if (!hasYoutube) return;
+      let sectionEl = $(sectionId);
+      if (!sectionEl) {
+        sectionEl = document.createElement('div');
+        sectionEl.id = sectionId.replace('#', '');
+        sectionEl.className = 'discover-section';
+        sectionEl.style.marginBottom = '35px';
+        sectionEl.innerHTML = `
+          <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+            <h3 style="display:flex; align-items:center; gap:10px; color:#fff; font-size:1.3rem; font-weight:800;">
+              <i class="${iconClass}" style="color:#ff0000; font-size:1.2rem;"></i> ${escapeHTML(title)}
+            </h3>
+          </div>
+          <div class="discover-row" id="${selector.replace('#', '')}"></div>
+        `;
+        content.appendChild(sectionEl);
       }
+      sectionEl.style.display = 'block';
+
+      try {
+        let res;
+        if (!query) {
+          res = await window.api.invoke('youtube-get-trending');
+        } else {
+          res = await window.api.invoke('youtube-search', { query, filter: 'video' });
+          if (res && res.results) res.videos = res.results;
+        }
+        if (res && res.success && res.videos && res.videos.length > 0) {
+          renderYouTubeDiscoverRow(selector, res.videos);
+        }
+      } catch (ytErr) {
+        console.error(`Failed to load YouTube category (${title}):`, ytErr);
+      }
+    };
+
+    const fetchYouTubeRecommendedAndRender = async () => {
+      if (!hasYoutube) return;
+      try {
+        const acc = await window.api.invoke('youtube-get-account');
+        if (acc && acc.signedIn) {
+          const res = await window.api.invoke('youtube-get-home');
+          if (res && res.success && res.videos && res.videos.length > 0) {
+            let sectionEl = $('#discover-youtube-recommended-section');
+            if (sectionEl) {
+              sectionEl.style.display = 'block';
+              renderYouTubeDiscoverRow('#youtube-recommended-row', res.videos);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[YouTube Discover] Recommended feed error:', e);
+      }
+    };
+
+    const fetchYouTubeSubscriptionsAndRender = async () => {
+      if (!hasYoutube) return;
+      try {
+        const acc = await window.api.invoke('youtube-get-account');
+        if (acc && acc.signedIn) {
+          const res = await window.api.invoke('youtube-get-subscriptions');
+          if (res && res.success && res.videos && res.videos.length > 0) {
+            let sectionEl = $('#discover-youtube-subscriptions-section');
+            if (sectionEl) {
+              sectionEl.style.display = 'block';
+              renderYouTubeDiscoverRow('#youtube-subscriptions-row', res.videos);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[YouTube Discover] Subscriptions feed error:', e);
+      }
+    };
+
+    const fetchYouTubeHistoryAndRender = async () => {
+      if (!hasYoutube) return;
+      try {
+        const res = await window.api.invoke('youtube-get-history');
+        if (res && res.success && res.history && res.history.length > 0) {
+          let sectionEl = $('#discover-youtube-history-section');
+          if (sectionEl) {
+            sectionEl.style.display = 'block';
+            renderYouTubeDiscoverRow('#youtube-history-row', res.history);
+          }
+        }
+      } catch (e) {
+        console.warn('[YouTube Discover] History feed error:', e);
+      }
+    };
+
+    try {
+      const promises = [];
+
+      // If Catalog is installed, load Now in Cinemas, Cinemeta Top 10 TV Shows, Top 10 Movies & Popular Rows
+      if (hasCatalog) {
+        promises.push(
+          fetchCinemetaAndRender('#in-cinemas-row', 'movie', 'top', false),
+          fetchCinemetaAndRender('#top10-tv-row', 'tv', 'top', true),
+          fetchCinemetaAndRender('#top10-movie-row', 'movie', 'top', true),
+          fetchCinemetaAndRender('#popular-movies-row', 'movie', 'imdbRating', false),
+          fetchCinemetaAndRender('#popular-series-row', 'tv', 'imdbRating', false),
+          fetchCinemetaGenreAndRender('#anime-row', 'Animation')
+        );
+      }
+
+      // If YouTube is installed, load YouTube feeds
+      if (hasYoutube) {
+        promises.push(
+          fetchYouTubeRecommendedAndRender(),
+          fetchYouTubeCategoryAndRender('#youtube-trending-row', '#discover-youtube-section', 'Trending on YouTube', 'fab fa-youtube', null),
+          fetchYouTubeSubscriptionsAndRender(),
+          fetchYouTubeHistoryAndRender()
+        );
+
+        // Addon Isolation: If only YouTube is installed (no movie catalog), render 100% isolated YouTube Hub!
+        if (!hasCatalog) {
+          promises.push(
+            fetchYouTubeCategoryAndRender('#yt-gaming-row', '#discover-yt-gaming-section', 'Gaming & Live Streams', 'fas fa-gamepad', 'popular gaming videos'),
+            fetchYouTubeCategoryAndRender('#yt-music-row', '#discover-yt-music-section', 'Music & Trending Hits', 'fas fa-music', 'official music videos trending'),
+            fetchYouTubeCategoryAndRender('#yt-tech-row', '#discover-yt-tech-section', 'Technology & Science', 'fas fa-microchip', 'technology science news'),
+            fetchYouTubeCategoryAndRender('#yt-comedy-row', '#discover-yt-comedy-section', 'Entertainment & Podcasts', 'fas fa-podcast', 'popular podcast episodes entertainment')
+          );
+        }
+      }
+
+      await Promise.all(promises);
     } catch (err) {
       console.error("Discover load error:", err);
     } finally {
@@ -821,7 +1127,100 @@
     }
   }
 
-  function renderDiscoverRow(sel, items) {
+  function renderYouTubeDiscoverRow(sel, items) {
+    const row = $(sel);
+    if (!row) return;
+    row.innerHTML = '';
+    row.style.cssText = 'display: flex; gap: 18px; overflow-x: auto; padding: 6px 4px 18px; scrollbar-width: none; -ms-overflow-style: none;';
+
+    const allowedItems = (items || []).filter(isAgeAllowed);
+    if (!allowedItems || allowedItems.length === 0) {
+      row.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted); font-size:0.85rem">No YouTube videos available.</div>';
+      return;
+    }
+
+    allowedItems.slice(0, 20).forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'yt-discover-card';
+      card.style.cssText = 'min-width: 270px; max-width: 300px; flex: 0 0 280px; display: flex; flex-direction: column; background: rgba(255,255,255,0.03); border-radius: 12px; overflow: hidden; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.2s, box-shadow 0.2s, border-color 0.2s;';
+
+      const itemTitle = item.title || item.name || 'YouTube Video';
+      const thumb = item.thumbnail || item.poster || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
+      const author = item.author || 'YouTube';
+      const duration = item.duration || '';
+      const views = item.views || '';
+      const published = item.published || '';
+
+      card.innerHTML = `
+        <div style="position: relative; width: 100%; aspect-ratio: 16 / 9; background: #111; overflow: hidden;">
+          <img src="${thumb}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease;" loading="lazy" onerror="this.src='imgs/no-backdrop.png'">
+          ${duration ? `<div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; z-index: 2;">${escapeHTML(String(duration))}</div>` : ''}
+          <div class="yt-play-hover" style="position: absolute; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; background: #ff0000; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(255,0,0,0.5);">
+              <i class="fas fa-play" style="color: #fff; font-size: 16px; margin-left: 2px;"></i>
+            </div>
+          </div>
+        </div>
+        <div style="padding: 12px; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
+          <div style="font-size: 0.9rem; font-weight: 700; color: #fff; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 6px;" title="${escapeHTML(itemTitle)}">
+            ${escapeHTML(itemTitle)}
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.7); font-size: 0.8rem; font-weight: 600; margin-bottom: 3px;">
+              <i class="fab fa-youtube" style="color: #ff0000; font-size: 13px;"></i>
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(author)}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.4); font-size: 0.75rem;">
+              ${views ? `<span>${escapeHTML(String(views))}</span>` : ''}
+              ${views && published ? `<span>•</span>` : ''}
+              ${published ? `<span>${escapeHTML(String(published))}</span>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+
+      card.onmouseenter = () => {
+        card.style.transform = 'translateY(-4px)';
+        card.style.background = 'rgba(255,255,255,0.06)';
+        card.style.borderColor = 'rgba(255,255,255,0.18)';
+        card.style.boxShadow = '0 10px 24px rgba(0,0,0,0.45)';
+        const hoverIcon = card.querySelector('.yt-play-hover');
+        if (hoverIcon) hoverIcon.style.opacity = '1';
+        const img = card.querySelector('img');
+        if (img) img.style.transform = 'scale(1.04)';
+      };
+      card.onmouseleave = () => {
+        card.style.transform = 'translateY(0)';
+        card.style.background = 'rgba(255,255,255,0.03)';
+        card.style.borderColor = 'rgba(255,255,255,0.06)';
+        card.style.boxShadow = 'none';
+        const hoverIcon = card.querySelector('.yt-play-hover');
+        if (hoverIcon) hoverIcon.style.opacity = '0';
+        const img = card.querySelector('img');
+        if (img) img.style.transform = 'scale(1)';
+      };
+
+      card.onclick = () => {
+        if (typeof window.playVideo === 'function') {
+          window.playVideo({
+            type: 'youtube',
+            isYoutube: true,
+            id: item.id,
+            videoId: item.id,
+            title: item.title,
+            poster: thumb,
+            thumbnail: thumb,
+            author: item.author,
+            duration: item.duration
+          });
+        }
+      };
+
+      row.appendChild(card);
+    });
+  }
+
+  function renderDiscoverRow(sel, items, isTop10 = false) {
     const row = $(sel);
     if (!row) return;
     row.innerHTML = '';
@@ -838,37 +1237,98 @@
       ...(appData.shows || []).map(s => (s.title || '').toLowerCase())
     ]);
 
-    allowedItems.slice(0, 20).forEach(item => {
+    const limit = isTop10 ? 10 : 20;
+
+    allowedItems.slice(0, limit).forEach((item, index) => {
       const card = document.createElement('div');
       card.className = 'discover-card';
 
+      const isYT = item.type === 'youtube' || item.isYoutube;
       const title = item.title || item.name || 'Unknown';
-      let posterUrl = item.poster || item.poster_path || '';
+      let rawPoster = item.poster || item.thumbnail || item.poster_path || '';
+      
+      // Auto-heal relative paths or dead cinemeta image CDN domains
+      if (rawPoster && typeof rawPoster === 'string') {
+        if (rawPoster.includes('v3-cinemeta.strem.io') && (rawPoster.includes('/poster/') || rawPoster.includes('/img'))) {
+          // cinemeta CDN doesn't serve images — convert to metahub
+          const idMatch = rawPoster.match(/\/poster\/\w+\/(tt\d+)\//);
+          if (idMatch) rawPoster = `https://images.metahub.space/poster/medium/${idMatch[1]}/img`;
+          else rawPoster = '';
+        } else if (rawPoster.startsWith('/tt') || rawPoster.startsWith('tt')) {
+          const cleanId = rawPoster.replace(/^\//, '').split('/')[0];
+          rawPoster = `https://images.metahub.space/poster/medium/${cleanId}/img`;
+        } else if (rawPoster === 'img' || rawPoster === '/img' || rawPoster === 'poster.jpg' || rawPoster === '/poster.jpg') {
+          const cleanId = item.id || item.imdb_id;
+          rawPoster = cleanId ? `https://images.metahub.space/poster/medium/${cleanId}/img` : '';
+        } else if (rawPoster.includes('(live|images|episodes).metahub.space')) {
+          // leave valid metahub URLs as-is
+        }
+      }
+
+      let posterUrl = typeof localImg === 'function' ? localImg(rawPoster) : rawPoster;
+      // Guard against transparent svg or empty strings
+      if (posterUrl && posterUrl.startsWith('data:image/svg+xml')) {
+        posterUrl = '';
+      }
 
       const rating = parseFloat(item.vote_average || item.score) || 0;
-      const year = (item.release_date || item.first_air_date || item.seasonYear || '').toString().slice(0, 4);
+      const year = (item.release_date || item.first_air_date || item.seasonYear || item.published || '').toString().slice(0, 4);
       const inLib = localTitles.has(title.toLowerCase());
 
       card.innerHTML = `
         <div class="discover-poster-wrap">
-          <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
+          <div class="discover-poster-placeholder" style="width:100%; height:100%; display:${posterUrl ? 'none' : 'flex'}; align-items:center; justify-content:center; background:var(--bg-surface-2);"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
           ${posterUrl ? `<img src="${posterUrl}" class="discover-poster" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
           ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
+          ${isYT ? `<div style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.85); color:#fff; font-size:10px; font-weight:700; padding:2px 6px; border-radius:6px; z-index:2;">${item.duration || 'VIDEO'}</div>` : ''}
         </div>
         <div class="discover-info">
           <div class="discover-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
           <div class="discover-meta">
-            ${getBadgeHTML(item)}
+            ${isYT ? `<span style="color:#ff4b4b; font-weight:700;"><i class="fab fa-youtube"></i> ${escapeHTML(item.author || 'YouTube')}</span>` : getBadgeHTML(item)}
             <span>${year}</span>
             ${rating ? `<span class="discover-rating-stars"><i class="fas fa-star" style="font-size:8px"></i> ${rating.toFixed(1)}</span>` : ''}
-            <span class="discover-age-badge-container">${getAgeBadgeHTML(getItemCertification(item))}</span>
+            ${!isYT ? `<span class="discover-age-badge-container">${getAgeBadgeHTML(getItemCertification(item))}</span>` : ''}
           </div>
         </div>
       `;
-      card.onclick = () => openDiscoverDetail(item);
+
+      if (isYT) {
+        card.onclick = () => {
+          if (typeof window.playVideo === 'function') {
+            window.playVideo({
+              type: 'youtube',
+              isYoutube: true,
+              id: item.id,
+              videoId: item.id,
+              title: item.title,
+              poster: item.thumbnail || item.poster,
+              author: item.author,
+              duration: item.duration
+            });
+          }
+        };
+      } else {
+        card.onclick = () => openDiscoverDetail(item);
+        if (typeof getTraktOrImdbPoster === 'function') {
+          getTraktOrImdbPoster(item, null, card);
+        }
+      }
+
       if (typeof enableHoverPreview === 'function') enableHoverPreview(card, item, '.discover-poster-wrap');
-      row.appendChild(card);
-      getTraktOrImdbPoster(item, null, card);
+
+      if (isTop10) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'top10-item-wrapper';
+        const rankEl = document.createElement('div');
+        rankEl.className = 'top10-rank-number';
+        rankEl.textContent = index + 1;
+        wrapper.appendChild(rankEl);
+        wrapper.appendChild(card);
+        row.appendChild(wrapper);
+      } else {
+        row.appendChild(card);
+      }
     });
   }
 
@@ -1199,7 +1659,11 @@
                 if (malMapping) malId = malMapping.attributes.externalId;
                 
                 const imdbMapping = mappingsJson.data.find(m => m.attributes?.externalSite === 'imdb');
-                if (imdbMapping) imdbIdForCinemeta = imdbMapping.attributes.externalId;
+                if (imdbMapping) {
+                  imdbIdForCinemeta = imdbMapping.attributes.externalId;
+                  item.imdb_id = imdbIdForCinemeta;
+                  item.imdbId = imdbIdForCinemeta;
+                }
               }
             } catch (e) {
               console.warn('[Discover] Resolving Kitsu mappings failed:', e);
@@ -1227,6 +1691,8 @@
               const imdbMapping = mappingsJson?.data?.find(m => m.attributes?.externalSite === 'imdb');
               if (imdbMapping) {
                 imdbIdForCinemeta = imdbMapping.attributes.externalId;
+                item.imdb_id = imdbIdForCinemeta;
+                item.imdbId = imdbIdForCinemeta;
               }
             }
           } catch (e) {
@@ -1259,6 +1725,7 @@
 
               meta.innerHTML = `
                 <span class="dd-tag" style="background:#F7523922;color:#F75239">★ ${rating ? rating.toFixed(1) : 'N/A'} <span style="opacity:0.6;font-size:10.5px;margin-left:5px">MAL ID: ${malId}</span></span>
+                ${imdbIdForCinemeta ? `<span class="dd-tag" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);font-weight:700;">IMDb: ${imdbIdForCinemeta}</span>` : ''}
                 ${year ? `<span class="dd-tag">${year}</span>` : ''}
                 <span class="dd-tag">${(data.type || item.format || 'ANIME').toUpperCase()}</span>
                 ${data.episodes ? `<span class="dd-tag">${data.episodes} Episodes</span>` : ''}
@@ -1662,36 +2129,126 @@
     }
   }
 
+  function selectBestStream(streams, preferredMaxRes = '1080p') {
+    if (!streams || !streams.length) return null;
+
+    const validStreams = streams.filter(s => s && (s.url || s.infoHash || s.type === 'torrent'));
+    const pool = validStreams.length > 0 ? validStreams : streams;
+
+    function scoreStream(s) {
+      let score = 0;
+      const title = (s.title || '').toLowerCase();
+      const addon = (s.addon || '').toLowerCase();
+      const quality = (s.quality || '').toLowerCase();
+
+      const is4K = quality.includes('4k') || title.includes('2160p') || title.includes('4k');
+      const is1080p = quality.includes('1080') || title.includes('1080p');
+      const is720p = quality.includes('720') || title.includes('720p');
+
+      if (preferredMaxRes === '4K') {
+        if (is4K) score += 500;
+        else if (is1080p) score += 350;
+        else if (is720p) score += 180;
+      } else if (preferredMaxRes === '720p') {
+        if (is720p) score += 500;
+        else if (is1080p) score += 300;
+        else if (is4K) score += 100;
+      } else { // Default 1080p
+        if (is1080p) score += 500;
+        else if (is720p) score += 300;
+        else if (is4K) score += 200;
+      }
+
+      const statsLine = (s.title || '').split('\n').slice(1).join(' ');
+      const seedsMatch = statsLine.match(/≡ƒæñ\s*(\d+)/) || statsLine.match(/(\d+)\s*seeds/i) || statsLine.match(/👥\s*(\d+)/);
+      const seeds = seedsMatch ? parseInt(seedsMatch[1], 10) : 0;
+      score += Math.min(seeds * 4, 400);
+
+      if (title.includes('hevc') || title.includes('x265')) score += 40;
+      if (title.includes('multi') || title.includes('dual') || title.includes('eng')) score += 25;
+
+      const sizeMatch = statsLine.match(/([\d\.]+\s*GB)/i);
+      if (sizeMatch && parseFloat(sizeMatch[1]) > 18 && preferredMaxRes !== '4K') {
+        score -= 100;
+      }
+
+      return score;
+    }
+
+    let best = pool[0];
+    let maxScore = -Infinity;
+
+    pool.forEach(s => {
+      const currentScore = scoreStream(s);
+      if (currentScore > maxScore) {
+        maxScore = currentScore;
+        best = s;
+      }
+    });
+
+    return best;
+  }
+
   async function loadStreams(item, type) {
     const container = $('#dd-streams-list');
     if (!container) return;
-    container.innerHTML = '<div style="padding:20px; color:var(--text-muted); text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">Searching for best links...</div>';
+
+    const autoChoose = window.appData && window.appData.autoChooseBestStream;
+
+    // Show inline spinner immediately — especially useful with Auto-Choose enabled
+    if (autoChoose) {
+      container.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center;
+                    padding:32px 20px; gap:14px; grid-column: 1/-1;">
+          <div style="width:40px; height:40px; border-radius:50%;
+                      border: 3px solid rgba(255,255,255,0.08);
+                      border-top-color: #ffffff;
+                      animation: ddLoaderSpin 0.8s linear infinite;"></div>
+          <div style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.55); letter-spacing:0.3px;">
+            Finding best stream...
+          </div>
+        </div>`;
+    } else {
+      container.innerHTML = '<div style="padding:20px; color:var(--text-muted); text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">Searching for best links...</div>';
+    }
+
 
     try {
       if (!item.imdb_id || item.imdb_id === 'null') {
-        const isAnimeItem = item.source === 'anilist' || item.source === 'mal' || item.source === 'kitsu' || item.source === 'jikan';
-        
-        if (!isAnimeItem) {
-          item.imdb_id = (item.id && String(item.id).startsWith('tt')) ? item.id : null;
-          console.log(`[MediaVault] ID resolved for ${type}: ${item.imdb_id}`);
+        // Try camelCase variant first (set by renderUnifiedDetail TMDB resolution)
+        if (item.imdbId && String(item.imdbId).startsWith('tt')) {
+          item.imdb_id = item.imdbId;
         } else {
-          item.imdb_id = null;
+          const isAnimeItem = item.source === 'anilist' || item.source === 'mal' || item.source === 'kitsu' || item.source === 'jikan';
+          
+          if (!isAnimeItem) {
+            item.imdb_id = (item.id && String(item.id).startsWith('tt')) ? item.id : null;
+            console.log(`[MediaVault] ID resolved for ${type}: ${item.imdb_id}`);
+          } else {
+            item.imdb_id = null;
+          }
         }
       }
 
       let showMeta = currentShow ? (typeof getMetadataForItem === 'function' ? getMetadataForItem(currentShow) : null) : null;
       let itemMeta = typeof getMetadataForItem === 'function' ? getMetadataForItem(item) : null;
-      let resolvedImdb = item.imdb_id || itemMeta?.cinemetaId || itemMeta?.imdbId || itemMeta?.imdb_id || showMeta?.cinemetaId || showMeta?.imdbId || showMeta?.imdb_id || null;
+      let resolvedImdb = item.imdb_id || item.imdbId || itemMeta?.cinemetaId || itemMeta?.imdbId || itemMeta?.imdb_id || showMeta?.cinemetaId || showMeta?.imdbId || showMeta?.imdb_id || null;
 
       if (resolvedImdb && (typeof isLocalFilePath === 'function' ? isLocalFilePath(resolvedImdb) : (resolvedImdb.includes('/') || resolvedImdb.includes('\\')))) {
         resolvedImdb = null;
+      }
+
+      // Normalize tmdbId: strip "tmdb:" prefix so the main process gets a clean numeric ID
+      let normalizedTmdbId = item.id;
+      if (normalizedTmdbId && String(normalizedTmdbId).startsWith('tmdb:')) {
+        normalizedTmdbId = String(normalizedTmdbId).replace('tmdb:', '');
       }
 
       let streams;
       try {
         const query = {
           imdbId: resolvedImdb || item.imdb_id,
-          tmdbId: item.id,
+          tmdbId: normalizedTmdbId,
           kitsuId: item.kitsuId || (String(item.id).startsWith('kitsu:') ? String(item.id).replace('kitsu:', '') : null),
           malId: item.mal_id || ((String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:')) ? String(item.id).replace('mal:', '').replace('jikan:', '') : null),
           type: type,
@@ -1712,6 +2269,30 @@
         container.innerHTML = `<div style="padding:20px; color:var(--text-muted); text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">No links found for ${item.title || 'this item'} (IMDB: ${item.imdb_id || 'Missing'}). Please try again later.</div>`;
         return;
       }
+
+      // Smart Auto-Play & Auto-Choose Best Stream
+      if (window.appData && window.appData.autoChooseBestStream) {
+        const bestStream = selectBestStream(streams, window.appData.autoChooseMaxRes || '1080p');
+        if (bestStream) {
+          // Restore Watch Now button if spinner was shown
+          if (typeof window._restorePlayBtn === 'function') {
+            window._restorePlayBtn();
+            window._restorePlayBtn = null;
+          }
+          showToast(`Auto-playing best stream (${bestStream.quality || '1080p'})...`);
+          container.innerHTML = `<div style="padding:24px; color:#ffffff; font-weight:700; text-align:center; background:rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius:14px; grid-column: 1/-1"><i class="fas fa-bolt" style="color:#eab308; margin-right:8px;"></i> Auto-playing best stream link...</div>`;
+          setTimeout(() => {
+            playStream(bestStream, item, null);
+          }, 250);
+          return;
+        }
+        // No best stream found — restore button
+        if (typeof window._restorePlayBtn === 'function') {
+          window._restorePlayBtn();
+          window._restorePlayBtn = null;
+        }
+      }
+
 
       streams.forEach(s => {
         const card = document.createElement('div'); card.className = 'stream-card';
@@ -1748,47 +2329,14 @@
           streamIconSvg = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>';
         }
 
-        const vlcIcon = `<div class="stream-btn-vlc" title="Play in VLC"><svg viewBox="0 0 512 512" width="16" height="16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M256 32c-19 0-36 12-42 30L96 416h320L298 62c-6-18-23-30-42-30zM64 448l32-64 352 0 32 64H64z"/></svg></div>`;
-        const vlcHtml = (window.Capacitor || isBrowser) ? '' : vlcIcon;
         const downloadHtml = isBrowser ? '' : `<div class="stream-btn-download" title="Copy Torrent Link"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></div>`;
         
-        const playTitle = isBrowser ? 'Open Link' : 'Play Internally';
+        const playTitle = isBrowser ? 'Open Link' : 'Play';
         const playIcon = isBrowser 
           ? `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>` 
           : `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
 
-        card.innerHTML = `<div class="stream-top"><div class="stream-icon-box">${streamIconSvg}</div><div class="stream-main-info"><div class="stream-title" title="${escapeHTML(mainTitle)}">${escapeHTML(mainTitle)}</div><div class="stream-badges">${isBrowser ? '' : `<span class="quality-badge">${s.quality}</span>`}<span class="source-badge">${s.addon}</span></div></div></div><div class="stream-footer"><div class="stream-stats">${seeds ? `<div class="stream-stat-badge seeds">${seedsIcon}${seeds}</div>` : ''}${size ? `<div class="stream-stat-badge size">${sizeIcon}${size}</div>` : ''}</div><div class="stream-actions-group">${downloadHtml}${vlcHtml}<div class="stream-btn-play" title="${playTitle}">${playIcon}</div></div></div>`;
-
-        const vlcBtn = card.querySelector('.stream-btn-vlc');
-        if (vlcBtn) vlcBtn.onclick = async (e) => {
-          e.stopPropagation();
-          let vUrl = s.url || s.infoHash;
-          const isMobile = !window.api.isElectron;
-
-          if (vUrl && vUrl.length === 40 && !vUrl.startsWith('http') && !vUrl.startsWith('magnet:')) {
-            vUrl = `magnet:?xt=urn:btih:${vUrl}&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://open.stealth.si:80/announce`;
-          }
-
-          if (isMobile) {
-            showToast('Opening in VLC...');
-            await window.api.invoke('open-in-vlc', vUrl);
-          } else {
-            if (s.type === 'torrent' || vUrl.startsWith('magnet:')) {
-              showToast('Preparing stream for VLC...');
-              try {
-                const res = await window.api.invoke('start-torrent-stream', vUrl, s.fileIdx);
-                if (res && (res.localUrl || res.url) && !res.error) {
-                  vUrl = res.localUrl || res.url;
-                }
-              } catch (err) {
-                console.warn('[VLC] Stream prep failed, using magnet:', err.message);
-              }
-            }
-            const result = await window.api.invoke('open-in-vlc', vUrl);
-            if (result && !result.success) showToast(result.error || 'Failed to open VLC');
-            else showToast('Opening in VLC...');
-          }
-        };
+        card.innerHTML = `<div class="stream-top"><div class="stream-icon-box">${streamIconSvg}</div><div class="stream-main-info"><div class="stream-title" title="${escapeHTML(mainTitle)}">${escapeHTML(mainTitle)}</div><div class="stream-badges">${isBrowser ? '' : `<span class="quality-badge">${s.quality}</span>`}<span class="source-badge">${s.addon}</span></div></div></div><div class="stream-footer"><div class="stream-stats">${seeds ? `<div class="stream-stat-badge seeds">${seedsIcon}${seeds}</div>` : ''}${size ? `<div class="stream-stat-badge size">${sizeIcon}${size}</div>` : ''}</div><div class="stream-actions-group">${downloadHtml}<div class="stream-btn-play" title="${playTitle}">${playIcon}</div></div></div>`;
 
         card.querySelector('.stream-btn-play').onclick = (e) => { e.stopPropagation(); playStream(s, item, e.currentTarget); };
         card.onclick = (e) => playStream(s, item, e.currentTarget.querySelector('.stream-btn-play'));
@@ -1815,10 +2363,74 @@
   }
 
   async function playStream(stream, meta, cardEl = null) {
+    // All anime streams are external content — always gate with the disclaimer.
+    if (typeof showDisclaimerAndProceed === 'function') {
+      showDisclaimerAndProceed(() => _doPlayStream(stream, meta, cardEl));
+      return;
+    }
+    _doPlayStream(stream, meta, cardEl);
+  }
+
+  async function _doPlayStream(stream, meta, cardEl = null) {
     if (meta && typeof isAgeAllowed === 'function' && !isAgeAllowed(meta)) {
       showToast('This content is restricted by age rating filters.');
       return;
     }
+
+    // ── BROWSER / PEARIO INTERCEPT ──────────────────────────────────────────
+    // Must run BEFORE any spinner or player initialization.
+    // Peario returns externalUrl (a web-room link) and should NEVER reach the
+    // internal <video> player.  Three conditions cover all edge-cases:
+    //   1. stream.type === 'browser'       — set by normalizeStream (primary path)
+    //   2. stream.externalUrl is present   — safety net if type was wrong
+    //   3. addon name contains 'peario'    — explicit brand guard
+    const isPeario = (stream.addon || '').toLowerCase().includes('peario');
+    const isExternalLink = stream.type === 'browser' || !!stream.externalUrl || isPeario;
+
+    const clearCardLoading = (el) => {
+      if (!el) return;
+      el.classList.remove('btn-loading');
+      const spinner = el.querySelector('.fa-spinner');
+      if (spinner) spinner.remove();
+      const svg = el.querySelector('svg');
+      if (svg) svg.style.display = '';
+      const iconWrap = el.querySelector('.dd-stream-play-icon');
+      if (iconWrap) {
+        iconWrap.classList.remove('loading');
+        iconWrap.innerHTML = '<i class="fas fa-play"></i>';
+      }
+    };
+
+    if (isExternalLink) {
+      const target = stream.externalUrl || stream.url;
+      if (!target) {
+        showToast('No external URL found for this stream.');
+        clearCardLoading(cardEl);
+        return;
+      }
+      
+      // Clear loading state immediately before opening external link
+      clearCardLoading(cardEl);
+      
+      try {
+        // Electron: use shell.openExternal via preload bridge
+        if (window.api?.openExternal) {
+          window.api.openExternal(target);
+        } else if (window.api?.invoke) {
+          await window.api.invoke('open-external', target);
+        } else {
+          window.open(target, '_blank');
+        }
+        showToast('Opening external player...');
+      } catch (e) {
+        console.error('[playStream] Failed to open external URL:', e);
+        showToast('Failed to open external link. Opening in browser...');
+        window.open(target, '_blank');
+      }
+      return;
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     if (cardEl) {
       const iconWrap = cardEl.querySelector('.dd-stream-play-icon');
       if (iconWrap) {
@@ -1833,16 +2445,11 @@
           const spinner = document.createElement('i');
           spinner.className = 'fas fa-spinner fa-spin';
           spinner.style.fontSize = '16px';
+          spinner.style.color = '#000000';
           cardEl.appendChild(spinner);
         }
         cardEl.classList.add('btn-loading');
       }
-    }
-
-    if (stream.type === 'browser') {
-      window.api.openExternal(stream.url);
-      if (cardEl) cardEl.classList.remove('btn-loading');
-      return;
     }
 
     const isMobile = !!(window.Capacitor);
@@ -1855,7 +2462,7 @@
       }
 
       if (!handoffUrl) {
-        if (cardEl) cardEl.classList.remove('btn-loading');
+        clearCardLoading(cardEl);
         showToast('No playable link found');
         return;
       }
@@ -1870,7 +2477,7 @@
           : window.api.playMedia({ url: handoffUrl, title: meta?.title || stream.name })
       );
 
-      if (cardEl) cardEl.classList.remove('btn-loading');
+      clearCardLoading(cardEl);
 
       if (!result || !result.success) {
         showToast('Failed to open external player: ' + (result?.error || 'Unknown error'));
@@ -1900,12 +2507,14 @@
             if (currentItem && typeof exitPlayer === 'function') await exitPlayer(false, true);
           } catch (e) { console.warn('[Player] exitPlayer before start failed:', e?.message || e); }
 
-          const res = await window.api.invoke('start-torrent-stream', stream.url || stream.infoHash, stream.fileIdx);
+          const torrentSource = stream.infoHash || stream.url;
+          const res = await window.api.invoke('start-torrent-stream', torrentSource, stream.fileIdx);
           if (!res || !res.success) throw new Error(res?.error || 'Failed to start torrent stream');
 
           finalUrl = (window.api.isElectron) ? (res.localUrl || res.url) : res.url;
+          window._activeStreamUrl = finalUrl;
           if (res.files) meta.torrentFiles = res.files;
-          if (res.infoHash) meta.torrentMagnet = stream.url || stream.infoHash;
+          if (res.infoHash) meta.torrentMagnet = torrentSource;
           if (res.duration) meta.duration = res.duration;
           meta.fileIdx = stream.fileIdx ?? res.fileIdx;
         }
@@ -1916,8 +2525,10 @@
       }
 
       if (!finalUrl) throw new Error('No playable stream found');
+      window._activeStreamUrl = finalUrl;
 
       if (typeof playVideo === 'function') {
+        const showTitle = meta?.showName || meta?.title || meta?.name;
         playVideo({
           ...meta,
           detected: stream.detected || {},
@@ -1928,26 +2539,268 @@
           fileIdx: meta.fileIdx,
           torrentFiles: meta.torrentFiles,
           tmdbId: meta?.id,
-          showName: meta?.showName,
+          showTitle: showTitle,
           type: meta ? (meta.media_type || meta.type || (meta.title ? 'movie' : 'tv')) : 'movie',
           season: meta?.season,
           episode: meta?.episode,
           showId: meta?.showId || meta?.id,
           isStream: true
-        }, meta?.showName ? { title: meta.showName, id: meta.showId || meta.id } : null);
+        }, showTitle ? {
+          title: showTitle,
+          id: meta.showId || meta.id,
+          episodes: window.currentDetailEpisodes || []
+        } : null);
       }
     } catch (err) {
       console.error('[playStream] Error:', err);
       showToast('Streaming failed: ' + err.message);
     } finally {
-      if (cardEl) cardEl.classList.remove('btn-loading');
+      clearCardLoading(cardEl);
     }
   }
 
-  // Search input event listener
-  $('#search-discover')?.addEventListener('input', debounce(async () => {
-    await performDiscoverSearch();
-  }, 500));
+  // Search input event listener – redirect to main search page instead of inline discover search
+  const _discoverInput = $('#search-discover');
+  if (_discoverInput) {
+    _discoverInput.addEventListener('input', debounce(() => {
+      const val = _discoverInput.value.trim();
+      if (!val) return;
+      const mainSearchInput = document.querySelector('#search-input-main');
+      if (mainSearchInput) mainSearchInput.value = val;
+      _discoverInput.value = '';
+      if (typeof switchView === 'function') switchView('search');
+      if (typeof window.performUnifiedSearch === 'function') window.performUnifiedSearch(val);
+      if (mainSearchInput) mainSearchInput.focus();
+    }, 600));
+    _discoverInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const val = _discoverInput.value.trim();
+        if (!val) return;
+        const mainSearchInput = document.querySelector('#search-input-main');
+        if (mainSearchInput) mainSearchInput.value = val;
+        _discoverInput.value = '';
+        if (typeof switchView === 'function') switchView('search');
+        if (typeof window.performUnifiedSearch === 'function') window.performUnifiedSearch(val);
+        if (mainSearchInput) mainSearchInput.focus();
+      }
+    });
+  }
+
+  // ─── YOUTUBE ADD-ON SETTINGS, AUTH & WATCH HISTORY ─────────────────────
+
+  if (!window.openYouTubeSettingsModal) {
+    window.openYouTubeSettingsModal = async function() {
+      const modal = $('#youtube-settings-modal');
+      if (modal) modal.style.display = 'flex';
+      await refreshYouTubeAccountUI();
+    };
+  }
+
+  async function refreshYouTubeAccountUI() {
+    try {
+      const res = await window.api.invoke('youtube-get-account');
+      const nameEl = $('#yt-account-name');
+      const emailEl = $('#yt-account-email');
+      const avatarEl = $('#yt-account-avatar');
+      const btnLabel = $('#yt-auth-btn-label');
+      const authBtn = $('#btn-yt-auth-action');
+
+      if (res && res.success && res.signedIn && res.account) {
+        if (nameEl) nameEl.textContent = res.account.name || 'Google Account';
+        if (emailEl) emailEl.textContent = res.account.email || 'user@gmail.com';
+        if (avatarEl && res.account.avatar) avatarEl.src = res.account.avatar;
+        if (btnLabel) btnLabel.textContent = 'Sign Out';
+        if (authBtn) {
+          authBtn.style.background = 'rgba(239,68,68,0.2)';
+          authBtn.style.color = '#ef4444';
+        }
+      } else {
+        if (nameEl) nameEl.textContent = 'Not Signed In';
+        if (emailEl) emailEl.textContent = 'Sign in with Google for personalized feed & recommendations';
+        if (avatarEl) avatarEl.src = 'https://lh3.googleusercontent.com/a/default-user=s96-c';
+        if (btnLabel) btnLabel.textContent = 'Sign In';
+        if (authBtn) {
+          authBtn.style.background = 'var(--accent)';
+          authBtn.style.color = '#fff';
+        }
+      }
+    } catch (err) {
+      console.error('[YouTube Settings] Account refresh error:', err);
+    }
+  }
+
+  // Auth & Settings Modal Event Handlers
+  document.addEventListener('DOMContentLoaded', () => {
+    const btnCloseSettings = $('#btn-close-yt-settings');
+    if (btnCloseSettings) {
+      btnCloseSettings.onclick = () => {
+        const modal = $('#youtube-settings-modal');
+        if (modal) modal.style.display = 'none';
+      };
+    }
+
+    const authBtn = $('#btn-yt-auth-action');
+    if (authBtn) {
+      authBtn.onclick = async () => {
+        const res = await window.api.invoke('youtube-get-account');
+        if (res && res.signedIn) {
+          await window.api.invoke('youtube-sign-out');
+          showToast('👋 Signed out of Google Account');
+          await refreshYouTubeAccountUI();
+          if (typeof window.loadDiscover === 'function') window.loadDiscover(true);
+        } else {
+          const settingsModal = $('#youtube-settings-modal');
+          if (settingsModal) settingsModal.style.display = 'none';
+          if (typeof window.openGoogleAuthModal === 'function') {
+            window.openGoogleAuthModal();
+          } else {
+            showToast('Opening Google Authorization...');
+          }
+        }
+      };
+    }
+
+    const btnOpenHistory = $('#btn-open-yt-history');
+    if (btnOpenHistory) {
+      btnOpenHistory.onclick = () => {
+        const settingsModal = $('#youtube-settings-modal');
+        if (settingsModal) settingsModal.style.display = 'none';
+        window.openYouTubeHistoryModal();
+      };
+    }
+
+    const btnCloseHistory = $('#btn-close-yt-history');
+    if (btnCloseHistory) {
+      btnCloseHistory.onclick = () => {
+        const histModal = $('#youtube-history-modal');
+        if (histModal) histModal.style.display = 'none';
+      };
+    }
+
+    const btnClearHistory = $('#btn-clear-yt-history');
+    if (btnClearHistory) {
+      btnClearHistory.onclick = async () => {
+        if (confirm('Are you sure you want to clear your YouTube watch history?')) {
+          await window.api.invoke('youtube-clear-history');
+          showToast('Watch history cleared');
+          window.openYouTubeHistoryModal();
+        }
+      };
+    }
+
+    const btnCloseDlWidget = $('#btn-close-yt-dl-widget');
+    if (btnCloseDlWidget) {
+      btnCloseDlWidget.onclick = () => {
+        const widget = $('#yt-download-progress-widget');
+        if (widget) widget.style.display = 'none';
+      };
+    }
+  });
+
+  window.clearYouTubeHistory = async function() {
+    if (confirm('Clear your YouTube watch history?')) {
+      try {
+        const res = await window.api.invoke('youtube-clear-history');
+        if (res && res.success) {
+          showToast('YouTube watch history cleared');
+          const sectionEl = $('#discover-youtube-history-section');
+          if (sectionEl) sectionEl.style.display = 'none';
+          const modal = $('#youtube-history-modal');
+          if (modal) modal.style.display = 'none';
+        }
+      } catch (err) {
+        showToast('Failed to clear history: ' + err.message);
+      }
+    }
+  };
+
+  window.openYouTubeHistoryModal = async function() {
+    const modal = $('#youtube-history-modal');
+    const list = $('#yt-history-list');
+    if (!modal || !list) return;
+    modal.style.display = 'flex';
+    list.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted)">Loading history...</div>';
+
+    try {
+      const res = await window.api.invoke('youtube-get-history');
+      if (res && res.success && res.history && res.history.length > 0) {
+        list.innerHTML = '';
+        res.history.forEach(item => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex; align-items:center; gap:14px; padding:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:12px; cursor:pointer; transition:background 0.2s;';
+          row.onmouseover = () => row.style.background = 'rgba(255,255,255,0.08)';
+          row.onmouseout = () => row.style.background = 'rgba(255,255,255,0.03)';
+          row.onclick = () => {
+            modal.style.display = 'none';
+            if (typeof window.playMedia === 'function') {
+              window.playMedia({ ...item, type: 'youtube' });
+            }
+          };
+
+          const dateStr = item.watchedAt ? new Date(item.watchedAt).toLocaleDateString() : '';
+
+          row.innerHTML = `
+            <div style="width:120px; aspect-ratio:16/9; border-radius:8px; overflow:hidden; background:#000; flex-shrink:0;">
+              <img src="${item.thumbnail}" style="width:100%; height:100%; object-fit:cover;">
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:700; font-size:0.9rem; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHTML(item.title)}">${escapeHTML(item.title)}</div>
+              <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">${escapeHTML(item.author || 'YouTube')}</div>
+              <div style="font-size:0.75rem; color:rgba(255,255,255,0.4); margin-top:4px;">Watched ${dateStr}</div>
+            </div>
+            <i class="fas fa-play-circle" style="font-size:24px; color:var(--accent); margin-right:8px;"></i>
+          `;
+          list.appendChild(row);
+        });
+      } else {
+        list.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted);">No watch history yet. Start watching YouTube videos to track your history!</div>';
+      }
+    } catch (err) {
+      list.innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444">Error loading history: ${err.message}</div>`;
+    }
+  };
+
+  // Listen to download progress IPC events
+  if (window.api && typeof window.api.on === 'function') {
+    window.api.on('youtube-download-progress', (data) => {
+      const widget = $('#yt-download-progress-widget');
+      if (!widget) return;
+      widget.style.display = 'flex';
+
+      const statusEl = $('#yt-dl-widget-status');
+      const titleEl = $('#yt-dl-widget-title');
+      const barEl = $('#yt-dl-widget-bar');
+      const speedEl = $('#yt-dl-widget-speed');
+      const etaEl = $('#yt-dl-widget-eta');
+      const errEl = $('#yt-dl-widget-error');
+      const iconEl = $('#yt-dl-widget-icon');
+
+      if (titleEl) titleEl.textContent = data.title || 'YouTube Media';
+      if (barEl) barEl.style.width = `${data.percent || 0}%`;
+
+      if (data.status === 'completed') {
+        if (statusEl) statusEl.textContent = '✅ Download Completed!';
+        if (iconEl) iconEl.className = 'fas fa-check-circle';
+        if (speedEl) speedEl.textContent = 'Finished';
+        if (etaEl) etaEl.textContent = 'Saved to folder';
+        if (errEl) errEl.style.display = 'none';
+        setTimeout(() => { widget.style.display = 'none'; }, 6000);
+      } else if (data.status === 'error') {
+        if (statusEl) statusEl.textContent = '❌ Download Failed';
+        if (iconEl) iconEl.className = 'fas fa-exclamation-triangle';
+        if (errEl) {
+          errEl.textContent = data.error || 'Unknown error occurred';
+          errEl.style.display = 'block';
+        }
+      } else {
+        if (statusEl) statusEl.textContent = `Downloading (${data.percent || 0}%)`;
+        if (iconEl) iconEl.className = 'fas fa-spinner fa-spin';
+        if (speedEl) speedEl.textContent = data.speed || '0 MB/s';
+        if (etaEl) etaEl.textContent = `${data.eta || '00:00'} remaining`;
+        if (errEl) errEl.style.display = 'none';
+      }
+    });
+  }
 
   // Expose discover/anime functions to window
   window.loadDiscover = loadDiscover;

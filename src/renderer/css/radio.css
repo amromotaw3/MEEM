@@ -1,0 +1,584 @@
+/* ─── Live Radio View Styles (MediaVault Glassmorphic Theme) ─── */
+
+.radio-view-container {
+  padding: 30px 40px 120px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Header & Search Bar */
+.radio-header {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 25px;
+}
+
+.radio-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.radio-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.radio-title-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(0, 173, 181, 0.2), rgba(0, 242, 254, 0.1));
+  border: 1px solid rgba(0, 173, 181, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent, #00adb5);
+  font-size: 20px;
+  box-shadow: 0 0 20px rgba(0, 173, 181, 0.15);
+}
+
+.radio-title-text h2 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #fff;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+.radio-title-text p {
+  font-size: 0.85rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+  margin: 2px 0 0 0;
+}
+
+/* Radio Live Search Bar */
+.radio-search-box {
+  position: relative;
+  width: 320px;
+  max-width: 100%;
+}
+
+.radio-search-box i {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.radio-search-input {
+  width: 100%;
+  padding: 12px 14px 12px 40px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 0.9rem;
+  outline: none;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.radio-search-input:focus {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--accent, #00adb5);
+  box-shadow: 0 0 15px rgba(0, 173, 181, 0.2);
+}
+
+/* Filter Chips Container */
+.radio-chips-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 5px;
+  scrollbar-width: none;
+}
+
+.radio-chips-container::-webkit-scrollbar {
+  display: none;
+}
+
+.radio-chip {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.radio-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(0, 173, 181, 0.3);
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.radio-chip.active {
+  background: linear-gradient(135deg, rgba(0, 173, 181, 0.25) 0%, rgba(0, 242, 254, 0.1) 100%);
+  border-color: var(--accent, #00adb5);
+  color: #fff;
+  box-shadow: 0 0 15px rgba(0, 173, 181, 0.25);
+}
+
+/* Radio Stations Grid — Compact & Sleek */
+.radio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.radio-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 110px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.radio-card:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), 0 0 15px rgba(255, 255, 255, 0.15);
+}
+
+.radio-card.playing {
+  border-color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.25) !important;
+}
+
+.radio-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.radio-favicon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.radio-favicon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3px;
+  box-sizing: border-box;
+}
+
+.radio-favicon-fallback {
+  color: var(--accent, #00adb5);
+  font-size: 20px;
+}
+
+.radio-badges-col {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.radio-fav-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.5);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.radio-fav-btn:hover {
+  background: rgba(236, 72, 153, 0.15);
+  border-color: rgba(236, 72, 153, 0.4);
+  color: #ec4899;
+  transform: scale(1.08);
+}
+
+.radio-fav-btn.active {
+  background: rgba(236, 72, 153, 0.2);
+  border-color: rgba(236, 72, 153, 0.5);
+  color: #ec4899;
+}
+
+.radio-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.radio-badge-country {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted, rgba(255, 255, 255, 0.7));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.radio-badge-bitrate {
+  background: rgba(0, 173, 181, 0.15);
+  color: #00f2fe;
+  border: 1px solid rgba(0, 173, 181, 0.3);
+}
+
+.radio-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.radio-station-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+.radio-station-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.5));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.radio-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 5px;
+}
+
+.radio-play-btn {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.radio-card:hover .radio-play-btn {
+  background: linear-gradient(135deg, #00adb5 0%, #00f2fe 100%);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(0, 173, 181, 0.4);
+}
+
+.radio-card.playing .radio-play-btn {
+  background: #ff4757;
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+}
+
+/* ─── Persistent Bottom Audio Player Bar ─── */
+/* ─── Slim Right-Side Radio Player ─────────────────────────────────────── */
+.radio-player-bar {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  transform: translateX(100%) translateY(-50%);
+  width: 72px;
+  height: auto;
+  max-height: 90vh;
+
+  /* Matches the app's sidebar/panel color exactly */
+  background: rgba(13, 14, 22, 0.97);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: none;
+  border-radius: 20px 0 0 20px;
+
+  box-shadow:
+    -8px 0 40px rgba(0, 0, 0, 0.7),
+    -1px 0 0 rgba(255, 255, 255, 0.04),
+    inset 1px 0 0 rgba(255, 255, 255, 0.04);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  z-index: 999;
+
+  opacity: 0;
+  pointer-events: none;
+
+  /* Slide-in from right animation */
+  transition:
+    transform 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.3s ease,
+    width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Active (open) state — slides in from right ── */
+.radio-player-bar.active {
+  transform: translateX(0) translateY(-50%);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Fixed width — slim 72px bar always ── */
+.radio-player-bar {
+  width: 72px;
+}
+
+.radio-player-text {
+  display: none !important;
+}
+
+.radio-player-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-top: 14px;
+}
+
+.radio-player-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+
+.radio-player-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.radio-player-live-tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #ff4757;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-top: 3px;
+}
+
+.radio-live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ff4757;
+  box-shadow: 0 0 6px #ff4757;
+  animation: radioPulse 1.5s infinite;
+}
+
+@keyframes radioPulse {
+  0%   { transform: scale(0.9); opacity: 0.6; }
+  50%  { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.6; }
+}
+
+/* ─ Controls: vertical icon strip ─ */
+.radio-player-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 0;
+  width: 100%;
+}
+
+.radio-ctrl-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: rgba(255,255,255,0.7);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.radio-ctrl-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: #ffffff;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.radio-ctrl-btn:hover {
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  color: #ffffff !important;
+  transform: scale(1.06);
+  box-shadow: 0 4px 18px rgba(255, 255, 255, 0.25) !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+
+.radio-ctrl-btn:hover::after { opacity: 0.15; }
+
+.radio-player-volume {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  padding: 12px 0 16px 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.radio-volume-icon {
+  color: rgba(255, 255, 255, 0.7) !important;
+  font-size: 13px !important;
+  margin: 0 auto !important;
+  display: block !important;
+  text-align: center !important;
+}
+
+.radio-volume-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 4px;
+  height: 72px;
+  cursor: pointer;
+  outline: none;
+  accent-color: #ffffff !important;
+  opacity: 1;
+  max-height: 72px;
+  margin: 0 auto !important;
+  display: block !important;
+}
+
+
+
+.radio-view-container {
+  padding: 30px 40px 40px;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 1:1 Realistic Skeleton Loading State */
+.radio-skeleton-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 18px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 160px;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+.radio-skeleton-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: radioSkeletonSweep 1.5s infinite ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes radioSkeletonSweep {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.radio-skeleton-block {
+  background: rgba(255, 255, 255, 0.06);
+  position: relative;
+  overflow: hidden;
+}
