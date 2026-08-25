@@ -1,11 +1,11 @@
 {
   "name": "meem",
-  "version": "2.7.1",
+  "version": "3.0.0",
   "description": "MEEM — Play Anything. Anytime.",
   "main": "main.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/amromotaw3/MediaVault-Setup.git"
+    "url": "git+https://github.com/amromotaw3/MEEM-Landing.git"
   },
   "scripts": {
     "start": "electron .",
@@ -90,7 +90,7 @@
         {
           "provider": "github",
           "owner": "amromotaw3",
-          "repo": "MEEM"
+          "repo": "MEEM-Landing"
         }
       ]
     },
