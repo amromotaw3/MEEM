@@ -38,10 +38,73 @@ function runCommand(command, args) {
     });
 }
 
+const https = require("https");
+const pkg = require("../package.json");
+
+async function publishDraftRelease(version) {
+    const token = process.env.GH_TOKEN;
+    const tag = `v${version}`;
+    
+    return new Promise((resolve) => {
+        const options = {
+            hostname: "api.github.com",
+            path: "/repos/amromotaw3/MEEM-Landing/releases",
+            method: "GET",
+            headers: {
+                "User-Agent": "MEEM-Release-Script",
+                "Authorization": `Bearer ${token}`,
+                "Accept": "application/vnd.github+json"
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let body = "";
+            res.on("data", chunk => body += chunk);
+            res.on("end", () => {
+                try {
+                    const releases = JSON.parse(body);
+                    if (Array.isArray(releases)) {
+                        const release = releases.find(r => r.tag_name === tag || r.name?.includes(version));
+                        if (release && release.draft) {
+                            console.log(`🚀 Publishing draft release ID ${release.id} (tag: ${tag}) to LIVE...`);
+                            const patchData = JSON.stringify({ draft: false, tag_name: tag });
+                            const patchReq = https.request({
+                                hostname: "api.github.com",
+                                path: `/repos/amromotaw3/MEEM-Landing/releases/${release.id}`,
+                                method: "PATCH",
+                                headers: {
+                                    "User-Agent": "MEEM-Release-Script",
+                                    "Authorization": `Bearer ${token}`,
+                                    "Accept": "application/vnd.github+json",
+                                    "Content-Type": "application/json",
+                                    "Content-Length": Buffer.byteLength(patchData)
+                                }
+                            }, () => {
+                                console.log(`✅ Release ${tag} is now LIVE on GitHub Releases!`);
+                                resolve();
+                            });
+                            patchReq.on("error", () => resolve());
+                            patchReq.write(patchData);
+                            patchReq.end();
+                            return;
+                        }
+                    }
+                    resolve();
+                } catch (e) {
+                    resolve();
+                }
+            });
+        });
+        req.on("error", () => resolve());
+        req.end();
+    });
+}
+
 async function start() {
     try {
-        console.log("🛠️ Starting Windows Build & Publish...");
+        console.log(`🛠️ Starting Windows Build & Publish for v${pkg.version}...`);
         await runCommand("npx", ["electron-builder", "--win", "nsis", "-p", "always"]);
+        await publishDraftRelease(pkg.version);
 
         console.log("🎉 Windows Release completed successfully!");
     } catch (error) {
