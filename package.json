@@ -1,6 +1,6 @@
 {
   "name": "meem",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "description": "MEEM — Play Anything. Anytime.",
   "main": "main.js",
   "repository": {
@@ -64,16 +64,9 @@
     "directories": {
       "output": "build_out"
     },
-    "extraResources": [
-      {
-        "from": "src/assets/VLC skin/MEEM-skin.vlt",
-        "to": "assets/VLC skin/MEEM-skin.vlt"
-      }
-    ],
     "asarUnpack": [
       "**/node_modules/youtube-dl-exec/bin/**/*",
-      "**/node_modules/webtorrent/**/*",
-      "**/src/assets/VLC skin/**/*"
+      "**/node_modules/webtorrent/**/*"
     ],
     "files": [
       "main.js",
