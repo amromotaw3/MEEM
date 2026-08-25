@@ -82,15 +82,15 @@
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "icon": "src/renderer/imgs/appicon.ico",
       "publish": [
         {
           "provider": "github",
           "owner": "amromotaw3",
-          "repo": "MEEM-Landing"
+          "repo": "MEEM-Landing",
+          "releaseType": "release"
         }
       ]
     },
