@@ -54,12 +54,14 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 let tray = null;
 let isQuitting = false;
 
-// Register custom protocol for deep-linking
+// Register custom protocol for deep-linking (support both 'meem' and 'mediavault')
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('meem', process.execPath, [path.resolve(process.argv[1])]);
     app.setAsDefaultProtocolClient('mediavault', process.execPath, [path.resolve(process.argv[1])]);
   }
 } else {
+  app.setAsDefaultProtocolClient('meem');
   app.setAsDefaultProtocolClient('mediavault');
 }
 

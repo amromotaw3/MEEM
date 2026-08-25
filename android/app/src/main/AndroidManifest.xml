@@ -41,6 +41,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Custom Deep Link: meem://callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="meem" android:host="callback" />
+            </intent-filter>
+
             <!-- Custom Deep Link: mediavault://callback -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
