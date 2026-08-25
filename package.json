@@ -1,6 +1,6 @@
 {
   "name": "meem",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "MEEM — Play Anything. Anytime.",
   "main": "main.js",
   "repository": {
@@ -90,6 +90,7 @@
           "provider": "github",
           "owner": "amromotaw3",
           "repo": "MEEM-Landing",
+          "draft": false,
           "releaseType": "release"
         }
       ]

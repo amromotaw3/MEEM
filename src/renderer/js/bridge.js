@@ -38,8 +38,8 @@
     if (isElectron) return;
 
     // Supabase configuration — set by supabase-public.js or preload (Electron)
-    const SUPABASE_URL = window.SUPABASE_URL || window.MEDIAVAULT_SUPABASE_URL || window.NEXT_PUBLIC_SUPABASE_URL;
-    const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || window.MEDIAVAULT_SUPABASE_ANON_KEY || window.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    const SUPABASE_URL = window.SUPABASE_URL || window.MEDIAVAULT_SUPABASE_URL || window.NEXT_PUBLIC_SUPABASE_URL || 'https://vvjnkgdrhyxilnderjdy.supabase.co';
+    const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || window.MEDIAVAULT_SUPABASE_ANON_KEY || window.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2am5rZ2RyaHl4aWxuZGVyamR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMTM2ODEsImV4cCI6MjA5NDg4OTY4MX0.Rb1OLJGXDToYZz-8h_gy2UNx_ou0P6BwGXc1ExFWSCU';
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       console.warn('[Bridge] Supabase config missing — load js/supabase-public.js or set env in .env');
     } else {

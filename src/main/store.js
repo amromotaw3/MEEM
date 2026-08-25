@@ -525,18 +525,9 @@ async function loadData() {
   const local = readLocalAppData() || {};
   const hardwareId = getHardwareId();
 
-  if (!local || local.authenticated !== true) {
-    console.log('[STORE] AppData cleared or user logged out (local.authenticated !== true). Returning logged-out state immediately.');
-    inMemorySession = null;
-    _cachedSupabaseSession = null;
-    return { authenticated: false, user: null, profiles: [], activeProfileId: null, hardwareId };
-  }
-
   // Restore cached Supabase session from disk so saveData works after restart
   if (local._supabaseSession && local._supabaseSession.access_token) {
     _cachedSupabaseSession = local._supabaseSession;
-     // Quiet background session restoration log
-     // console.log('[STORE] Restored Supabase session from disk.');
   }
 
   if (local && (local.banned === true || local.banned === 'true')) {
@@ -545,8 +536,6 @@ async function loadData() {
   }
 
   try {
-    // Mute redundant loading logs
-    // console.log(`[STORE] Loading cloud session for hardware ID: ${hardwareId}`);
     let data = null;
     try {
       const banned = await checkHardwareBan(hardwareId);
@@ -569,21 +558,6 @@ async function loadData() {
         if (resp?.data) data = resp.data;
       } catch (fbErr) {
         console.warn('[STORE] device-session HTTP fallback failed:', fbErr.message || fbErr);
-      }
-    }
-    if (data && !data.authenticated) {
-      console.warn('[STORE] Server explicitly returned authenticated: false. Invalidating session.');
-      if (data.user && (data.user.is_banned === true || data.user.is_banned === 'true')) {
-        console.warn('[STORE] User is banned:', data.user.email);
-        local.authenticated = false;
-        local.banned = true;
-        local.banReason = 'Your account has been suspended.';
-        writeLocalAppData(local, true);
-        return { ...local, authenticated: false, banned: true, banReason: local.banReason, hardwareId };
-      } else {
-        const clearedData = { ...local, authenticated: false, user: null, profiles: [], activeProfileId: null };
-        writeLocalAppData(clearedData, true);
-        return clearedData;
       }
     }
     if (data && data.authenticated) {
