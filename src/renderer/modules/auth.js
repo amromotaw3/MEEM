@@ -174,7 +174,7 @@
   }
 
   function getOAuthRedirectUrl() {
-    return 'https://mediavault-five.vercel.app/auth/callback?source=mobile';
+    return 'https://mediavault-five.vercel.app/auth/callback?source=app';
   }
 
   async function startOAuthLogin(provider, msgEl) {
