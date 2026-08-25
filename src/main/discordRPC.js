@@ -25,8 +25,8 @@ function initDiscordRPC(ipcMain) {
             details: details || 'In App',
             state: state,
             startTimestamp,
-            largeImageKey: 'mediavault-logo', // Requires asset uploaded to Discord developer portal
-            largeImageText: 'MediaVault',
+            largeImageKey: 'meem-logo', // Requires asset uploaded to Discord developer portal
+            largeImageText: 'MEEM',
             instance: false,
         }).catch(err => console.warn('[Discord RPC] Failed to set activity:', err.message));
     }

@@ -102,7 +102,7 @@ function initUpdater(win) {
       // Fallback to GitHub API check for PC if autoUpdater fails (e.g. in dev mode)
       try {
         const axios = require('axios');
-        const resp = await axios.get('https://api.github.com/repos/amromotaw3/MediaVault-Landing/releases/latest', { timeout: 8000 }).catch(() => null);
+        const resp = await axios.get('https://api.github.com/repos/amromotaw3/MEEM/releases/latest', { timeout: 8000 }).catch(() => null);
         if (resp && resp.data && resp.data.tag_name) {
           const latestVersion = resp.data.tag_name.replace('v', '').trim();
           const currentVersion = require('../../package.json').version;
