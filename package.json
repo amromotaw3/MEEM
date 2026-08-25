@@ -1,6 +1,6 @@
 {
   "name": "meem",
-  "version": "3.0.0",
+  "version": "2.7.0",
   "description": "MEEM — Play Anything. Anytime.",
   "main": "main.js",
   "repository": {
@@ -97,7 +97,7 @@
         {
           "provider": "github",
           "owner": "amromotaw3",
-          "repo": "MediaVault-Landing"
+          "repo": "MEEM"
         }
       ]
     },
