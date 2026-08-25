@@ -106,6 +106,7 @@ function stringSimilarity(a, b) {
 }
 
 window.renderUnifiedDetail = async function(item) {
+    window.currentUnifiedDetailItem = item;
     const { switchView } = window;
     const container = document.getElementById('view-discover-detail');
     if (!container) return false;
@@ -414,8 +415,8 @@ function setupUnifiedSkeleton(container, item) {
                 <div class="dd-panel-header">
                     <h3 id="dd-panel-title">Episodes</h3>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(0, 173, 181, 0.12); border: 1px solid rgba(0, 173, 181, 0.35); color: #00adb5; padding: 6px 12px; border-radius: 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="How Streams & Addons Work">
-                            <i class="fas fa-info-circle"></i> About
+                        <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); color: #ffffff; padding: 6px 12px; border-radius: 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="How Streams & Addons Work">
+                            <i class="fas fa-info-circle" style="color: #ffffff;"></i> About
                         </button>
                         <button class="dd-panel-close" onclick="document.getElementById('dd-side-panel').classList.remove('active')">
                             <i class="fas fa-times"></i>
@@ -432,8 +433,8 @@ function setupUnifiedSkeleton(container, item) {
                         <i class="fas fa-chevron-left"></i>
                     </button>
                     <h3 id="dd-mobile-panel-title">Episodes</h3>
-                    <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(0, 173, 181, 0.12); border: 1px solid rgba(0, 173, 181, 0.35); color: #00adb5; padding: 6px 12px; border-radius: 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="How Streams & Addons Work">
-                        <i class="fas fa-info-circle"></i> About
+                    <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); color: #ffffff; padding: 6px 12px; border-radius: 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="How Streams & Addons Work">
+                        <i class="fas fa-info-circle" style="color: #ffffff;"></i> About
                     </button>
                 </div>
                 <div class="dd-mobile-panel-content" id="dd-mobile-panel-content"></div>
@@ -2128,8 +2129,8 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                         <div id="dd-streams-container-unified" style="display:none">
                             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                                 <button class="dd-panel-back-to-ep" onclick="window.backToEpisodes()"><i class="fas fa-chevron-left"></i> Back to Episodes</button>
-                                <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(0, 173, 181, 0.12); border: 1px solid rgba(0, 173, 181, 0.35); color: #00adb5; padding: 5px 12px; border-radius: 10px; font-weight: 700; font-size: 0.76rem; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
-                                    <i class="fas fa-info-circle"></i> About Streams
+                                <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); color: #ffffff; padding: 5px 12px; border-radius: 10px; font-weight: 700; font-size: 0.76rem; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                    <i class="fas fa-info-circle" style="color: #ffffff;"></i> About Streams
                                 </button>
                             </div>
                             <div id="dd-streams-list" class="dd-streams-list-unified active"></div>

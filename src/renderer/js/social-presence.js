@@ -768,7 +768,7 @@
           appendMessageToUI({
             ...sendRes.data,
             profile_name: currentProfile.name || 'You',
-            profile_avatar: currentProfile.avatar || 'imgs/avatars/default.jpg',
+            profile_avatar: currentProfile.avatar || 'imgs/avatars/default.png',
             avatar_border_color: currentProfile.avatar_border_color || 'rgba(129,140,248,0.6)'
           });
         }
@@ -883,7 +883,7 @@
           row.className = 'vault-chat-member-row';
           row.innerHTML = `
             <div class="vault-chat-member-info">
-              <div class="vault-chat-member-avatar" style="background-image: url('${ownerProf.avatar || 'imgs/avatars/default.jpg'}'); border-color: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,0.25);"></div>
+              <div class="vault-chat-member-avatar" style="background-image: url('${ownerProf.avatar || 'imgs/avatars/default.png'}'); border-color: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,0.25);"></div>
               <div>
                 <div class="vault-chat-member-name">${escapeHTML(ownerProf.name)}</div>
                 <div style="font-size: 10px; color: #fbbf24; font-weight: 700; margin-top: 2px;"><i class="fas fa-crown" style="margin-right: 3px;"></i>Owner</div>
@@ -901,7 +901,7 @@
             row.className = 'vault-chat-member-row';
             row.innerHTML = `
               <div class="vault-chat-member-info">
-                <div class="vault-chat-member-avatar" style="background-image: url('${member.avatar || 'imgs/avatars/default.jpg'}'); border-color: #818cf8;"></div>
+                <div class="vault-chat-member-avatar" style="background-image: url('${member.avatar || 'imgs/avatars/default.png'}'); border-color: #818cf8;"></div>
                 <div class="vault-chat-member-name">${escapeHTML(member.name)}</div>
               </div>
               <div class="vault-chat-member-actions">
@@ -1110,7 +1110,7 @@
                   appendMessageToUI({
                     ...payload.new,
                     profile_name: profData?.name || 'Friend',
-                    profile_avatar: profData?.avatar || 'imgs/avatars/default.jpg',
+                    profile_avatar: profData?.avatar || 'imgs/avatars/default.png',
                     avatar_border_color: profData?.avatar_border_color || 'rgba(129,140,248,0.6)'
                   });
                 } catch (err) {
@@ -1171,7 +1171,7 @@
             created_at: msg.created_at,
             profile_id: msg.profile_id,
             profile_name: profData?.name || 'Friend',
-            profile_avatar: profData?.avatar || 'imgs/avatars/default.jpg',
+            profile_avatar: profData?.avatar || 'imgs/avatars/default.png',
             avatar_border_color: profData?.avatar_border_color || 'rgba(129,140,248,0.6)'
           }, false);
         });
@@ -1276,8 +1276,8 @@
     if (isOwnMessage && window.currentProfile?.avatar) {
       avatar = window.currentProfile.avatar;
     }
-    if (!avatar || avatar.includes('default.jpg')) {
-      avatar = 'imgs/avatars/default.jpg';
+    if (!avatar || avatar.includes('default.png')) {
+      avatar = 'imgs/avatars/default.png';
     }
     if (typeof window.localImg === 'function') avatar = window.localImg(avatar);
 
@@ -1622,7 +1622,7 @@
         if (watcherProfile) {
           const badge = document.createElement('div');
           badge.className = 'social-presence-badge' + (isWatchingActive ? ' watching' : '');
-          badge.style.backgroundImage = `url('${watcherProfile.avatar || 'imgs/avatars/default.jpg'}')`;
+          badge.style.backgroundImage = `url('${watcherProfile.avatar || 'imgs/avatars/default.png'}')`;
           
           if (isWatchingActive) {
             badge.title = `${watcherProfile.name} is currently watching this!`;
@@ -1737,7 +1737,7 @@
             if (prof) {
               const av = document.createElement('div');
               av.className = 'ep-row-presence-avatar';
-              av.style.backgroundImage = `url('${prof.avatar || 'imgs/avatars/default.jpg'}')`;
+              av.style.backgroundImage = `url('${prof.avatar || 'imgs/avatars/default.png'}')`;
               av.title = `${prof.name} is on this episode`;
               container.appendChild(av);
             }
@@ -1848,7 +1848,7 @@
           created_at: msg.created_at,
           profile_id: msg.profile_id,
           profile_name: profData?.name || 'Friend',
-          profile_avatar: profData?.avatar || 'imgs/avatars/default.jpg',
+          profile_avatar: profData?.avatar || 'imgs/avatars/default.png',
           avatar_border_color: profData?.avatar_border_color || 'rgba(129,140,248,0.6)'
         });
       });
@@ -1930,7 +1930,7 @@
         if (count >= 4) return;
         const avatar = document.createElement('div');
         avatar.className = 'friend-avatar';
-        avatar.style.backgroundImage = `url('${profile.avatar || 'imgs/avatars/default.jpg'}')`;
+        avatar.style.backgroundImage = `url('${profile.avatar || 'imgs/avatars/default.png'}')`;
         avatar.title = `${profile.name} invited you`;
         avatarsEl.appendChild(avatar);
         count++;

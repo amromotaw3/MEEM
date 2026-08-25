@@ -124,7 +124,7 @@ var $ = s => document.querySelector(s);
 var $$ = s => Array.from(document.querySelectorAll(s));
 
 var AVATARS = [
-  'imgs/avatars/default.jpg'
+  'imgs/avatars/default.png'
 ];
 
 var DEFAULT_AVATAR_SVG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="%23333"><circle cx="12" cy="12" r="10" fill="%23222"/><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="%23666"/></svg>';

@@ -132,12 +132,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (p.startsWith('http')) {
       const cached = localStorage.getItem('cache_banner_' + p);
       if (cached) {
-        // Clear old cached URLs that have the 'banner_' prefix in the filename
-        if (cached.includes('banner_')) {
-          localStorage.removeItem('cache_banner_' + p);
-        } else {
-          return cached;
-        }
+        return cached;
       }
       // Trigger background cache download if running in Electron
       if (window.api && window.api.downloadImage) {
@@ -1046,7 +1041,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   }
 
   const AVATARS = [
-    'imgs/avatars/default.jpg'
+    'imgs/avatars/default.png'
   ];
 
   const DEFAULT_AVATAR_SVG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="%23333"><circle cx="12" cy="12" r="10" fill="%23222"/><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="%23666"/></svg>';
@@ -1982,6 +1977,144 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     cm.style.top = top + 'px';
   };
 
+  window.hideContextMenu = function() {
+    const cm = $('#context-menu');
+    if (cm) cm.style.display = 'none';
+  };
+
+  // Capture phase listener to reliably dismiss context menu on any pointer click outside
+  window.addEventListener('pointerdown', e => {
+    const cm = $('#context-menu');
+    if (cm && cm.style.display !== 'none' && !cm.contains(e.target)) {
+      cm.style.display = 'none';
+    }
+  }, true);
+
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      window.hideContextMenu();
+    }
+  });
+
+  window.addEventListener('contextmenu', e => {
+    const isCard = e.target.closest('.media-card, .card, .season-episode-item, .collection-card, .ctx-item, #context-menu');
+    if (isCard) return;
+
+    const activeDetailItem = window.currentUnifiedDetailItem || currentShow;
+    if ((currentView === 'show-detail' || currentView === 'discover-detail') && activeDetailItem) {
+      e.preventDefault();
+      window.openContextMenuForItem(activeDetailItem, e);
+      return;
+    }
+
+    e.preventDefault();
+    window.hideContextMenu();
+  }, false);
+
+  window.openContextMenuForItem = function(item, e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    contextTarget = item;
+    if (!item) return;
+
+    const cm = $('#context-menu');
+    if (!cm) return;
+
+    // Reset ALL menu buttons and dividers to hidden first using setProperty to override any inline styles
+    cm.querySelectorAll('.ctx-item').forEach(el => el.style.setProperty('display', 'none', 'important'));
+    cm.querySelectorAll('.ctx-divider').forEach(el => el.style.setProperty('display', 'none', 'important'));
+
+    const isCustomList = !!(item.isCustomList);
+    if (isCustomList) {
+      const deleteBtn = $('#ctx-delete');
+      if (deleteBtn) {
+        deleteBtn.style.setProperty('display', 'flex', 'important');
+        const deleteLabel = $('#ctx-delete-label');
+        if (deleteLabel) deleteLabel.textContent = 'Delete Collection';
+      }
+      if (e) window.positionContextMenu(e);
+      return;
+    }
+
+    const isShow = item.type === 'show' || item.type === 'series' || item.type === 'tv' || item.media_type === 'tv' || !!(item.episodes);
+    const isMovie = item.type === 'movie' || item.media_type === 'movie';
+    const isMovieOrShow = isMovie || isShow;
+    const isMusic = !isMovieOrShow && (item.type === 'music' || item.isMusic === true || !!(item.audioUrl));
+    const isRadio = item.type === 'radio' || !!(item.radioUrl);
+    const isIptv = item.type === 'iptv' || !!(item.streamUrl && !item.path);
+    const isLive = isRadio || isIptv;
+    const isLocalVideo = (item.isLocal || (item.path && !item.path.startsWith('http') && !item.path.startsWith('tmdb:') && !item.path.startsWith('stremio:'))) && !isMovieOrShow && !isLive && !isMusic;
+    const isOnlineMedia = !isLocalVideo && !isLive && !isMusic;
+
+    // Pin & Lock Labels
+    const pl = $('#ctx-pin-label');
+    if (pl) pl.textContent = (currentProfile?.pinned || []).includes(item.id) ? 'Unpin' : 'Pin';
+    const ll = $('#ctx-lock-label');
+    if (ll) ll.textContent = (currentProfile?.lockedItems || []).includes(item.id) ? 'Unlock Item' : 'Lock Item';
+
+    // Group 1: Play & Pin
+    let showDiv1 = false;
+    if ($('#ctx-play')) { $('#ctx-play').style.setProperty('display', 'flex', 'important'); showDiv1 = true; }
+    if ($('#ctx-pin')) { $('#ctx-pin').style.setProperty('display', 'flex', 'important'); showDiv1 = true; }
+
+    // Group 2: Metadata / Customization
+    let showDiv2 = false;
+    if (isMusic) {
+      // STRICTLY MUSIC ONLY!
+      if ($('#ctx-edit-music')) { $('#ctx-edit-music').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-delete-music')) { $('#ctx-delete-music').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+    } else {
+      // MOVIES & SERIES & VIDEOS (NEVER MUSIC!)
+      if ($('#ctx-tmdb-search') && (isLocalVideo || (isOnlineMedia && !isLive))) { $('#ctx-tmdb-search').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-cover') && isLocalVideo) { $('#ctx-cover').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-rename') && isLocalVideo) { $('#ctx-rename').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-rename-tmdb') && isLocalVideo && (item.tmdbId || item.id || item._tmdbName)) { $('#ctx-rename-tmdb').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-regen-thumb') && isLocalVideo) { $('#ctx-regen-thumb').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+    }
+
+    // Group 3: Progress & Removal
+    let showDiv3 = false;
+    const watchedBtn = $('#ctx-watched');
+    if (watchedBtn && (isLocalVideo || isOnlineMedia || isShow) && !isLive && !isMusic) {
+      watchedBtn.style.display = 'flex';
+      showDiv3 = true;
+      const wl = $('#ctx-watched-label');
+      if (wl) {
+        const pbKey = getPlaybackKey(item);
+        const isW = currentProfile?.playback?.[pbKey]?.watched || (currentProfile?.playback?.[pbKey]?.duration > 0 && (currentProfile.playback[pbKey].time / currentProfile.playback[pbKey].duration) > .9);
+        wl.textContent = isW ? 'Remove from Watched' : 'Mark as Watched';
+      }
+    }
+
+    const canDelete = isLocalVideo || ['watchlist', 'custom-list-detail'].includes(currentView);
+    if ($('#ctx-delete') && canDelete && !isMusic) {
+      $('#ctx-delete').style.display = 'flex';
+      showDiv3 = true;
+      const deleteLabel = $('#ctx-delete-label');
+      if (deleteLabel) {
+        if (currentView === 'custom-list-detail') {
+          deleteLabel.textContent = 'Remove from Collection';
+        } else if (currentView === 'watchlist') {
+          deleteLabel.textContent = 'Remove from Watchlist';
+        } else {
+          deleteLabel.textContent = 'Delete File';
+        }
+      }
+    }
+
+    // Group 4: Security
+    if ($('#ctx-lock')) $('#ctx-lock').style.display = 'flex';
+
+    // Set Dividers
+    if ($('#ctx-div-1')) $('#ctx-div-1').style.display = (showDiv1 && showDiv2) ? 'block' : 'none';
+    if ($('#ctx-div-2')) $('#ctx-div-2').style.display = (showDiv2 && showDiv3) ? 'block' : 'none';
+    if ($('#ctx-div-3')) $('#ctx-div-3').style.display = 'block';
+
+    if (e) window.positionContextMenu(e);
+  };
+
   // ── Toast Queue System ──────────────────────────────────────────────────
   // Each showToast() call is enqueued. Toasts fire one at a time, each for
   // its full requested duration before the next one dequeues.
@@ -2571,12 +2704,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       img.onclick = () => {
         selector.querySelectorAll('.avatar-opt').forEach(el => el.classList.remove('selected'));
         img.classList.add('selected');
-        selectedAvatar = profile.avatar;
-        const targetId = editingProfileId;
-        const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : null;
+        selectedAvatar = profile ? profile.avatar : selectedAvatar;
+        const targetId = editingProfileId || (currentProfile ? currentProfile.id : null) || appData.activeProfileId;
+        const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : appData.profiles?.[0];
         if (prof) {
           prof.avatar = selectedAvatar;
-          persist();
+          if (currentProfile && currentProfile.id === prof.id) {
+            currentProfile.avatar = selectedAvatar;
+          }
+          persist(true);
           renderProfilePicker();
           renderProfileWidget();
           renderAccount();
@@ -2661,10 +2797,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             const { data: publicUrlData } = client.storage.from('avatars').getPublicUrl(fileName);
             const publicUrl = publicUrlData.publicUrl;
             setSelectedAvatar(publicUrl);
-            // Immediately persist the new avatar to the active profile in appData
-            const targetId = editingProfileId;
-            const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : null;
-            if (prof) { prof.avatar = publicUrl; persist(); }
+            const targetId = editingProfileId || (currentProfile ? currentProfile.id : null) || appData.activeProfileId;
+            const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : appData.profiles?.[0];
+            if (prof) {
+              prof.avatar = publicUrl;
+              if (currentProfile && currentProfile.id === prof.id) {
+                currentProfile.avatar = publicUrl;
+              }
+            }
+            if (typeof renderProfileWidget === 'function') renderProfileWidget();
+            if (typeof renderProfilePicker === 'function') renderProfilePicker();
+            await persist(true);
             showToast('Avatar uploaded successfully!');
           }
         } else {
@@ -8238,29 +8381,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           renderCustomListDetail(list.id);
         };
         card.oncontextmenu = e => {
-          e.preventDefault();
-          contextTarget = { id: list.id, name: list.name, isCustomList: true };
-
-          // Reset all default menu options
-          $('#ctx-play').style.display = 'none';
-          $('#ctx-pin').style.display = 'none';
-          $('#ctx-tmdb-search').style.display = 'none';
-          $('#ctx-cover').style.display = 'none';
-          $('#ctx-edit-music').style.display = 'none';
-          $('#ctx-delete-music').style.display = 'none';
-          $('#ctx-rename').style.display = 'none';
-          $('#ctx-regen-thumb').style.display = 'none';
-          if ($('#ctx-rename-tmdb')) $('#ctx-rename-tmdb').style.display = 'none';
-          if ($('#ctx-watched')) $('#ctx-watched').style.display = 'none';
-
-          const deleteBtn = $('#ctx-delete');
-          if (deleteBtn) {
-            deleteBtn.style.display = 'flex';
-            const deleteLabel = $('#ctx-delete-label');
-            if (deleteLabel) deleteLabel.textContent = 'Delete Collection';
-          }
-
-          window.positionContextMenu(e);
+          window.openContextMenuForItem({ id: list.id, name: list.name, isCustomList: true }, e);
         };
         return card;
       };
@@ -8362,7 +8483,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             border-radius: 50%;
             border: 1.5px solid ${p.isOwner ? '#fbbf24' : '#818cf8'};
             box-shadow: 0 0 8px ${p.isOwner ? 'rgba(251,191,36,0.3)' : 'rgba(129,140,248,0.3)'};
-            background-image: url('${p.avatar || 'imgs/avatars/default.jpg'}');
+            background-image: url('${p.avatar || 'imgs/avatars/default.png'}');
             background-size: cover;
             background-position: center;
           `;
@@ -8422,6 +8543,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       items = items.filter(i =>
         (i.title || i.name || i.original_title || '').toLowerCase().includes(q)
       );
+    }
+
+    const listCountEl = $('#custom-list-count');
+    if (listCountEl) {
+      listCountEl.textContent = `${items.length} ${items.length === 1 ? 'ITEM' : 'ITEMS'}`;
+      listCountEl.style.display = 'inline-block';
     }
 
     if (items.length === 0) {
@@ -9412,23 +9539,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
       card.onclick = () => playVideo({ ...v, id: v.path, title, path: v.path, type: 'social', isSocial: true }, null);
       card.oncontextmenu = e => {
-        e.preventDefault();
-        contextTarget = { ...v, id: v.path, title, path: v.path, type: 'social', filename: v.name };
-
-        // Reset options hidden by custom lists
-        if ($('#ctx-play')) $('#ctx-play').style.display = 'flex';
-        if ($('#ctx-pin')) $('#ctx-pin').style.display = 'flex';
-
-        // Hide non-relevant items
-        $('#ctx-tmdb-search').style.display = 'none';
-        $('#ctx-cover').style.display = 'none';
-        $('#ctx-edit-music').style.display = 'none';
-        $('#ctx-rename').style.display = 'flex';
-        $('#ctx-regen-thumb').style.display = 'flex';
-        $('#ctx-delete').style.display = 'flex';
-        if ($('#ctx-watched')) $('#ctx-watched').style.display = 'none';
-
-        window.positionContextMenu(e);
+        window.openContextMenuForItem({ ...v, id: v.path, title, path: v.path, type: 'social', filename: v.name, isLocal: true }, e);
       };
       g.appendChild(card);
     });
@@ -9790,65 +9901,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       openDiscoverDetail(item);
     };
     card.oncontextmenu = e => {
-      e.preventDefault();
-      contextTarget = item;
-      const pl = $('#ctx-pin-label');
-      if (pl) pl.textContent = (currentProfile?.pinned || []).includes(item.id) ? 'Unpin' : 'Pin';
-      const ll = $('#ctx-lock-label');
-      if (ll) ll.textContent = (currentProfile?.lockedItems || []).includes(item.id) ? 'Unlock Item' : 'Lock Item';
-
-      const isShow = item.type === 'show' || item.type === 'series' || item.type === 'tv' || !!(item.episodes);
-      const isMusic = item.type === 'music';
-      const isRadio = item.type === 'radio' || !!(item.radioUrl);
-      const isIptv = item.type === 'iptv' || !!(item.streamUrl && !item.path);
-      const isLive = isRadio || isIptv;
-      const isLocalVideo = (item.isLocal || (item.path && !item.path.startsWith('http') && !item.path.startsWith('tmdb:') && !item.path.startsWith('stremio:'))) && !isShow && !isLive;
-      const isOnlineMedia = !isLocalVideo && !isLive && !isMusic;
-
-      if ($('#ctx-play')) $('#ctx-play').style.display = 'flex';
-      if ($('#ctx-pin')) $('#ctx-pin').style.display = 'flex';
-
-      // Music actions
-      if ($('#ctx-edit-music')) $('#ctx-edit-music').style.display = isMusic ? 'flex' : 'none';
-      if ($('#ctx-delete-music')) $('#ctx-delete-music').style.display = isMusic ? 'flex' : 'none';
-
-      // Video & metadata actions (hidden for Live Radio & IPTV)
-      if ($('#ctx-tmdb-search')) $('#ctx-tmdb-search').style.display = (isLocalVideo || (isOnlineMedia && !isLive)) ? 'flex' : 'none';
-      if ($('#ctx-cover')) $('#ctx-cover').style.display = isLocalVideo ? 'flex' : 'none';
-      if ($('#ctx-rename')) $('#ctx-rename').style.display = isLocalVideo ? 'flex' : 'none';
-      if ($('#ctx-rename-tmdb')) $('#ctx-rename-tmdb').style.display = (isLocalVideo && (item.tmdbId || item.id)) ? 'flex' : 'none';
-      if ($('#ctx-regen-thumb')) $('#ctx-regen-thumb').style.display = isLocalVideo ? 'flex' : 'none';
-
-      // Delete action (Watchlist removal, Collection removal, or File deletion)
-      const canDelete = isLocalVideo || ['watchlist', 'custom-list-detail'].includes(currentView);
-      if ($('#ctx-delete')) {
-        $('#ctx-delete').style.display = (canDelete && !isMusic) ? 'flex' : 'none';
-        const deleteLabel = $('#ctx-delete-label');
-        if (deleteLabel) {
-          if (currentView === 'custom-list-detail') {
-            deleteLabel.textContent = 'Remove from Collection';
-          } else if (currentView === 'watchlist') {
-            deleteLabel.textContent = 'Remove from Watchlist';
-          } else {
-            deleteLabel.textContent = 'Delete File';
-          }
-        }
-      }
-
-      // Mark as Watched (Only for movies/videos, NEVER for Live streams or Music)
-      const watchedBtn = $('#ctx-watched');
-      if (watchedBtn) {
-        const showWatched = (isLocalVideo || isOnlineMedia) && !isLive && !isMusic;
-        watchedBtn.style.display = showWatched ? 'flex' : 'none';
-        const wl = $('#ctx-watched-label');
-        if (wl && showWatched) {
-          const pbKey = getPlaybackKey(item);
-          const isW = currentProfile?.playback?.[pbKey]?.watched || (currentProfile?.playback?.[pbKey]?.duration > 0 && (currentProfile.playback[pbKey].time / currentProfile.playback[pbKey].duration) > .9);
-          wl.textContent = isW ? 'Remove from Watched' : 'Mark as Watched';
-        }
-      }
-
-      window.positionContextMenu(e);
+      window.openContextMenuForItem(item, e);
     };
 
     // --- Dynamic Hover Preview ---
@@ -10048,10 +10101,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       badgeRow.innerHTML += `<span class="tmdb-badge" style="background:rgba(0,173,181,0.15); border-color:rgba(0,173,181,0.3); color:#00adb5; font-weight:800;">${localAgeRating}</span>`;
     }
 
-    const countBadge = document.createElement('span');
-    countBadge.className = 'tmdb-badge';
-    countBadge.style = 'background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); font-weight: 700;';
-    badgeRow.appendChild(countBadge);
+    let countBadge = null;
+    const epCount = currentEpisodes.length;
+    const epText = epCount > 0 ? `${epCount} ${epCount === 1 ? 'Episode' : 'Episodes'}` : (show.parts?.length ? `${show.parts.length} Parts` : '');
+    if (epText) {
+      countBadge = document.createElement('span');
+      countBadge.className = 'tmdb-badge';
+      countBadge.style = 'background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); font-weight: 700;';
+      countBadge.textContent = epText;
+      badgeRow.appendChild(countBadge);
+      
+      const countEl = $('#show-detail-count');
+      if (countEl) {
+        countEl.textContent = `${epCount || show.parts?.length || 0} ITEMS`;
+        countEl.style.display = 'inline-block';
+      }
+    }
 
     if (tmdb) {
       const rVal = tmdb.rating ? parseFloat(tmdb.rating) : 0;
@@ -10135,7 +10200,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     el.appendChild(hero);
 
     const filtered = (currentPart && Array.isArray(currentEpisodes)) ? currentEpisodes.filter(e => e.partName === currentPart) : (Array.isArray(currentEpisodes) ? currentEpisodes : []);
-    countBadge.textContent = `${filtered.length} Episodes`;
+    if (countBadge) countBadge.textContent = `${filtered.length} Episodes`;
 
     const seasons = {};
     if (Array.isArray(filtered)) {
@@ -10270,41 +10335,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             </div>`;
           it.onclick = () => { currentEpisodeIndex = idx; playVideo(ep, show); };
           it.oncontextmenu = e => {
-            e.preventDefault();
-            contextTarget = ep;
-            contextTarget._tmdbName = tE?.name ? `E${ep.episode} - ${tE.name.replace(/[\\/:*?"<>|]/g, '').trim()}` : null;
-
-            const pl = $('#ctx-pin-label');
-            if (pl) pl.textContent = (currentProfile?.pinned || []).includes(ep.id) ? 'Unpin' : 'Pin';
-            const ll = $('#ctx-lock-label');
-            if (ll) ll.textContent = (currentProfile?.lockedItems || []).includes(ep.id) ? 'Unlock Item' : 'Lock Item';
-
-            // Reset options hidden by custom lists
-            if ($('#ctx-play')) $('#ctx-play').style.display = 'flex';
-            if ($('#ctx-pin')) $('#ctx-pin').style.display = 'flex';
-
-            if ($('#ctx-edit-music')) $('#ctx-edit-music').style.display = 'none';
-            if ($('#ctx-delete-music')) $('#ctx-delete-music').style.display = 'none';
-            if ($('#ctx-tmdb-search')) $('#ctx-tmdb-search').style.display = 'none';
-            if ($('#ctx-cover')) $('#ctx-cover').style.display = 'none';
-            if ($('#ctx-rename')) $('#ctx-rename').style.display = 'flex';
-            if ($('#ctx-rename-tmdb')) $('#ctx-rename-tmdb').style.display = contextTarget._tmdbName ? 'flex' : 'none';
-            const isLocalEp = ep.path && !ep.path.startsWith('http');
-            $('#ctx-regen-thumb').style.display = isLocalEp ? 'flex' : 'none';
-            if ($('#ctx-delete')) $('#ctx-delete').style.display = 'flex';
-
-            const watchedBtn = $('#ctx-watched');
-            if (watchedBtn) {
-              watchedBtn.style.display = 'flex';
-              const wl = $('#ctx-watched-label');
-              if (wl) {
-                const pbKey = getPlaybackKey(ep);
-                const isW = currentProfile?.playback?.[pbKey]?.watched || (currentProfile?.playback?.[pbKey]?.duration > 0 && (currentProfile.playback[pbKey].time / currentProfile.playback[pbKey].duration) > .9);
-                wl.textContent = isW ? 'Remove from Watched' : 'Mark as Watched';
-              }
-            }
-
-            window.positionContextMenu(e);
+            ep._tmdbName = tE?.name ? `E${ep.episode} - ${tE.name.replace(/[\\/:*?"<>|]/g, '').trim()}` : null;
+            window.openContextMenuForItem(ep, e);
           };
           seasonContainer.appendChild(it);
         });
@@ -11798,6 +11830,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   let discoverHeroIndex = 0;
   let discoverHeroInterval = null;
 
+  function resolveHeroBackdrop(raw) {
+    if (!raw) return '';
+    const s = String(raw).trim();
+    if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('file://')) {
+      return s;
+    }
+    if (s.startsWith('/tt') || s.startsWith('tt')) {
+      const cleanId = s.replace(/^\//, '').split('/')[0];
+      return `https://images.metahub.space/poster/medium/${cleanId}/img`;
+    }
+    if (s.startsWith('/')) {
+      return `https://image.tmdb.org/t/p/w1280${s}`;
+    }
+    return `https://image.tmdb.org/t/p/w1280/${s}`;
+  }
+
   function updateDiscoverHeroDisplay() {
     const hero = $('#discover-hero');
     if (!hero || discoverHeroItems.length === 0) return;
@@ -11805,7 +11853,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (!item) return;
 
     const title = item.title || item.name || 'Unknown';
-    const backdrop = item.backdrop_path || item.background || item.poster_path || item.poster || '';
+    const rawBackdrop = item.backdrop_path || item.background || item.backdrop || item.poster_path || item.poster || '';
+    const backdrop = resolveHeroBackdrop(rawBackdrop);
     const year = (item.release_date || item.first_air_date || item.seasonYear || '').toString().slice(0, 4);
     const rating = item.vote_average ? parseFloat(item.vote_average).toFixed(1) : (item.score || 'N/A');
     const isAnime = item.source === 'anilist' || item.source === 'mal' || item.format;
@@ -11907,6 +11956,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               }
             })
             .catch(err => console.warn('[DiscoverHero] Cinemeta enrichment failed:', err));
+        }
+      } else if (!item.backdrop_path && !item.background) {
+        const queryTitle = item.title || item.name || '';
+        if (queryTitle) {
+          const itemType = (item.media_type === 'tv' || item.type === 'series') ? 'tv' : 'movie';
+          window.api.searchTmdb(queryTitle, itemType)
+            .then(res => {
+              const results = Array.isArray(res) ? res : (res?.results || []);
+              if (results && results.length > 0 && results[0].backdrop_path) {
+                item.backdrop_path = results[0].backdrop_path;
+                updateDiscoverHeroDisplay();
+              }
+            })
+            .catch(e => console.warn('[DiscoverHero] TMDB backdrop enrichment failed:', e));
         }
       }
 
@@ -14276,27 +14339,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       `;
       card.onclick = () => playMusic(item);
       card.oncontextmenu = e => {
-        e.preventDefault();
-        contextTarget = item;
-        const pl = $('#ctx-pin-label');
-        if (pl) pl.textContent = (currentProfile?.pinned || []).includes(item.id) ? 'Unpin' : 'Pin';
-        const ll = $('#ctx-lock-label');
-        if (ll) ll.textContent = (currentProfile?.lockedItems || []).includes(item.id) ? 'Unlock Item' : 'Lock Item';
-
-        // Reset options hidden by custom lists
-        if ($('#ctx-play')) $('#ctx-play').style.display = 'flex';
-        if ($('#ctx-pin')) $('#ctx-pin').style.display = 'flex';
-
-        const isMusic = item.type === 'music';
-        $('#ctx-edit-music').style.display = isMusic ? 'flex' : 'none';
-        $('#ctx-delete-music').style.display = isMusic ? 'flex' : 'none';
-        $('#ctx-tmdb-search').style.display = isMusic ? 'none' : 'flex';
-        $('#ctx-cover').style.display = 'flex'; // Enable for both music and video
-        if ($('#ctx-rename')) $('#ctx-rename').style.display = isMusic ? 'none' : 'flex';
-        if ($('#ctx-delete')) $('#ctx-delete').style.display = isMusic ? 'none' : 'flex';
-        if ($('#ctx-watched')) $('#ctx-watched').style.display = 'none';
-
-        window.positionContextMenu(e);
+        window.openContextMenuForItem({ ...item, type: 'music', isMusic: true }, e);
       };
       grid.appendChild(card);
     });

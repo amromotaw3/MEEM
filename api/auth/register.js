@@ -9,8 +9,8 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { email, password } = req.body || {};
-  const result = await registerUser(email, password);
+  const { email, password, hardware_id } = req.body || {};
+  const result = await registerUser(email, password, hardware_id);
 
   if (result.error) {
     const status = result.error.includes('already exists') ? 409 : 400;

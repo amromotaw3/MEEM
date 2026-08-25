@@ -154,7 +154,7 @@
     const grid = $('#genre-grid');
     if (grid) {
       grid.innerHTML = '';
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 24; i++) {
         const skel = document.createElement('div');
         skel.className = 'discover-card-skeleton';
         skel.innerHTML = `<div class="discover-poster-wrap" style="aspect-ratio:2/3.1;background:var(--bg-surface-2);border-radius:12px;animation:pulse 1.5s infinite"></div>`;
@@ -597,6 +597,22 @@
     });
   }
 
+  function resolveHeroBackdrop(raw) {
+    if (!raw) return '';
+    const s = String(raw).trim();
+    if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('file://')) {
+      return s;
+    }
+    if (s.startsWith('/tt') || s.startsWith('tt')) {
+      const cleanId = s.replace(/^\//, '').split('/')[0];
+      return `https://images.metahub.space/poster/medium/${cleanId}/img`;
+    }
+    if (s.startsWith('/')) {
+      return `https://image.tmdb.org/t/p/w1280${s}`;
+    }
+    return `https://image.tmdb.org/t/p/w1280/${s}`;
+  }
+
   function updateDiscoverHeroDisplay() {
     const hero = $('#discover-hero');
     if (!hero || discoverHeroItems.length === 0) return;
@@ -604,7 +620,8 @@
     if (!item) return;
 
     const title = item.title || item.name || 'Unknown';
-    const backdrop = item.backdrop_path || item.background || item.poster_path || item.poster || '';
+    const rawBackdrop = item.backdrop_path || item.background || item.backdrop || item.poster_path || item.poster || '';
+    const backdrop = resolveHeroBackdrop(rawBackdrop);
     const year = (item.release_date || item.first_air_date || item.seasonYear || '').toString().slice(0, 4);
     const rating = item.vote_average ? parseFloat(item.vote_average).toFixed(1) : (item.score || 'N/A');
     const isAnime = item.source === 'anilist' || item.source === 'mal' || item.format;
@@ -710,6 +727,20 @@
               }
             })
             .catch(err => console.warn('[DiscoverHero] Cinemeta enrichment failed:', err));
+        }
+      } else if (!item.backdrop_path && !item.background) {
+        const queryTitle = item.title || item.name || '';
+        if (queryTitle) {
+          const itemType = (item.media_type === 'tv' || item.type === 'series') ? 'tv' : 'movie';
+          window.api.searchTmdb(queryTitle, itemType)
+            .then(res => {
+              const results = Array.isArray(res) ? res : (res?.results || []);
+              if (results && results.length > 0 && results[0].backdrop_path) {
+                item.backdrop_path = results[0].backdrop_path;
+                updateDiscoverHeroDisplay();
+              }
+            })
+            .catch(e => console.warn('[DiscoverHero] TMDB backdrop enrichment failed:', e));
         }
       }
 
@@ -1347,7 +1378,18 @@
     if (results) results.style.display = 'block';
     
     const grid = $('#discover-search-grid');
-    if (grid) grid.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);grid-column: 1/-1">Searching content...</div>';
+    if (grid) {
+      grid.innerHTML = '';
+      for (let i = 0; i < 24; i++) {
+        const skel = document.createElement('div');
+        skel.className = 'discover-card-skeleton';
+        skel.innerHTML = `
+          <div class="discover-poster-wrap" style="aspect-ratio:2/3.1;background:var(--bg-surface-2);border-radius:12px;animation:pulse 1.5s infinite"></div>
+          <div style="height:12px;width:70%;background:var(--bg-surface-1);margin-top:10px;border-radius:4px;animation:pulse 1.5s infinite"></div>
+        `;
+        grid.appendChild(skel);
+      }
+    }
     
     try {
       const qClean = q.trim();
@@ -2270,30 +2312,7 @@
         return;
       }
 
-      // Smart Auto-Play & Auto-Choose Best Stream
-      if (window.appData && window.appData.autoChooseBestStream) {
-        const bestStream = selectBestStream(streams, window.appData.autoChooseMaxRes || '1080p');
-        if (bestStream) {
-          // Restore Watch Now button if spinner was shown
-          if (typeof window._restorePlayBtn === 'function') {
-            window._restorePlayBtn();
-            window._restorePlayBtn = null;
-          }
-          showToast(`Auto-playing best stream (${bestStream.quality || '1080p'})...`);
-          container.innerHTML = `<div style="padding:24px; color:#ffffff; font-weight:700; text-align:center; background:rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius:14px; grid-column: 1/-1"><i class="fas fa-bolt" style="color:#eab308; margin-right:8px;"></i> Auto-playing best stream link...</div>`;
-          setTimeout(() => {
-            playStream(bestStream, item, null);
-          }, 250);
-          return;
-        }
-        // No best stream found — restore button
-        if (typeof window._restorePlayBtn === 'function') {
-          window._restorePlayBtn();
-          window._restorePlayBtn = null;
-        }
-      }
-
-
+      // 1. Render ALL streams to container so all links appear
       streams.forEach(s => {
         const card = document.createElement('div'); card.className = 'stream-card';
         const isBrowser = s.type === 'browser';
@@ -2302,7 +2321,6 @@
         const titleLines = (s.title || '').split('\n');
         let mainTitle = titleLines[0] || '';
         if (isBrowser) {
-          // Strip leading/trailing emojis from browser session titles
           mainTitle = mainTitle.replace(/[\u{1F300}-\u{1F9FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{1F1E0}-\u{1F1FF}\u{2B50}👥]/gu, '').trim();
         }
 
@@ -2351,7 +2369,7 @@
             }
             try {
               await navigator.clipboard.writeText(dlUrl);
-              showToast('Torrent link copied to clipboard! Paste it in the Downloads tab.');
+              showToast('Torrent link copied to clipboard!');
             } catch (err) {
               showToast('Failed to copy: ' + err.message);
             }
@@ -2359,6 +2377,26 @@
         }
         container.appendChild(card);
       });
+
+      // 2. Smart Auto-Play Best Stream if enabled
+      if (window.appData && window.appData.autoChooseBestStream) {
+        const bestStream = selectBestStream(streams, window.appData.autoChooseMaxRes || '1080p');
+        if (bestStream) {
+          if (typeof window._restorePlayBtn === 'function') {
+            window._restorePlayBtn();
+            window._restorePlayBtn = null;
+          }
+          showToast(`Auto-playing best stream (${bestStream.quality || '1080p'})...`);
+          setTimeout(() => {
+            playStream(bestStream, item, null);
+          }, 500);
+        } else {
+          if (typeof window._restorePlayBtn === 'function') {
+            window._restorePlayBtn();
+            window._restorePlayBtn = null;
+          }
+        }
+      }
     } catch (err) { container.innerHTML = 'Error searching streams.'; }
   }
 

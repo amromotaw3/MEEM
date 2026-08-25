@@ -173,29 +173,6 @@ async function getAuthenticatedClient(session = null) {
   const serviceRoleKey = getSupabaseServiceRoleKey();
   if (serviceRoleKey) {
     console.log('[STORE] No Supabase JWT found — using service_role client for main-process DB access.');
-    
-    // Auto-logout the user if they were marked authenticated but have no JWT
-    const localData = readLocalAppData() || {};
-    if (localData.authenticated) {
-      console.log('[STORE] User was authenticated but has no valid JWT. Forcing logout...');
-      inMemorySession = null;
-      _cachedSupabaseSession = null;
-      const clearedData = {
-        authenticated: false,
-        user: null,
-        profiles: [],
-        activeProfileId: null,
-        installedAddons: Array.isArray(localData.installedAddons) ? localData.installedAddons : []
-      };
-      writeLocalAppData(clearedData, true);
-      
-      const { getMainWindow } = require('./windowManager');
-      const win = getMainWindow();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('force-logout');
-      }
-    }
-
     const { createClient } = require('@supabase/supabase-js');
     return createClient(getSupabaseUrl(), serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false }
@@ -458,7 +435,16 @@ let diskWriteTimeout = null;
  */
 function writeLocalAppData(data, forceImmediate = false) {
   try {
-    inMemorySession = data;
+    const existing = readLocalAppData() || {};
+    const mergedAddons = (data && Array.isArray(data.installedAddons) && data.installedAddons.length > 0)
+      ? data.installedAddons
+      : (Array.isArray(existing.installedAddons) ? existing.installedAddons : []);
+
+    inMemorySession = {
+      ...(existing || {}),
+      ...(data || {}),
+      installedAddons: mergedAddons
+    };
     ensureDir(DATA_DIR);
 
     // If running in unit tests or forced immediate, write synchronously to prevent race conditions
@@ -539,9 +525,11 @@ async function loadData() {
   const local = readLocalAppData() || {};
   const hardwareId = getHardwareId();
 
-  if (local && local.authenticated === false) {
-    console.log('[STORE] User is logged out (local.authenticated === false). Skipping device auto-login.');
-    return { ...local, hardwareId };
+  if (!local || local.authenticated !== true) {
+    console.log('[STORE] AppData cleared or user logged out (local.authenticated !== true). Returning logged-out state immediately.');
+    inMemorySession = null;
+    _cachedSupabaseSession = null;
+    return { authenticated: false, user: null, profiles: [], activeProfileId: null, hardwareId };
   }
 
   // Restore cached Supabase session from disk so saveData works after restart
@@ -643,9 +631,9 @@ async function loadData() {
             mergedProfiles.push({
               ...localProf,
               ...loadedProf,
-              // Keep local-only settings and preserve local avatar/banner over old/null cloud values
-              avatar: localProf.avatar || loadedProf.avatar || null,
-              banner: localProf.banner || loadedProf.banner || local.globalBanner || null,
+              // Give fresh cloud avatar/banner precedence over local cache
+              avatar: loadedProf.avatar || localProf.avatar || null,
+              banner: loadedProf.banner || localProf.banner || local.globalBanner || null,
               trakt: loadedProf.trakt || localProf.trakt || null,
               libraryFolders: loadedProf.libraryFolders || localProf.libraryFolders || undefined
             });
@@ -1158,7 +1146,7 @@ async function setupMainRealtimeSubscription() {
 
             // Fetch sender profile information
             let profile_name = 'Friend';
-            let profile_avatar = 'imgs/avatars/default.jpg';
+            let profile_avatar = 'imgs/avatars/default.png';
             
             if (msg.profile_id) {
               if (mainRealtimeProfileCache.has(msg.profile_id)) {
@@ -1176,7 +1164,7 @@ async function setupMainRealtimeSubscription() {
                   if (!profErr && prof) {
                     const profData = Array.isArray(prof) ? prof[0] : prof;
                     profile_name = profData?.name || 'Friend';
-                    profile_avatar = profData?.avatar || 'imgs/avatars/default.jpg';
+                    profile_avatar = profData?.avatar || 'imgs/avatars/default.png';
                     mainRealtimeProfileCache.set(msg.profile_id, { name: profile_name, avatar: profile_avatar });
                   }
                 } catch (profErr) {

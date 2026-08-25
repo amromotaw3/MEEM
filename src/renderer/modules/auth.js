@@ -284,25 +284,15 @@
     if (checkSubscriptionStatus()) return;
     startPeriodicSessionCheck();
 
-    if (appData.profiles.length === 1) {
-      selectProfile(appData.profiles[0].id);
-    } else if (appData.profiles.length > 1) {
-      const picker = document.getElementById('profile-picker');
-      if (picker) {
-        picker.style.display = 'flex';
-        picker.classList.add('modal-active');
-      }
-      try { document.body.classList.add('modal-open'); } catch (e) { }
-      renderProfilePicker();
-    } else {
-      const picker = document.getElementById('profile-picker');
-      if (picker) {
-        picker.style.display = 'flex';
-        picker.classList.add('modal-active');
-      }
-      try { document.body.classList.add('modal-open'); } catch (e) { }
-      renderProfilePicker();
-      if (typeof window.openProfileModal === 'function') window.openProfileModal();
+    const picker = document.getElementById('profile-picker');
+    if (picker) {
+      picker.style.display = 'flex';
+      picker.classList.add('modal-active');
+    }
+    try { document.body.classList.add('modal-open'); } catch (e) { }
+    renderProfilePicker();
+    if (appData.profiles.length === 0 && typeof window.openProfileModal === 'function') {
+      window.openProfileModal();
     }
   }
 
@@ -888,19 +878,12 @@
       if (checkSubscriptionStatus()) return;
       startPeriodicSessionCheck();
 
-      if (appData.profiles.length === 1) {
-        selectProfile(appData.profiles[0].id);
-      } else if (appData.profiles.length > 1) {
-        document.getElementById('profile-picker').style.display = 'flex';
-        document.getElementById('profile-picker').classList.add('modal-active');
-        try { document.body.classList.add('modal-open'); } catch (e) { }
-        renderProfilePicker();
-      } else {
+      document.getElementById('profile-picker').style.display = 'flex';
+      document.getElementById('profile-picker').classList.add('modal-active');
+      try { document.body.classList.add('modal-open'); } catch (e) { }
+      renderProfilePicker();
+      if (appData.profiles.length === 0) {
         console.log('[AUTH] No profiles found. Opening create profile modal...');
-        document.getElementById('profile-picker').style.display = 'flex';
-        document.getElementById('profile-picker').classList.add('modal-active');
-        try { document.body.classList.add('modal-open'); } catch (e) { }
-        renderProfilePicker();
         window.openProfileModal();
       }
     } catch (e) {
@@ -1148,8 +1131,6 @@
               console.error('[AUTH] No profiles found for chat window!');
               if (window.hideSplash) window.hideSplash();
             }
-          } else if (appData.profiles.length === 1) {
-            selectProfile(appData.profiles[0].id, true);
           } else {
             document.getElementById('profile-picker').style.display = 'flex';
             document.getElementById('profile-picker').classList.add('modal-active');
@@ -1297,7 +1278,7 @@
       };
 
       const disableDelete = appData.profiles.length <= 1;
-      const avatarSrc = p.avatar ? window.localImg(p.avatar) : 'imgs/avatars/default.jpg';
+      const avatarSrc = p.avatar ? window.localImg(p.avatar) : 'imgs/avatars/default.png';
       
       const escapeHTML = (s) => { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; };
 
@@ -1312,7 +1293,7 @@
           </button>`}
         </div>
         <div class="profile-avatar-box" style="width: 150px; height: 150px; border-radius: 50%; background: #222; overflow: hidden; position: relative;">
-          <img src="${avatarSrc}" alt="${escapeHTML(p.name)}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="this.onerror=null; this.src='imgs/avatars/default.jpg';">
+          <img src="${avatarSrc}" alt="${escapeHTML(p.name)}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="this.onerror=null; this.src='imgs/avatars/default.png';">
         </div>
         <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
           <span class="profile-name" style="color:#fff; font-size:1.1rem; font-weight:600; text-shadow:0 2px 5px rgba(0,0,0,0.8);">${escapeHTML(p.name)}</span>
@@ -1608,7 +1589,7 @@
       document.body.style.backgroundImage = '';
     }
 
-    const avatarUrl = window.localImg(currentProfile.avatar) || 'imgs/avatars/default.jpg';
+    const avatarUrl = window.localImg(currentProfile.avatar) || 'imgs/avatars/default.png';
     const titleAvatar = document.getElementById('current-profile-avatar');
     if (titleAvatar) {
       titleAvatar.src = avatarUrl;
@@ -1892,11 +1873,18 @@
             setSelectedAvatar(pathOrDataUrl);
           } else {
             const { data: publicUrlData } = client.storage.from('avatars').getPublicUrl(fileName);
-            const publicUrl = publicUrlData.publicUrl;
             setSelectedAvatar(publicUrl);
-            const targetId = editingProfileId;
-            const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : null;
-            if (prof) { prof.avatar = publicUrl; persist(); }
+            const targetId = editingProfileId || (currentProfile ? currentProfile.id : null) || appData.activeProfileId;
+            const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : appData.profiles?.[0];
+            if (prof) {
+              prof.avatar = publicUrl;
+              if (currentProfile && currentProfile.id === prof.id) {
+                currentProfile.avatar = publicUrl;
+              }
+            }
+            if (typeof renderProfileWidget === 'function') renderProfileWidget();
+            if (typeof renderProfilePicker === 'function') renderProfilePicker();
+            await persist(true);
             showToast('Avatar uploaded successfully!');
           }
         } else {
@@ -1957,7 +1945,7 @@
     if (usernameDisplay) usernameDisplay.textContent = appData.user?.user_metadata?.username || appData.user?.user_metadata?.display_name || appData.user?.user_metadata?.full_name || currentProfile?.name || 'Master Account';
     
     if (avatarImg) {
-      avatarImg.src = window.localImg(currentProfile?.avatar) || 'imgs/avatars/default.jpg';
+      avatarImg.src = window.localImg(currentProfile?.avatar) || 'imgs/avatars/default.png';
       avatarImg.onerror = () => { avatarImg.onerror = null; avatarImg.src = DEFAULT_AVATAR_SVG; };
     }
 

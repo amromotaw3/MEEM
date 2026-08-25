@@ -531,6 +531,7 @@ app.whenReady().then(() => {
     status: 'Idle',
     isPlaying: false,
     syncEnabled: true,
+    isExternalPlayer: false,
   };
 
   const updateTrayMenu = () => {
@@ -538,21 +539,37 @@ app.whenReady().then(() => {
     const safeSend = (channel, ...args) => {
       if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
     };
-    const contextMenu = Menu.buildFromTemplate([
+
+    const items = [
       { label: `MEEM v${app.getVersion()}`, enabled: false },
-      { type: 'separator' },
-      { label: `Status: ${trayState.status}`, enabled: false },
-      { 
-        label: trayState.isPlaying ? 'Pause Playback' : 'Resume Playback', 
-        click: () => safeSend('player-control', 'toggle') 
-      },
+      { type: 'separator' }
+    ];
+
+    if (trayState.isExternalPlayer) {
+      items.push(
+        { label: `Status: ${trayState.status || 'External Playback'}`, enabled: false },
+        { label: 'Playing in External Player', enabled: false }
+      );
+    } else {
+      items.push(
+        { label: `Status: ${trayState.status}`, enabled: false },
+        { 
+          label: trayState.isPlaying ? 'Pause Playback' : 'Resume Playback', 
+          click: () => safeSend('player-control', 'toggle') 
+        }
+      );
+    }
+
+    items.push(
       { type: 'separator' },
       { label: 'Pause Downloads', click: () => safeSend('downloads-control', 'pause-all') },
       { label: 'Settings', click: () => { if (win && !win.isDestroyed()) { win.show(); safeSend('switch-view', 'settings'); } } },
       { label: 'Show MEEM', click: () => { if (win && !win.isDestroyed()) win.show(); } },
       { type: 'separator' },
       { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } }
-    ]);
+    );
+
+    const contextMenu = Menu.buildFromTemplate(items);
     tray.setContextMenu(contextMenu);
   };
 
@@ -566,11 +583,24 @@ app.whenReady().then(() => {
     if (win && !win.isDestroyed()) win.show();
   });
 
-  // Listeners for Dynamic Updates from Renderer
-  ipcMain.on('update-tray-status', (event, { status, isPlaying, syncEnabled }) => {
+  // Listeners for Dynamic Updates from Renderer or Main IPC
+  ipcMain.on('update-tray-status', (event, payload) => {
+    if (!payload) return;
+    const { status, isPlaying, syncEnabled, isExternalPlayer } = payload;
     if (status !== undefined) trayState.status = status;
     if (isPlaying !== undefined) trayState.isPlaying = !!isPlaying;
     if (syncEnabled !== undefined) trayState.syncEnabled = !!syncEnabled;
+    if (isExternalPlayer !== undefined) trayState.isExternalPlayer = !!isExternalPlayer;
+    updateTrayMenu();
+  });
+
+  // Internal main process listener for tray updates
+  app.on('update-tray-status-internal', (payload) => {
+    if (!payload) return;
+    const { status, isPlaying, isExternalPlayer } = payload;
+    if (status !== undefined) trayState.status = status;
+    if (isPlaying !== undefined) trayState.isPlaying = !!isPlaying;
+    if (isExternalPlayer !== undefined) trayState.isExternalPlayer = !!isExternalPlayer;
     updateTrayMenu();
   });
 

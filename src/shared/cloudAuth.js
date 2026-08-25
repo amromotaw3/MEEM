@@ -136,8 +136,9 @@ async function loginUser(email, password, hardwareId) {
  * @param {string} password - The password (must be at least 6 characters).
  * @returns {Promise<Object>} Object containing registration status, or error details.
  */
-async function registerUser(email, password) {
+async function registerUser(email, password, hardwareId) {
   const cleanEmail = String(email || '').toLowerCase().trim();
+  let cleanHardwareId = String(hardwareId || '').trim();
 
   if (!cleanEmail || !cleanEmail.includes('@')) {
     return { error: 'Invalid email address' };
@@ -146,8 +147,12 @@ async function registerUser(email, password) {
     return { error: 'Password must be at least 6 characters long' };
   }
 
+  if (!cleanHardwareId) {
+    cleanHardwareId = 'mobile-device-default';
+  }
+
   try {
-    const rpcResult = await tryAuthRpc('handle_register', { email: cleanEmail, password, hardware_id: null });
+    const rpcResult = await tryAuthRpc('handle_register', { email: cleanEmail, password, hardware_id: cleanHardwareId });
     if (rpcResult) return rpcResult;
     return { error: 'Register RPC not available. Please ensure database migrations are applied.' };
   } catch (err) {

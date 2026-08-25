@@ -3,6 +3,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { toMediaProtocolUrl } = require('../mediaProtocol');
 const { startStreaming, stopStreaming } = require('../streamer');
+const { createPlayerWindow } = require('../windowManager');
 
 let activePlayerChild = null;
 let activeVlcChild = null;
@@ -328,11 +329,17 @@ function initMediaPlayIpc(ipcMain) {
 
       activePlayerChild = child;
 
+      const { app } = require('electron');
+      if (app) {
+        app.emit('update-tray-status-internal', { status: 'Playing (MEEM Player)', isPlaying: true, isExternalPlayer: true });
+      }
+
       child.on('exit', (code) => {
         console.log(`[MEEM-PLAYER] MEEM Player closed (exit code: ${code}). Stopping stream.`);
         if (activePlayerChild === child) {
           activePlayerChild = null;
           stopStreaming().catch(() => {});
+          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
         }
       });
 
@@ -340,6 +347,7 @@ function initMediaPlayIpc(ipcMain) {
         if (activePlayerChild === child) {
           activePlayerChild = null;
           stopStreaming().catch(() => {});
+          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
         }
       });
 
@@ -348,6 +356,7 @@ function initMediaPlayIpc(ipcMain) {
         if (activePlayerChild === child) {
           activePlayerChild = null;
           stopStreaming().catch(() => {});
+          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
         }
       });
 
@@ -433,11 +442,17 @@ function initMediaPlayIpc(ipcMain) {
 
       activeVlcChild = child;
 
+      const { app } = require('electron');
+      if (app) {
+        app.emit('update-tray-status-internal', { status: 'Playing (VLC)', isPlaying: true, isExternalPlayer: true });
+      }
+
       child.on('exit', (code) => {
         console.log(`[VLC] VLC closed (exit code: ${code}). Stopping torrent stream.`);
         if (activeVlcChild === child) {
           activeVlcChild = null;
           stopStreaming().catch(() => {});
+          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
         }
       });
 
@@ -445,6 +460,7 @@ function initMediaPlayIpc(ipcMain) {
         if (activeVlcChild === child) {
           activeVlcChild = null;
           stopStreaming().catch(() => {});
+          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
         }
       });
 
@@ -453,6 +469,7 @@ function initMediaPlayIpc(ipcMain) {
         if (activeVlcChild === child) {
           activeVlcChild = null;
           stopStreaming().catch(() => {});
+          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
         }
       });
 
@@ -490,11 +507,11 @@ function initMediaPlayIpc(ipcMain) {
     return playNativeWindow(args);
   }
 
-  ipcMain.handle('play-media', async (_e, args) => playNativeWindow(args));
-  ipcMain.handle('open-in-meem-player', async (_e, args) => playNativeWindow(args));
-  ipcMain.handle('open-in-external-player', async (_e, args) => playNativeWindow(args));
-  ipcMain.handle('open-in-vlc', async (_e, args) => playNativeWindow(args));
-  ipcMain.handle('play-external', async (_e, args) => playNativeWindow(args));
+  ipcMain.handle('play-media', async (_e, args) => playMedia(args));
+  ipcMain.handle('open-in-meem-player', async (_e, args) => openInMeemPlayer(args));
+  ipcMain.handle('open-in-external-player', async (_e, args) => openInMeemPlayer(args));
+  ipcMain.handle('open-in-vlc', async (_e, args) => openInVlc(args));
+  ipcMain.handle('play-external', async (_e, args) => openInMeemPlayer(args));
   ipcMain.handle('play-native', async (_e, args) => playNativeWindow(args));
 
   ipcMain.handle('get-meem-player-status', async () => {

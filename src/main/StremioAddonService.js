@@ -27,7 +27,7 @@ const { getInMemorySession } = require('./store');
 // Empty by default to comply fully with legal policies (User-configurable Addon Store)
 const DEFAULT_ADDONS = {};
 
-const REQUEST_TIMEOUT = 15000;
+const REQUEST_TIMEOUT = 4500;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
 // ── Quality Detection ────────────────────────────────────────────────────────

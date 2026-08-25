@@ -822,12 +822,11 @@
                 
                 const hwId = await getHardwareId();
 
-                if (localData && localData.authenticated === false) {
-                    console.log('[Bridge] User is logged out (localData.authenticated === false). Skipping device auto-login.');
-                    return {
-                        ...localData,
-                        hardwareId: hwId
-                    };
+                if (!localData || localData.authenticated !== true) {
+                    console.log('[Bridge] AppData cleared or user logged out (localData.authenticated !== true). Returning logged-out state immediately.');
+                    cloudSession = null;
+                    window.cloudSession = null;
+                    return { authenticated: false, user: null, profiles: [], activeProfileId: null, hardwareId: hwId };
                 }
                 
                 console.log(`[Bridge] Loading cloud session for device: ${hwId}`);
@@ -1386,13 +1385,14 @@
 
         cloudRegister: async (email, password) => {
             try {
+                const hwId = await getHardwareId();
                 if (isAndroid && SUPABASE_URL && SUPABASE_ANON_KEY) {
-                    return unwrapRpcRow(await supabaseRpc('handle_register', { email, password, hardware_id: null }));
+                    return unwrapRpcRow(await supabaseRpc('handle_register', { email, password, hardware_id: hwId }));
                 }
                 if (BACKEND_URL) {
-                    return await cloudAuthHttp('/api/auth/register', { email, password });
+                    return await cloudAuthHttp('/api/auth/register', { email, password, hardware_id: hwId });
                 }
-                return unwrapRpcRow(await supabaseRpc('handle_register', { email, password, hardware_id: null }));
+                return unwrapRpcRow(await supabaseRpc('handle_register', { email, password, hardware_id: hwId }));
             } catch (e) {
                 console.error('[Bridge] cloudRegister error:', e.message);
                 return { error: e.message };
@@ -1481,30 +1481,7 @@
                     }
                 }
 
-                // If no profiles exist in the DB, let's create a default profile so the app doesn't break
-                if (dbProfiles.length === 0) {
-                    const defaultProfile = {
-                        id: 'prof_' + userId + '_default',
-                        user_id: userId,
-                        name: username || email.split('@')[0] || 'Default',
-                        avatar: null,
-                        max_age_rating: 18,
-                        vaultPin: null,
-                        banner: null
-                    };
-                    if (client) {
-                        await client.from('account_profiles').upsert({
-                            id: defaultProfile.id,
-                            user_id: defaultProfile.user_id,
-                            name: defaultProfile.name,
-                            avatar: defaultProfile.avatar,
-                            max_age_rating: defaultProfile.max_age_rating,
-                            profile_pin: defaultProfile.vaultPin,
-                            banner: defaultProfile.banner
-                        });
-                    }
-                    dbProfiles.push(defaultProfile);
-                }
+
 
                 const result = {
                     success: true,

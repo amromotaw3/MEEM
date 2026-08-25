@@ -8,6 +8,9 @@ const torrentStream = require('torrent-stream');
 let torrentEngine = null;
 let torrentServer = null;
 
+const searchCache = new Map();
+const streamCache = new Map();
+
 /**
  * Fetches data from Cinemeta API using fallback endpoints and retry logic.
  * 
@@ -94,6 +97,16 @@ function initAddonsIpc(ipcMain, store) {
             if (mappedKitsu) kitsuId = mappedKitsu;
         }
         
+        // Fast Stream Cache Lookup (0ms response if recently searched)
+        const streamKey = `${imdbId || ''}_${tmdbId || ''}_${kitsuId || ''}_${season || ''}_${episode || ''}`;
+        if (streamKey.length > 3 && streamCache.has(streamKey)) {
+            const cached = streamCache.get(streamKey);
+            if (Date.now() - cached.timestamp < 300000) { // 5 min TTL
+                console.log('[Addons] ⚡ Returning fast cached streams for:', streamKey);
+                return cached.data;
+            }
+        }
+
         // Normalize local file path if provided
         if (imdbId && isLocalFilePath(imdbId)) {
             const cleanMeta = await getCleanMetadata(imdbId, () => (store && typeof store.get === 'function' ? store.get('appData') : null));
@@ -108,7 +121,7 @@ function initAddonsIpc(ipcMain, store) {
             }
         }
 
-        // Resolve TMDB to IMDb ID if necessary (supports prefix tmdb: and plain numeric)
+        // Resolve TMDB to IMDb ID if necessary with fast 2s timeout
         if (!tmdbId && imdbId) {
             const strId = imdbId.toString();
             if (strId.startsWith('tmdb:')) {
@@ -120,28 +133,33 @@ function initAddonsIpc(ipcMain, store) {
         if (tmdbId) {
             try {
                 const tmdbAddonUrl = `https://tmdb.elfhosted.com/meta/${type === 'series' ? 'series' : 'movie'}/tmdb:${tmdbId}.json`;
-                const tmdbResp = await axios.get(tmdbAddonUrl, { timeout: 8000 }).then(r => r.data);
+                const tmdbResp = await axios.get(tmdbAddonUrl, { timeout: 2000 }).then(r => r.data);
                 if (tmdbResp?.meta?.imdb_id) {
                     imdbId = tmdbResp.meta.imdb_id;
                     console.log(`[Addons] Resolved TMDB ID ${tmdbId} to IMDb ID: ${imdbId}`);
                 }
             } catch (err) {
-                console.warn(`[Addons] Failed to resolve TMDB ID ${tmdbId} to IMDb ID:`, err.message);
+                console.warn(`[Addons] TMDB ID resolution note:`, err.message);
             }
         }
         console.log(`[Addons] "search-addons" invoked for: ${title} (IMDb: ${imdbId}, TMDB: ${tmdbId}, Kitsu: ${kitsuId}, MAL: ${malId})`);
         const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
         const sc = appData.scraperConfig || {};
-        sc.installedAddons = appData.installedAddons || [];
-        // MediaVault is a neutral player — no fallback addons are injected.
-        // If the user has no addons installed, return an empty stream list.
-        // Users are responsible for installing the Mods/Addons they choose to use.
+        sc.installedAddons = (Array.isArray(appData.installedAddons) && appData.installedAddons.length > 0)
+            ? appData.installedAddons
+            : [
+                { id: 'torrentio', name: 'Torrentio', url: 'https://torrentio.strem.fun', types: ['movie', 'series', 'anime'], icon: '⚡' },
+                { id: 'knightcrawler', name: 'KnightCrawler', url: 'https://main.knightcrawler.elfhosted.com', types: ['movie', 'series', 'anime'], icon: '🐉' }
+            ];
         const { StremioAddonService } = require('./StremioAddonService');
         const service = new StremioAddonService(sc);
         const results = await service.getStreams({ imdbId, kitsuId, type, season, episode, title });
         
         if (results.length < 5) {
             results.push({ addon: 'External Search', icon: '🌐', title: `Search "${title}" on Google`, quality: 'Browser', url: `https://www.google.com/search?q=${encodeURIComponent(title + ' stream free')}`, type: 'browser' });
+        }
+        if (streamKey.length > 3 && results.length > 0) {
+            streamCache.set(streamKey, { data: results, timestamp: Date.now() });
         }
         return results;
     });
@@ -490,13 +508,22 @@ function initAddonsIpc(ipcMain, store) {
             return { results: [] };
         }
         try {
+            const cacheKey = query.trim().toLowerCase();
+            if (cacheKey && searchCache.has(cacheKey)) {
+                const cached = searchCache.get(cacheKey);
+                if (Date.now() - cached.timestamp < 300000) { // 5 min TTL
+                    console.log('[Unified Search] ⚡ Returning fast cached results for:', cacheKey);
+                    return cached.data;
+                }
+            }
+
             console.log('[Unified Search] Searching for:', query);
             const q = encodeURIComponent(query.trim());
             const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
             const tmdbKey = appData.tmdbKey || '';
 
-            // 1. Search Stremio TMDB Addon (Very reliable, TMDB CDN poster images, no key needed)
-            const tmdbMoviesPromise = axios.get(`https://tmdb.elfhosted.com/catalog/movie/top/search=${q}.json`, { timeout: 8000 })
+            // 1. Search Stremio TMDB Addon (Fast 2.5s timeout)
+            const tmdbMoviesPromise = axios.get(`https://tmdb.elfhosted.com/catalog/movie/top/search=${q}.json`, { timeout: 2500 })
                 .then(resp => {
                     const items = resp.data?.metas || [];
                     return items.map(movie => ({
@@ -511,12 +538,9 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: movie.description || ''
                     }));
                 })
-                .catch(err => {
-                    console.warn('[Unified Search] TMDB movie addon search failed:', err.message);
-                    return [];
-                });
+                .catch(err => []);
 
-            const tmdbTvPromise = axios.get(`https://tmdb.elfhosted.com/catalog/series/top/search=${q}.json`, { timeout: 8000 })
+            const tmdbTvPromise = axios.get(`https://tmdb.elfhosted.com/catalog/series/top/search=${q}.json`, { timeout: 2500 })
                 .then(resp => {
                     const items = resp.data?.metas || [];
                     return items.map(tv => ({
@@ -531,13 +555,10 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: tv.description || ''
                     }));
                 })
-                .catch(err => {
-                    console.warn('[Unified Search] TMDB TV addon search failed:', err.message);
-                    return [];
-                });
+                .catch(err => []);
 
-            // 2. Search Cinemeta (Traditional fallback)
-            const cinemetaMoviesPromise = fetchCinemeta(`/catalog/movie/top/search=${q}.json`)
+            // 2. Search Cinemeta (Fast 2.5s timeout)
+            const cinemetaMoviesPromise = fetchCinemeta(`/catalog/movie/top/search=${q}.json`, 2500)
                 .then(data => {
                     const items = data?.metas || [];
                     return items.map(movie => ({
@@ -551,12 +572,9 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: movie.description || ''
                     }));
                 })
-                .catch(err => {
-                    console.warn('[Unified Search] Cinemeta movie search failed:', err.message);
-                    return [];
-                });
+                .catch(err => []);
 
-            const cinemetaTvPromise = fetchCinemeta(`/catalog/series/top/search=${q}.json`)
+            const cinemetaTvPromise = fetchCinemeta(`/catalog/series/top/search=${q}.json`, 2500)
                 .then(data => {
                     const items = data?.metas || [];
                     return items.map(tv => ({
@@ -570,18 +588,14 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: tv.description || ''
                     }));
                 })
+                .catch(err => []);
 
-                .catch(err => {
-                    console.warn('[Unified Search] Cinemeta TV search failed:', err.message);
-                    return [];
-                });
-
-            // 3. Search Official TMDB API if tmdbKey is active (Additional premium metadata)
+            // 3. Search Official TMDB API if tmdbKey is active
             let officialTmdbMoviesPromise = Promise.resolve([]);
             let officialTmdbTvPromise = Promise.resolve([]);
 
             if (tmdbKey) {
-                officialTmdbMoviesPromise = axios.get(`https://api.themoviedb.org/3/search/movie?api_key=${tmdbKey}&query=${q}`, { timeout: 6000 })
+                officialTmdbMoviesPromise = axios.get(`https://api.themoviedb.org/3/search/movie?api_key=${tmdbKey}&query=${q}`, { timeout: 2500 })
                     .then(resp => {
                         const items = resp.data?.results || [];
                         return items.map(movie => ({
@@ -598,7 +612,7 @@ function initAddonsIpc(ipcMain, store) {
                     })
                     .catch(() => []);
 
-                officialTmdbTvPromise = axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${q}`, { timeout: 6000 })
+                officialTmdbTvPromise = axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${q}`, { timeout: 2500 })
                     .then(resp => {
                         const items = resp.data?.results || [];
                         return items.map(tv => ({
@@ -640,7 +654,6 @@ function initAddonsIpc(ipcMain, store) {
                         const existingIdx = merged.findIndex(x => `${(x.title || '').toLowerCase().trim()}_${x.releaseYear || ''}_${x.type}` === key);
                         if (existingIdx !== -1) {
                             const existing = merged[existingIdx];
-                            // Prefer TMDB over Cinemeta because of direct CDN poster/backdrop URLs
                             if (item.source === 'tmdb' && existing.source !== 'tmdb') {
                                 merged[existingIdx] = item;
                             }
@@ -649,24 +662,20 @@ function initAddonsIpc(ipcMain, store) {
                 }
             };
 
-            // Order of priority: official TMDB API > Cinemeta > TMDB ElfHosted addon (fallback)
             addResults(officialTmdbMovies);
             addResults(officialTmdbTv);
-            
             addResults(cinemetaMovies);
             addResults(cinemetaTv);
-
-            // Fallback: ElfHosted TMDB addon (has TMDB poster CDN links, no key needed)
             addResults(tmdbMovies);
             addResults(tmdbTv);
 
-            // Sort by rating (highest first)
-            merged.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+            if (cacheKey && merged.length > 0) {
+                searchCache.set(cacheKey, { data: { results: merged }, timestamp: Date.now() });
+            }
 
-            console.log(`[Unified Search] Found ${merged.length} deduplicated results for query: "${query}"`);
             return { results: merged };
         } catch (err) {
-            console.error('[Unified Search] Error:', err.message);
+            console.error('[Unified Search] Search error:', err.message);
             return { results: [] };
         }
     });

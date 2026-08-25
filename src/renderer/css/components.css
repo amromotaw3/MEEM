@@ -352,13 +352,13 @@
 /* ── Modern Dark Glass Context Menu ── */
 .context-menu {
   position: fixed !important;
-  background: rgba(18, 18, 28, 0.95) !important;
-  backdrop-filter: blur(30px) !important;
-  -webkit-backdrop-filter: blur(30px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: 18px !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 255, 255, 0.05) !important;
-  padding: 8px !important;
+  background: rgba(14, 14, 22, 0.96) !important;
+  backdrop-filter: blur(28px) !important;
+  -webkit-backdrop-filter: blur(28px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85), 0 0 20px rgba(255, 255, 255, 0.04) !important;
+  padding: 6px !important;
   z-index: 999990 !important;
   width: 220px !important;
   min-width: 220px !important;
@@ -366,7 +366,7 @@
   box-sizing: border-box !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 3px !important;
+  gap: 2px !important;
 }
 
 .context-menu::-webkit-scrollbar {
@@ -382,31 +382,43 @@
   border-radius: 2px !important;
 }
 
+.ctx-divider {
+  height: 1px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  margin: 4px 6px !important;
+}
+
 .ctx-item {
   display: flex !important;
   align-items: center !important;
   justify-content: flex-start !important;
-  gap: 12px !important;
+  gap: 10px !important;
   width: 100% !important;
   background: transparent !important;
   border: 1px solid transparent !important;
-  color: rgba(255, 255, 255, 0.85) !important;
-  font-family: 'Cairo', sans-serif !important;
-  font-size: 13.5px !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  font-family: 'Cairo', system-ui, -apple-system, sans-serif !important;
+  font-size: 13px !important;
   font-weight: 600 !important;
-  padding: 9px 14px !important;
-  border-radius: 12px !important;
+  padding: 8px 12px !important;
+  border-radius: 10px !important;
   cursor: pointer !important;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
   text-align: left !important;
   box-sizing: border-box !important;
 }
 
 .ctx-item:hover {
-  background: rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
   color: #ffffff !important;
-  border-color: rgba(255, 255, 255, 0.2) !important;
-  transform: translateX(3px) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  transform: translateX(2px) !important;
+}
+
+.ctx-item-danger:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
 }
 
 .ctx-item svg, .ctx-item i {
@@ -414,8 +426,16 @@
   height: 16px !important;
   flex-shrink: 0 !important;
   stroke: currentColor !important;
-  color: rgba(255, 255, 255, 0.7) !important;
-  transition: color 0.2s ease !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+  transition: color 0.15s ease !important;
+}
+
+.ctx-item:hover svg, .ctx-item:hover i {
+  color: #ffffff !important;
+}
+
+.ctx-item-danger:hover svg, .ctx-item-danger:hover i {
+  color: #ef4444 !important;
 }
 
 .ctx-item:hover svg, .ctx-item:hover i {
