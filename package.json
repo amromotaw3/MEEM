@@ -90,7 +90,6 @@
           "provider": "github",
           "owner": "amromotaw3",
           "repo": "MEEM-Landing",
-          "draft": false,
           "releaseType": "release"
         }
       ]
