@@ -174,7 +174,7 @@
   }
 
   function getOAuthRedirectUrl() {
-    return 'https://mediavault-five.vercel.app/auth/callback';
+    return 'https://meem-watch.vercel.app/auth/callback?source=mobile';
   }
 
   async function startOAuthLogin(provider, msgEl) {
@@ -846,7 +846,7 @@
       if (window.api && typeof window.api.cloudLogin === 'function') {
         result = await window.api.cloudLogin(email, password);
       } else {
-        const backend = (window.MEDIAVAULT_BACKEND_URL || 'https://mediavault-five.vercel.app').replace(/\/$/, '');
+        const backend = (window.MEEM_BACKEND_URL || window.MEDIAVAULT_BACKEND_URL || 'https://meem-watch.vercel.app').replace(/\/$/, '');
         const response = await fetch(`${backend}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -963,7 +963,7 @@
       if (window.api && typeof window.api.cloudRegister === 'function') {
         result = await window.api.cloudRegister(email, password);
       } else {
-        const backend = (window.MEDIAVAULT_BACKEND_URL || 'https://mediavault-five.vercel.app').replace(/\/$/, '');
+        const backend = (window.MEEM_BACKEND_URL || window.MEDIAVAULT_BACKEND_URL || 'https://meem-watch.vercel.app').replace(/\/$/, '');
         const response = await fetch(`${backend}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

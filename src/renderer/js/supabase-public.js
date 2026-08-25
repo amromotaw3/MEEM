@@ -18,6 +18,7 @@
   safeAssign('SUPABASE_ANON_KEY', defaultKey);
   safeAssign('MEDIAVAULT_SUPABASE_URL', window.SUPABASE_URL || defaultUrl);
   safeAssign('MEDIAVAULT_SUPABASE_ANON_KEY', window.SUPABASE_ANON_KEY || defaultKey);
-  safeAssign('MEDIAVAULT_BACKEND_URL', 'https://mediavault-five.vercel.app');
+  safeAssign('MEDIAVAULT_BACKEND_URL', 'https://meem-watch.vercel.app');
+  safeAssign('MEEM_BACKEND_URL', 'https://meem-watch.vercel.app');
 
 })();

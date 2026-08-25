@@ -54,7 +54,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 let tray = null;
 let isQuitting = false;
 
-// Register custom protocol for deep-linking (support both 'meem' and 'mediavault')
+// Register custom protocol for deep-linking
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient('meem', process.execPath, [path.resolve(process.argv[1])]);
@@ -76,7 +76,7 @@ if (!gotTheLock) {
       if (win.isMinimized()) win.restore();
       win.focus();
       // Windows/Linux deep link interception
-      const url = commandLine.find(arg => arg.startsWith('mediavault://'));
+      const url = commandLine.find(arg => arg.startsWith('meem://') || arg.startsWith('mediavault://'));
       if (url) win.webContents.send('handle-deep-link', url);
     }
   });
