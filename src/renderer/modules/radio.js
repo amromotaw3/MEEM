@@ -221,7 +221,17 @@
       card.className = `radio-card ${isCurrentPlaying ? 'playing' : ''}`;
       card.dataset.stationId = station.id;
 
-      const faviconUrl = station.favicon || '';
+      let faviconUrl = (station.favicon || '').trim();
+      if (faviconUrl && faviconUrl !== 'null' && faviconUrl !== 'undefined') {
+        if (faviconUrl.startsWith('//')) {
+          faviconUrl = 'https:' + faviconUrl;
+        } else if (!faviconUrl.startsWith('http://') && !faviconUrl.startsWith('https://') && !faviconUrl.startsWith('data:')) {
+          faviconUrl = 'https://' + faviconUrl;
+        }
+      } else {
+        faviconUrl = '';
+      }
+
       const countryLabel = station.countryCode || station.country || 'Global';
       const bitrateLabel = station.bitrate ? `${station.bitrate} kbps` : 'HD';
       const cleanName = (station.name || 'Radio Station').trim();
@@ -231,7 +241,7 @@
       card.innerHTML = `
         <div class="radio-card-top">
           <div class="radio-favicon-wrap">
-            ${faviconUrl ? `<img src="${escapeAttr(faviconUrl)}" class="radio-favicon-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="radio-favicon-fallback" style="display:none;"><i class="fas fa-broadcast-tower"></i></div>` : `<div class="radio-favicon-fallback"><i class="fas fa-broadcast-tower"></i></div>`}
+            ${faviconUrl ? `<img src="${escapeAttr(faviconUrl)}" class="radio-favicon-img" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';"><div class="radio-favicon-fallback" style="display:none;"><i class="fas fa-broadcast-tower"></i></div>` : `<div class="radio-favicon-fallback"><i class="fas fa-broadcast-tower"></i></div>`}
           </div>
           <div class="radio-badges-col">
             <button class="radio-fav-btn ${isFav ? 'active' : ''}" type="button" title="${isFav ? 'Remove from My List' : 'Add to My List'}">
@@ -452,8 +462,11 @@
     if (titleEl) titleEl.textContent = currentStation.name || 'Radio Stream';
 
     if (thumbEl) {
-      if (currentStation.favicon) {
-        thumbEl.innerHTML = `<img src="${escapeAttr(currentStation.favicon)}" alt="station" onerror="this.outerHTML='<i class=\\'fas fa-broadcast-tower\\'></i>'">`;
+      let fav = (currentStation.favicon || '').trim();
+      if (fav && fav !== 'null' && fav !== 'undefined') {
+        if (fav.startsWith('//')) fav = 'https:' + fav;
+        else if (!fav.startsWith('http://') && !fav.startsWith('https://') && !fav.startsWith('data:')) fav = 'https://' + fav;
+        thumbEl.innerHTML = `<img src="${escapeAttr(fav)}" alt="station" onerror="this.outerHTML='<i class=\\'fas fa-broadcast-tower\\'></i>'">`;
       } else {
         thumbEl.innerHTML = `<i class="fas fa-broadcast-tower"></i>`;
       }

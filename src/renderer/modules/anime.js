@@ -786,7 +786,7 @@
       <div class="discover-section" id="home-local-youtube-section">
         <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
           <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
-            <i class="fab fa-youtube" style="color:#ff0000;"></i> YouTube Trending
+            <i class="fab fa-youtube" style="color:#ffffff;"></i> YouTube Trending
           </h3>
         </div>
         <div id="home-local-youtube-row" class="discover-row" style="display:flex; gap:18px; overflow-x:auto; padding:6px 4px 18px; scrollbar-width:thin;"></div>
@@ -796,7 +796,7 @@
       <div class="discover-section">
         <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
           <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
-            <i class="fas fa-film" style="color:var(--accent);"></i> Local Movies
+            <i class="fas fa-film" style="color:#ffffff;"></i> Local Movies
           </h3>
           <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${localMovies.length} movies</span>
         </div>
@@ -807,7 +807,7 @@
       <div class="discover-section">
         <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
           <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
-            <i class="fas fa-tv" style="color:#a855f7;"></i> Local TV Shows
+            <i class="fas fa-tv" style="color:#ffffff;"></i> Local TV Shows
           </h3>
           <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${localShows.length} shows</span>
         </div>
@@ -818,7 +818,7 @@
       <div class="discover-section">
         <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
           <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
-            <i class="fas fa-bookmark" style="color:#ec4899;"></i> Recent Watchlist
+            <i class="fas fa-bookmark" style="color:#ffffff;"></i> Recent Watchlist
           </h3>
           <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${watchlist.length} items</span>
         </div>
@@ -2256,16 +2256,23 @@
 
 
     try {
-      if (!item.imdb_id || item.imdb_id === 'null') {
-        // Try camelCase variant first (set by renderUnifiedDetail TMDB resolution)
+      if (!item.imdb_id || item.imdb_id === 'null' || !String(item.imdb_id).startsWith('tt')) {
         if (item.imdbId && String(item.imdbId).startsWith('tt')) {
           item.imdb_id = item.imdbId;
+        } else if (item.id && String(item.id).startsWith('tt')) {
+          item.imdb_id = item.id;
+        } else if (window.currentDetailItem?.imdb_id && String(window.currentDetailItem.imdb_id).startsWith('tt')) {
+          item.imdb_id = window.currentDetailItem.imdb_id;
+        } else if (window.currentDetailItem?.imdbId && String(window.currentDetailItem.imdbId).startsWith('tt')) {
+          item.imdb_id = window.currentDetailItem.imdbId;
+        } else if (window.currentUnifiedDetailItem?.imdb_id && String(window.currentUnifiedDetailItem.imdb_id).startsWith('tt')) {
+          item.imdb_id = window.currentUnifiedDetailItem.imdb_id;
+        } else if (window.currentUnifiedDetailItem?.imdbId && String(window.currentUnifiedDetailItem.imdbId).startsWith('tt')) {
+          item.imdb_id = window.currentUnifiedDetailItem.imdbId;
         } else {
           const isAnimeItem = item.source === 'anilist' || item.source === 'mal' || item.source === 'kitsu' || item.source === 'jikan';
-          
           if (!isAnimeItem) {
             item.imdb_id = (item.id && String(item.id).startsWith('tt')) ? item.id : null;
-            console.log(`[MediaVault] ID resolved for ${type}: ${item.imdb_id}`);
           } else {
             item.imdb_id = null;
           }
@@ -2274,14 +2281,14 @@
 
       let showMeta = currentShow ? (typeof getMetadataForItem === 'function' ? getMetadataForItem(currentShow) : null) : null;
       let itemMeta = typeof getMetadataForItem === 'function' ? getMetadataForItem(item) : null;
-      let resolvedImdb = item.imdb_id || item.imdbId || itemMeta?.cinemetaId || itemMeta?.imdbId || itemMeta?.imdb_id || showMeta?.cinemetaId || showMeta?.imdbId || showMeta?.imdb_id || null;
+      let resolvedImdb = item.imdb_id || item.imdbId || itemMeta?.cinemetaId || itemMeta?.imdbId || itemMeta?.imdb_id || showMeta?.cinemetaId || showMeta?.imdbId || showMeta?.imdb_id || window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId || null;
 
       if (resolvedImdb && (typeof isLocalFilePath === 'function' ? isLocalFilePath(resolvedImdb) : (resolvedImdb.includes('/') || resolvedImdb.includes('\\')))) {
         resolvedImdb = null;
       }
 
       // Normalize tmdbId: strip "tmdb:" prefix so the main process gets a clean numeric ID
-      let normalizedTmdbId = item.id;
+      let normalizedTmdbId = item.tmdbId || item.tmdb_id || item.id || window.currentDetailItem?.tmdbId || window.currentDetailItem?.tmdb_id || window.currentDetailItem?.id;
       if (normalizedTmdbId && String(normalizedTmdbId).startsWith('tmdb:')) {
         normalizedTmdbId = String(normalizedTmdbId).replace('tmdb:', '');
       }

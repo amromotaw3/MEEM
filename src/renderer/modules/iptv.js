@@ -594,7 +594,11 @@
 
       hlsInstance.on(window.Hls.Events.MANIFEST_PARSED, () => {
         if (spinner) spinner.style.display = 'none';
-        video.play().catch(e => console.warn('[IPTV Autoplay]', e));
+        video.play().catch(e => {
+          if (e && e.name !== 'AbortError' && !e.message?.includes('interrupted')) {
+            console.warn('[IPTV Autoplay]', e);
+          }
+        });
       });
 
       hlsInstance.on(window.Hls.Events.ERROR, (event, data) => {
@@ -618,7 +622,11 @@
       video.src = streamUrl;
       video.addEventListener('loadedmetadata', () => {
         if (spinner) spinner.style.display = 'none';
-        video.play();
+        video.play().catch(e => {
+          if (e && e.name !== 'AbortError' && !e.message?.includes('interrupted')) {
+            console.warn('[IPTV Autoplay]', e);
+          }
+        });
       });
     } else {
       if (spinner) spinner.style.display = 'none';

@@ -1564,50 +1564,270 @@ function initStoreIpc(ipcMain) {
   // Collaboration / Invitations Handlers
   ipcMain.handle('cloud-search-collaborators', async (e, { query_str }) => {
     try {
+      if (!query_str || typeof query_str !== 'string') return { success: true, data: [] };
+      const cleanQuery = query_str.trim();
+      if (!cleanQuery) return { success: true, data: [] };
+
       const session = getInMemorySession();
-      const caller_id = session?.user?.id || null;
+      const caller_id = session?.user?.id || session?.user?.user_id || session?.activeProfileId || null;
       const client = await getAuthenticatedClient();
-      const { data, error } = await client.rpc('search_collaborators', { query_str, caller_id });
-      if (error) throw error;
-      return { success: true, data };
+      
+      let results = [];
+
+      // 1. Try search_collaborators RPC if caller_id is present
+      if (caller_id) {
+        try {
+          const { data, error } = await client.rpc('search_collaborators', { query_str: cleanQuery, caller_id });
+          if (!error && Array.isArray(data) && data.length > 0) {
+            results = data;
+          }
+        } catch (rpcErr) {
+          console.warn('[STORE] search_collaborators RPC warning:', rpcErr.message);
+        }
+      }
+
+      // 2. Direct table queries on account_profiles (fallback or primary)
+      if (!results || results.length === 0) {
+        try {
+          const { data: profiles, error: pErr } = await client
+            .from('account_profiles')
+            .select('id, name, user_id, avatar')
+            .ilike('name', `%${cleanQuery}%`)
+            .limit(10);
+
+          if (!pErr && Array.isArray(profiles) && profiles.length > 0) {
+            const userIds = [...new Set(profiles.map(p => p.user_id).filter(id => id && id !== caller_id))];
+            
+            let usersMap = new Map();
+            if (userIds.length > 0) {
+              const { data: users } = await client
+                .from('users_accounts')
+                .select('id, email, allow_invitations')
+                .in('id', userIds);
+              if (users) {
+                users.forEach(u => usersMap.set(u.id, u));
+              }
+            }
+
+            const formatted = profiles
+              .filter(p => p.user_id && p.user_id !== caller_id)
+              .map(p => {
+                const u = usersMap.get(p.user_id);
+                return {
+                  user_id: p.user_id,
+                  email: u?.email || '',
+                  profile_name: p.name || 'User',
+                  avatar: p.avatar || '',
+                  allow_invitations: u ? (u.allow_invitations !== false) : true
+                };
+              });
+
+            if (formatted.length > 0) {
+              results = formatted;
+            }
+          }
+        } catch (fbErr) {
+          console.warn('[STORE] Fallback search failed:', fbErr.message);
+        }
+      }
+
+      // 3. Search by email if query contains '@' or looks like an email/username
+      if (!results || results.length === 0) {
+        try {
+          const { data: usersByEmail } = await client
+            .from('users_accounts')
+            .select('id, email, allow_invitations')
+            .ilike('email', `%${cleanQuery}%`)
+            .limit(10);
+
+          if (usersByEmail && usersByEmail.length > 0) {
+            const userIds = usersByEmail.map(u => u.id).filter(id => id !== caller_id);
+            if (userIds.length > 0) {
+              const { data: profiles } = await client
+                .from('account_profiles')
+                .select('id, name, user_id, avatar')
+                .in('user_id', userIds);
+
+              const profMap = new Map();
+              if (profiles) profiles.forEach(p => profMap.set(p.user_id, p));
+
+              results = usersByEmail
+                .filter(u => u.id !== caller_id)
+                .map(u => {
+                  const p = profMap.get(u.id);
+                  return {
+                    user_id: u.id,
+                    email: u.email,
+                    profile_name: p?.name || u.email.split('@')[0],
+                    avatar: p?.avatar || '',
+                    allow_invitations: u.allow_invitations !== false
+                  };
+                });
+            }
+          }
+        } catch (e) {}
+      }
+
+      return { success: true, data: results || [] };
     } catch (err) {
       console.error('[STORE] cloud-search-collaborators failed:', err.message);
-      return { success: false, error: err.message };
+      return { success: false, error: err.message, data: [] };
     }
   });
 
   ipcMain.handle('cloud-get-user-id-by-username', async (e, { username }) => {
     try {
+      if (!username || typeof username !== 'string') return { success: true, data: [] };
+      const cleanVal = username.trim();
       const client = await getAuthenticatedClient();
-      const { data, error } = await client.rpc('get_user_id_by_username', { username_val: username });
-      if (error) throw error;
-      return { success: true, data };
+
+      // 1. Try RPC get_user_id_by_username
+      try {
+        const { data, error } = await client.rpc('get_user_id_by_username', { username_val: cleanVal });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return { success: true, data };
+        }
+      } catch (e) {}
+
+      // 2. Direct lookup on account_profiles by name
+      try {
+        const { data: profiles } = await client
+          .from('account_profiles')
+          .select('user_id, name')
+          .ilike('name', cleanVal)
+          .limit(1);
+
+        if (profiles && profiles.length > 0) {
+          const uId = profiles[0].user_id;
+          const { data: userAcc } = await client
+            .from('users_accounts')
+            .select('allow_invitations')
+            .eq('id', uId)
+            .maybeSingle();
+
+          return {
+            success: true,
+            data: [{
+              user_id: uId,
+              profile_name: profiles[0].name,
+              allow_invitations: userAcc ? (userAcc.allow_invitations !== false) : true
+            }]
+          };
+        }
+      } catch (e) {}
+
+      // 3. Direct lookup on users_accounts by email
+      try {
+        const { data: userAcc } = await client
+          .from('users_accounts')
+          .select('id, email, allow_invitations')
+          .ilike('email', cleanVal)
+          .limit(1);
+
+        if (userAcc && userAcc.length > 0) {
+          const uId = userAcc[0].id;
+          const { data: p } = await client
+            .from('account_profiles')
+            .select('name')
+            .eq('user_id', uId)
+            .maybeSingle();
+
+          return {
+            success: true,
+            data: [{
+              user_id: uId,
+              profile_name: p?.name || cleanVal,
+              allow_invitations: userAcc[0].allow_invitations !== false
+            }]
+          };
+        }
+      } catch (e) {}
+
+      return { success: true, data: [] };
     } catch (err) {
       console.error('[STORE] cloud-get-user-id-by-username failed:', err.message);
-      return { success: false, error: err.message };
+      return { success: false, error: err.message, data: [] };
     }
   });
 
   ipcMain.handle('cloud-invite-collaborator', async (e, { listId, targetUserId }) => {
     try {
       const session = getInMemorySession();
-      const callerUserId = session?.user?.id;
+      const callerUserId = session?.user?.id || session?.user?.user_id;
       if (!callerUserId) {
         throw new Error('User not authenticated');
       }
       
       const client = await getAuthenticatedClient();
       
-      // 1. Verify caller owns the list
-      const { data: isOwner, error: ownerError } = await client.rpc('is_list_owner', { p_list_id: listId, p_user_id: callerUserId });
-      if (ownerError) throw ownerError;
+      // 1. Verify caller owns the list or list belongs to caller's profiles
+      let isOwner = false;
+      let effectiveListId = listId;
+
+      try {
+        const { data, error } = await client.rpc('is_list_owner', { p_list_id: listId, p_user_id: callerUserId });
+        if (!error && data === true) isOwner = true;
+      } catch (e) {}
+
+      if (!isOwner) {
+        // Check if list exists in custom_lists matching listId and caller profile
+        const { data: ownList } = await client
+          .from('custom_lists')
+          .select('id, profile_id, list_name')
+          .eq('id', listId)
+          .maybeSingle();
+
+        if (ownList) {
+          const { data: prof } = await client
+            .from('account_profiles')
+            .select('id')
+            .eq('id', ownList.profile_id)
+            .eq('user_id', callerUserId)
+            .maybeSingle();
+          if (prof) isOwner = true;
+        } else {
+          // If the list is locally created and not yet in custom_lists table, upsert it now
+          const activeProfId = session?.activeProfileId || session?.profiles?.[0]?.id;
+          const localList = (session?.profiles || [])
+            .flatMap(p => p.custom_lists || [])
+            .find(l => l.id === listId);
+
+          if (localList && activeProfId) {
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(listId);
+            const insertPayload = {
+              profile_id: localList.profile_id || activeProfId,
+              list_name: localList.name || 'Custom List',
+              theme_color: localList.theme_color || '#6366f1'
+            };
+            if (isUuid) insertPayload.id = listId;
+
+            const { data: insertedList, error: insErr } = await client
+              .from('custom_lists')
+              .upsert(insertPayload, { onConflict: 'profile_id,list_name' })
+              .select('id')
+              .maybeSingle();
+
+            if (insertedList) {
+              effectiveListId = insertedList.id;
+              isOwner = true;
+            }
+          }
+        }
+      }
+
       if (!isOwner) {
         throw new Error('You do not own this list');
       }
       
       // 2. Verify target user allows invitations
-      const { data: allowsInvites, error: inviteCheckError } = await client.rpc('user_allows_invites', { p_user_id: targetUserId });
-      if (inviteCheckError) throw inviteCheckError;
+      let allowsInvites = true;
+      try {
+        const { data: allowData, error: inviteCheckError } = await client.rpc('user_allows_invites', { p_user_id: targetUserId });
+        if (!inviteCheckError && allowData !== null && allowData !== undefined) {
+          allowsInvites = allowData;
+        }
+      } catch (e) {}
+
       if (!allowsInvites) {
         return { success: false, blocked: true, message: 'الشخص دا قافل الدعوات !' };
       }
@@ -1616,7 +1836,7 @@ function initStoreIpc(ipcMain) {
       const { error: insertError } = await client
         .from('list_members')
         .insert({
-          list_id: listId,
+          list_id: effectiveListId,
           user_id: targetUserId,
           role: 'member',
           status: 'pending'

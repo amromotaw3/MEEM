@@ -13,7 +13,7 @@
     href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=Cairo:wght@400;600;700;800&display=swap"
     rel="stylesheet">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self' 'unsafe-inline' https: http: data: blob: local-file: media-img:; media-src 'self' media: blob: data: https: http: local-file: media-img: file:; connect-src 'self' https: http: wss: ws: blob: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; img-src 'self' data: https: http: blob: local-file: media-img:;">
+    content="default-src 'self' 'unsafe-inline' https: http: data: blob: local-file: media-img:; worker-src 'self' blob: file: data:; child-src 'self' blob: file: data:; media-src 'self' media: blob: data: https: http: local-file: media-img: file:; connect-src 'self' https: http: wss: ws: blob: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; img-src 'self' data: https: http: blob: local-file: media-img:;">
 
   <!-- HLS.js — required for .m3u8 IPTV & Radio streams -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>

@@ -10,7 +10,7 @@ let checkedYtDlp = false;
 
 // Asynchronously check system PATH for yt-dlp on module load
 (function initYtDlpCheck() {
-  const isPackaged = app.isPackaged || __dirname.includes('app.asar');
+  const isPackaged = (app && app.isPackaged) || __dirname.includes('app.asar');
   let ytPath = 'yt-dlp';
   if (process.platform === 'win32') {
     ytPath = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
@@ -37,7 +37,7 @@ let checkedYtDlp = false;
 function resolveYtDlpPath() {
   if (checkedYtDlp || cachedYtDlpPath) return cachedYtDlpPath;
 
-  const isPackaged = app.isPackaged || __dirname.includes('app.asar');
+  const isPackaged = (app && app.isPackaged) || __dirname.includes('app.asar');
   let ytPath = 'yt-dlp';
   if (process.platform === 'win32') {
     ytPath = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');

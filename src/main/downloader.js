@@ -970,30 +970,163 @@ function initDownloaderIpc(ipcMain) {
   });
 
   ipcMain.handle('fetch-url-metadata', async (_e, url) => {
-    return new Promise((resolve) => {
-      if (url.startsWith('magnet:')) {
-        const m = url.match(/[?&]dn=([^&]+)/);
-        if (m) {
-          try { return resolve({ success: true, title: decodeURIComponent(m[1]).replace(/\+/g, ' ') }); } catch(e) {}
-        }
-        return resolve({ success: true, title: 'Torrent Download' });
+    if (!url || typeof url !== 'string') return { success: false, title: 'Media File', category: 'downloads' };
+    const cleanUrl = url.trim();
+
+    // 1. Magnet link parsing
+    if (cleanUrl.startsWith('magnet:')) {
+      const dnMatch = cleanUrl.match(/[?&]dn=([^&]+)/);
+      let title = 'Torrent Download';
+      if (dnMatch) {
+        try {
+          title = decodeURIComponent(dnMatch[1]).replace(/\+/g, ' ').replace(/[._+]/g, ' ').trim();
+        } catch(e) {}
       }
 
-      const isPackaged = app.isPackaged || __dirname.includes('app.asar');
-      let ytPath = path.join(__dirname, '..', '..', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
-      if (isPackaged) ytPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe');
-      if (!fs.existsSync(ytPath)) ytPath = 'yt-dlp';
+      let category = 'downloads';
+      let seriesInfo = null;
+      if (/S(\d{1,2})E(\d{1,3})/i.test(title)) {
+        category = 'series';
+        const m = title.match(/(.*?)[._\s]+S(\d{1,2})E(\d{1,3})/i);
+        if (m) {
+          seriesInfo = {
+            seriesName: m[1].replace(/[._+]/g, ' ').trim(),
+            season: parseInt(m[2], 10),
+            episode: parseInt(m[3], 10)
+          };
+        }
+      } else if (/(19\d{2}|20\d{2})/i.test(title)) {
+        category = 'movies';
+      }
 
-      const cp = adapter.spawnYtDlp(['--get-title', '--no-playlist', '--quiet', '--no-warnings', url]);
+      return {
+        success: true,
+        title: title.replace(/[<>:"/\\|?*]/g, '').trim(),
+        category,
+        seriesInfo
+      };
+    }
+
+    // 2. YouTube Video parsing
+    const ytMatch = cleanUrl.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+    if (ytMatch) {
+      const videoId = ytMatch[1];
+      try {
+        const { getYouTubeService } = require('./youtube/YouTubeService');
+        const ytService = getYouTubeService();
+        if (ytService) {
+          const info = await Promise.race([
+            ytService.getVideoDetails(videoId),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+          ]);
+          if (info && info.title) {
+            return {
+              success: true,
+              title: info.title.replace(/[<>:"/\\|?*]/g, '').trim(),
+              category: 'downloads',
+              thumbnail: info.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+            };
+          }
+        }
+      } catch (e) {}
+
+      // Fast oEmbed fallback for YouTube
+      try {
+        const https = require('https');
+        const oembedData = await new Promise((resolve, reject) => {
+          https.get(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, { timeout: 3000 }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              try { resolve(JSON.parse(data)); } catch (e) { resolve(null); }
+            });
+          }).on('error', () => resolve(null));
+        });
+        if (oembedData && oembedData.title) {
+          return {
+            success: true,
+            title: oembedData.title.replace(/[<>:"/\\|?*]/g, '').trim(),
+            category: 'downloads',
+            thumbnail: oembedData.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+          };
+        }
+      } catch (e) {}
+    }
+
+    // 3. Social Media Platforms (TikTok, Instagram, Twitter/X, Facebook)
+    const lower = cleanUrl.toLowerCase();
+    if (lower.includes('tiktok.com') || lower.includes('instagram.com') || lower.includes('twitter.com') || lower.includes('x.com') || lower.includes('facebook.com') || lower.includes('fb.watch')) {
+      return new Promise((resolve) => {
+        const cp = adapter.spawnYtDlp(['--get-title', '--no-playlist', '--quiet', '--no-warnings', cleanUrl]);
+        let title = '';
+        cp.stdout.on('data', d => title += d.toString());
+        cp.on('close', (code) => {
+          if (code === 0 && title.trim()) {
+            resolve({ success: true, title: title.trim().replace(/[<>:"/\\|?*]/g, ''), category: 'social' });
+          } else {
+            resolve({ success: true, title: 'Social Video', category: 'social' });
+          }
+        });
+        cp.on('error', () => resolve({ success: true, title: 'Social Video', category: 'social' }));
+        setTimeout(() => { try { cp.kill(); } catch(e){} resolve({ success: true, title: 'Social Video', category: 'social' }); }, 4500);
+      });
+    }
+
+    // 4. Direct Media URLs (HTTP/HTTPS .mp4, .mkv, .mp3, etc.)
+    try {
+      const parsedUrl = new URL(cleanUrl);
+      const pathname = decodeURIComponent(parsedUrl.pathname);
+      const filename = pathname.split('/').filter(Boolean).pop() || '';
+      
+      if (filename && /\.(mp4|mkv|avi|mov|wmv|webm|flv|m4v|mp3|flac|wav|m4a|aac|ogg|zip|rar|tar|iso|exe)$/i.test(filename)) {
+        const rawName = filename.replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[._+]/g, ' ').trim();
+        let category = 'downloads';
+        let seriesInfo = null;
+
+        if (/\.(mp3|flac|wav|m4a|aac|ogg)$/i.test(filename)) {
+          category = 'music';
+        } else if (/S(\d{1,2})E(\d{1,3})/i.test(filename)) {
+          category = 'series';
+          const m = filename.match(/(.*?)[._\s]+S(\d{1,2})E(\d{1,3})/i);
+          if (m) {
+            seriesInfo = {
+              seriesName: m[1].replace(/[._+]/g, ' ').trim(),
+              season: parseInt(m[2], 10),
+              episode: parseInt(m[3], 10)
+            };
+          }
+        } else if (/(19\d{2}|20\d{2})/i.test(filename) || /\.(mp4|mkv|avi|mov|wmv|webm)$/i.test(filename)) {
+          category = 'movies';
+        }
+
+        return {
+          success: true,
+          title: rawName.replace(/[<>:"/\\|?*]/g, '').trim(),
+          category,
+          seriesInfo
+        };
+      }
+    } catch(e) {}
+
+    // 5. Generic yt-dlp metadata extractor for all other video links
+    return new Promise((resolve) => {
+      const cp = adapter.spawnYtDlp(['--get-title', '--no-playlist', '--quiet', '--no-warnings', cleanUrl]);
       let title = '';
       cp.stdout.on('data', d => title += d.toString());
       cp.on('close', (code) => {
-        if (code === 0 && title.trim()) resolve({ success: true, title: title.trim() });
-        else resolve({ success: true, title: 'Media File' });
+        if (code === 0 && title.trim()) {
+          const cleanTitle = title.trim().replace(/[<>:"/\\|?*]/g, '');
+          let category = 'downloads';
+          if (/S(\d{1,2})E(\d{1,3})/i.test(cleanTitle)) category = 'series';
+          else if (/(19\d{2}|20\d{2})/i.test(cleanTitle)) category = 'movies';
+
+          resolve({ success: true, title: cleanTitle, category });
+        } else {
+          resolve({ success: true, title: 'Media Download', category: 'downloads' });
+        }
       });
-      cp.on('error', () => resolve({ success: true, title: 'Media File' }));
-      // Timeout after 5 seconds to avoid hanging the UI
-      setTimeout(() => { try { cp.kill(); } catch(e){} resolve({ success: true, title: 'Media File' }); }, 5000);
+      cp.on('error', () => resolve({ success: true, title: 'Media Download', category: 'downloads' }));
+      setTimeout(() => { try { cp.kill(); } catch(e){} resolve({ success: true, title: 'Media Download', category: 'downloads' }); }, 5000);
     });
   });
 }

@@ -2,7 +2,7 @@ class TMDBImage extends HTMLElement {
   connectedCallback() {
     const path = this.getAttribute('path');
     const type = this.getAttribute('type') || 'poster';
-    if (!path) return;
+    if (!path || path === 'null' || path === 'undefined' || path.trim() === '') return;
     let src = path;
     if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('file://')) {
       src = path;
@@ -7748,70 +7748,113 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (e.key === 'Enter') { clearTimeout(tmdbSearchTimeout); performMetaSearch(); }
   };
 
-  // Downloads
-  $('#dl-url')?.addEventListener('input', async (e) => {
-    const url = e.target.value.trim();
-    if (!url) return;
+  // Downloads: Auto-detection & Metadata resolution
+  let dlAutoDetectTimeout = null;
+  async function handleUrlAutoDetect(inputUrl) {
+    const urlInput = $('#dl-url');
+    const nameInput = $('#dl-name');
+    const rawVal = (inputUrl || urlInput?.value || '').trim();
+    if (!rawVal) return;
 
-    const v = url.toLowerCase();
-    if (v.includes('youtube.com') || v.includes('youtu.be') || v.includes('tiktok.com') || v.includes('instagram.com')) {
-      const dlPill = document.querySelector('.dl-cat-pill[data-cat="downloads"]');
-      if (dlPill) dlPill.click();
-    }
-
-    if (!$('#dl-name').value) {
+    let effectiveUrl = rawVal;
+    if (rawVal.includes('/start?url=') && (rawVal.includes('127.0.0.1:11471') || rawVal.includes('localhost:11471') || rawVal.includes(':11471/start'))) {
       try {
-        // --- STREAMER URL: Extract magnet from internal control URL ---
-        let effectiveUrl = url;
-        if (url.includes('/start?url=') && (url.includes('127.0.0.1:11471') || url.includes('localhost:11471') || url.includes(':11471/start'))) {
-          try {
-            const parsed = new URL(url);
-            const innerUrl = parsed.searchParams.get('url');
-            if (innerUrl && innerUrl.startsWith('magnet:')) {
-              effectiveUrl = innerUrl;
-              e.target.value = innerUrl; // Replace the URL input with the clean magnet
-            }
-          } catch(e) {}
+        const parsed = new URL(rawVal);
+        const innerUrl = parsed.searchParams.get('url');
+        if (innerUrl && innerUrl.startsWith('magnet:')) {
+          effectiveUrl = innerUrl;
+          if (urlInput) urlInput.value = innerUrl;
         }
-
-        // --- MAGNET LINK: Extract name from dn= parameter instantly ---
-        if (effectiveUrl.startsWith('magnet:')) {
-          const dnMatch = effectiveUrl.match(/[?&]dn=([^&]+)/);
-          if (dnMatch) {
-            try {
-              const decoded = decodeURIComponent(dnMatch[1]).replace(/\+/g, ' ').replace(/\./g, ' ');
-              $('#dl-name').value = decoded.replace(/[<>:"/\\|?*]/g, '').trim();
-            } catch(e) { $('#dl-name').value = 'Torrent Download'; }
-          } else {
-            $('#dl-name').value = 'Torrent Download';
-          }
-          return; // Don't call yt-dlp for magnet links
-        }
-
-        $('#dl-name').placeholder = 'Fetching title...';
-        // Try YouTube OEmbed first for speed if it's youtube
-        let titleFound = false;
-        if (currentDlType === 'youtube') {
-          const res = await fetch('https://www.youtube.com/oembed?url=' + encodeURIComponent(url) + '&format=json');
-          if (res.ok) {
-            const json = await res.json();
-            if (json && json.title && !$('#dl-name').value) {
-              $('#dl-name').value = json.title.replace(/[<>:"/\\|?*]/g, '').trim();
-              titleFound = true;
-            }
-          }
-        }
-
-        // If not found or not youtube, use backend yt-dlp fetcher
-        if (!titleFound) {
-          const meta = await window.api.fetchUrlMetadata(url);
-          if (meta && meta.success && meta.title && !$('#dl-name').value) {
-            $('#dl-name').value = meta.title.replace(/[<>:"/\\|?*]/g, '').trim();
-          }
-        }
-      } catch (err) { } finally { $('#dl-name').placeholder = 'e.g. Breaking Bad'; }
+      } catch(e) {}
     }
-  });
+
+    // 1. Instant local parsing for Magnet links
+    if (effectiveUrl.startsWith('magnet:')) {
+      const dnMatch = effectiveUrl.match(/[?&]dn=([^&]+)/);
+      let magnetTitle = 'Torrent Download';
+      if (dnMatch) {
+        try {
+          magnetTitle = decodeURIComponent(dnMatch[1]).replace(/\+/g, ' ').replace(/[._+]/g, ' ').trim();
+        } catch(e) {}
+      }
+      if (nameInput) nameInput.value = magnetTitle.replace(/[<>:"/\\|?*]/g, '').trim();
+
+      if (/S(\d{1,2})E(\d{1,3})/i.test(magnetTitle)) {
+        const seriesPill = document.querySelector('.dl-cat-pill[data-cat="series"]');
+        if (seriesPill && !seriesPill.classList.contains('active')) seriesPill.click();
+      } else if (/(19\d{2}|20\d{2})/i.test(magnetTitle)) {
+        const moviePill = document.querySelector('.dl-cat-pill[data-cat="movies"]');
+        if (moviePill && !moviePill.classList.contains('active')) moviePill.click();
+      }
+      return;
+    }
+
+    // 2. Immediate placeholder feedback
+    if (nameInput) nameInput.placeholder = '🔍 Auto-detecting title & category...';
+
+    try {
+      const meta = await window.api.fetchUrlMetadata(effectiveUrl);
+      if (meta && meta.success) {
+        if (nameInput && meta.title) {
+          nameInput.value = meta.title;
+        }
+
+        // Auto select category pill
+        if (meta.category) {
+          const pill = document.querySelector(`.dl-cat-pill[data-cat="${meta.category}"]`);
+          if (pill && !pill.classList.contains('active')) {
+            pill.click();
+          }
+        }
+
+        // Auto populate series info if detected
+        if (meta.seriesInfo && (meta.category === 'series' || currentDlType === 'series')) {
+          setTimeout(() => {
+            const seriesInput = $('#dl-series-name');
+            const seriesSelect = $('#dl-series-select');
+            const seasonInput = $('#dl-series-season');
+            const seasonSelect = $('#dl-season-select');
+
+            if (meta.seriesInfo.seriesName) {
+              if (seriesInput) {
+                seriesInput.value = meta.seriesInfo.seriesName;
+                seriesInput.style.display = 'block';
+              }
+              if (seriesSelect) seriesSelect.style.display = 'none';
+            }
+            if (meta.seriesInfo.season && seasonInput) {
+              seasonInput.value = meta.seriesInfo.season;
+              seasonInput.style.display = 'block';
+              if (seasonSelect) seasonSelect.style.display = 'none';
+            }
+          }, 60);
+        }
+      }
+    } catch (err) {
+      console.warn('[Downloader AutoDetect]', err.message);
+    } finally {
+      if (nameInput) nameInput.placeholder = 'e.g. Breaking Bad';
+    }
+  }
+
+  const dlUrlInput = $('#dl-url');
+  if (dlUrlInput) {
+    dlUrlInput.addEventListener('input', (e) => {
+      if (dlAutoDetectTimeout) clearTimeout(dlAutoDetectTimeout);
+      dlAutoDetectTimeout = setTimeout(() => handleUrlAutoDetect(e.target.value), 300);
+    });
+
+    dlUrlInput.addEventListener('paste', (e) => {
+      setTimeout(() => {
+        if (dlUrlInput.value) handleUrlAutoDetect(dlUrlInput.value);
+      }, 50);
+    });
+
+    dlUrlInput.addEventListener('change', () => {
+      if (dlUrlInput.value) handleUrlAutoDetect(dlUrlInput.value);
+    });
+  }
+
   $('#btn-start-dl').onclick = startDownload;
 
   // Save To Category Pills Logic
@@ -8709,17 +8752,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     setTimeout(() => { try { input.focus(); } catch(e) {} }, 50);
 
-    input.addEventListener('focus', () => { input.style.borderColor = '#00adb5'; });
+    input.addEventListener('focus', () => { 
+      input.style.borderColor = '#00adb5'; 
+      if (input.value.trim().length >= 1) handleSearch();
+    });
     input.addEventListener('blur', () => { 
       input.style.borderColor = 'rgba(255,255,255,0.15)'; 
-      // Delay hiding suggestions so click on suggestion registered
-      setTimeout(() => { suggestionsBox.style.display = 'none'; }, 180);
+      setTimeout(() => { suggestionsBox.style.display = 'none'; }, 250);
     });
 
     const handleSearch = async () => {
       const val = input.value.trim();
-      selectedUser = null; // reset if typing
-      if (!val || val.length < 2) {
+      if (!val || val.length < 1) {
         suggestionsBox.innerHTML = '';
         suggestionsBox.style.display = 'none';
         return;
@@ -8728,31 +8772,45 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       try {
         const res = await window.api.invoke('cloud-search-collaborators', { query_str: val });
         if (!res.success) throw new Error(res.error || 'Search failed');
-        const data = res.data;
+        const data = res.data || [];
 
         suggestionsBox.innerHTML = '';
-        if (data && data.length > 0) {
+        if (data.length > 0) {
           data.forEach(user => {
             const div = document.createElement('div');
-            div.style.cssText = 'padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.05);transition:background 0.2s;display:flex;flex-direction:column;gap:2px;';
+            div.style.cssText = 'padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.06);transition:background 0.2s;display:flex;align-items:center;gap:12px;';
             const statusText = user.allow_invitations === false ? ' <span style="color:#EF4444;font-size:11px;font-weight:bold;margin-left:5px;">(الدعوات مغلقة)</span>' : '';
+            const avatarUrl = user.avatar || 'https://lh3.googleusercontent.com/a/default-user=s96-c';
+            
             div.innerHTML = `
-              <span style="color:#fff;font-size:14px;font-weight:700;">${escapeHTML(user.profile_name)}${statusText}</span>
-              <span style="color:var(--text-secondary);font-size:12px;">@${escapeHTML(user.profile_name)}</span>
+              <img src="${escapeHTML(avatarUrl)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(255,255,255,0.2);flex-shrink:0;">
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
+                <span style="color:#fff;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(user.profile_name)}${statusText}</span>
+                <span style="color:var(--text-secondary);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${user.email ? escapeHTML(user.email) : '@' + escapeHTML(user.profile_name)}</span>
+              </div>
             `;
-            div.onmouseover = () => { div.style.background = 'rgba(255,255,255,0.05)'; };
+            div.onmouseover = () => { div.style.background = 'rgba(255,255,255,0.08)'; };
             div.onmouseout = () => { div.style.background = ''; };
-            div.onclick = () => {
+            
+            const selectThisUser = (e) => {
+              if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
               selectedUser = user;
               input.value = user.profile_name;
               suggestionsBox.innerHTML = '';
               suggestionsBox.style.display = 'none';
             };
+
+            div.onpointerdown = selectThisUser;
+            div.onclick = selectThisUser;
             suggestionsBox.appendChild(div);
           });
           suggestionsBox.style.display = 'block';
         } else {
-          suggestionsBox.style.display = 'none';
+          suggestionsBox.innerHTML = '<div style="padding:14px;color:rgba(255,255,255,0.5);font-size:13px;text-align:center;">No users found</div>';
+          suggestionsBox.style.display = 'block';
         }
       } catch (e) {
         console.warn('[COLLAB] Search failed:', e.message);
@@ -8760,8 +8818,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     };
 
     input.addEventListener('input', () => {
+      selectedUser = null;
       if (debounceTimeout) clearTimeout(debounceTimeout);
-      debounceTimeout = setTimeout(handleSearch, 250);
+      debounceTimeout = setTimeout(handleSearch, 200);
     });
 
     input.addEventListener('keydown', (e) => {
@@ -8786,17 +8845,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         let allowInvitations = selectedUser ? selectedUser.allow_invitations : null;
         let displayName = selectedUser ? selectedUser.profile_name : val;
 
-        // Try exact username resolution first
+        // Try exact username or email resolution first
         if (!targetUserId) {
-          showToast('Resolving username...');
           const res = await window.api.invoke('cloud-get-user-id-by-username', { username: val });
           if (res.success && res.data && res.data.length > 0) {
             targetUserId = res.data[0].user_id;
             allowInvitations = res.data[0].allow_invitations;
+            if (res.data[0].profile_name) displayName = res.data[0].profile_name;
           }
         }
 
-        // Fallback to fuzzy search if not matched exactly
+        // Fallback to search query if not matched
         if (!targetUserId) {
           const res = await window.api.invoke('cloud-search-collaborators', { query_str: val });
           if (res.success && res.data && res.data.length > 0) {
@@ -8821,6 +8880,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           return;
         }
 
+        // Ensure list is persisted / synced to cloud before inviting
+        if (typeof persist === 'function') persist(true);
+
         const inviteRes = await window.api.invoke('cloud-invite-collaborator', {
           listId,
           targetUserId
@@ -8835,7 +8897,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             throw new Error(inviteRes.error || 'Invitation failed');
           }
         } else {
-          showToast(`Invitation sent to ${displayName}!`);
+          showToast(`✅ Invitation sent to ${displayName}!`);
           overlay.remove();
         }
       } catch (err) {
@@ -17614,12 +17676,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       modal.className = 'modal-backdrop fade-in';
       modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:99999;';
       modal.innerHTML = `
-        <div style="background:var(--bg-surface-1, #1e1e24); border:1px solid rgba(255,255,255,0.12); border-radius:18px; padding:32px; width:460px; max-width:92vw; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
+        <div style="background:var(--bg-surface-1, #1e1e24); border:1px solid rgba(255,255,255,0.12); border-radius:18px; padding:32px; width:480px; max-width:92vw; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
           <div style="width:60px; height:60px; background:rgba(255,75,75,0.15); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 20px auto; color:#ff4b4b;">
             <i class="fab fa-youtube" style="font-size:32px;"></i>
           </div>
           <h2 style="font-size:1.4rem; font-weight:800; color:#fff; margin-bottom:8px;">Sign in with Google</h2>
-          <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:24px; line-height:1.5;">Connect your YouTube account to sync Watch History & Subscriptions.</p>
+          <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:24px; line-height:1.5;">Connect your YouTube account to sync Watch History, Subscriptions & Recommendations.</p>
 
           <div id="yt-auth-loading" style="padding:20px; color:var(--text-muted); font-size:0.9rem;">
             <i class="fas fa-spinner fa-spin fa-2x" style="color:#ff4b4b; margin-bottom:12px; display:block;"></i>
@@ -17627,13 +17689,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           </div>
 
           <div id="yt-auth-instructions" style="display:none; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:20px; margin-bottom:24px; text-align:left;">
-            <div style="font-weight:700; color:#fff; margin-bottom:10px; font-size:0.95rem;">Follow these steps:</div>
-            <ol style="margin:0; padding-left:20px; font-size:0.88rem; color:#ccc; line-height:1.8;">
-              <li>Open <a id="yt-auth-url-link" href="#" target="_blank" style="color:#ff4b4b; font-weight:700; text-decoration:underline;">youtube.com/activate</a> in your web browser.</li>
-              <li>Enter code: <strong id="yt-auth-user-code" style="color:#fff; font-size:1.1rem; background:rgba(255,75,75,0.2); padding:2px 8px; border-radius:6px; letter-spacing:2px; font-family:monospace;">---</strong></li>
-              <li>Sign in with your Google account and grant permissions.</li>
+            <div style="font-weight:700; color:#fff; margin-bottom:10px; font-size:0.95rem;">Follow these simple steps:</div>
+            <ol style="margin:0; padding-left:20px; font-size:0.88rem; color:#ccc; line-height:1.9;">
+              <li>Open <a id="yt-auth-url-link" href="#" target="_blank" style="color:#ff4b4b; font-weight:700; text-decoration:underline;">google.com/device</a> in your browser.</li>
+              <li>Enter code: <strong id="yt-auth-user-code" style="color:#fff; font-size:1.15rem; background:rgba(255,75,75,0.2); padding:3px 10px; border-radius:6px; letter-spacing:2px; font-family:monospace; user-select:all;">---</strong></li>
+              <li>Authorize MEEM on your Google account.</li>
             </ol>
-            <div style="margin-top:16px; display:flex; align-items:center; gap:10px; font-size:0.82rem; color:var(--text-muted);">
+            <div style="margin-top:16px; display:flex; gap:10px; align-items:center;">
+              <button id="btn-copy-yt-code" class="btn btn-primary btn-sm" style="flex:1; background:#ff4b4b; border-color:#ff4b4b; font-size:0.82rem; padding:8px 12px; border-radius:8px;">
+                <i class="fas fa-copy"></i> Copy Code & Open Browser
+              </button>
+            </div>
+            <div style="margin-top:14px; display:flex; align-items:center; gap:10px; font-size:0.82rem; color:var(--text-muted);">
               <i class="fas fa-sync-alt fa-spin" style="color:#ff4b4b;"></i> Waiting for authorization from browser...
             </div>
           </div>
@@ -17656,12 +17723,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           $('#yt-auth-loading').style.display = 'none';
           $('#yt-auth-instructions').style.display = 'block';
           $('#yt-auth-user-code').textContent = data.userCode;
+          const targetUrl = data.verificationUrl || 'https://www.google.com/device';
           const link = $('#yt-auth-url-link');
           if (link) {
-            link.href = data.verificationUrl || 'https://youtube.com/activate';
+            link.href = targetUrl;
             link.onclick = (e) => {
               e.preventDefault();
-              window.api.openExternal(data.verificationUrl || 'https://youtube.com/activate');
+              window.api.openExternal(targetUrl);
+            };
+          }
+          const copyBtn = $('#btn-copy-yt-code');
+          if (copyBtn) {
+            copyBtn.onclick = () => {
+              navigator.clipboard?.writeText(data.userCode);
+              window.api.openExternal(targetUrl);
+              showToast('📋 Code copied to clipboard!');
             };
           }
         }

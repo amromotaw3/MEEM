@@ -155,7 +155,7 @@ window.renderUnifiedDetail = async function(item) {
 
         // RESOLVE NUMERIC TMDB ID TO IMDB ID FOR WESTERN CONTENT
         // Handles both bare numeric IDs ("12345") and prefixed IDs ("tmdb:12345")
-        const tmdbKey = window.appData?.tmdbKey;
+        const tmdbKey = window.appData?.tmdbKey || window.TMDB_API_KEY || 'a3c751221b6d0efdb621869e9fc13c02';
         let numericTmdbId = null;
         if (cinemetaId) {
             const idStr = String(cinemetaId);
@@ -166,40 +166,62 @@ window.renderUnifiedDetail = async function(item) {
                 cinemetaId = numericTmdbId; // strip prefix for API calls
             }
         }
-        if (numericTmdbId && tmdbKey) {
+        if (numericTmdbId) {
             console.log(`[UnifiedDetail] Numeric TMDB ID detected: ${numericTmdbId}. Resolving to IMDb ID...`);
-            const tmdbUrl = mediaType === 'tv' 
+            const isSeries = mediaType === 'tv' || mediaType === 'series';
+            const tmdbUrl = isSeries 
                 ? `https://api.themoviedb.org/3/tv/${numericTmdbId}/external_ids?api_key=${tmdbKey}`
                 : `https://api.themoviedb.org/3/movie/${numericTmdbId}?api_key=${tmdbKey}`;
             
             try {
                 const tmdbRes = await fetch(tmdbUrl).then(r => r.json());
-                const resolvedImdbId = tmdbRes.imdb_id;
-                if (resolvedImdbId) {
+                const resolvedImdbId = tmdbRes?.imdb_id || tmdbRes?.external_ids?.imdb_id;
+                if (resolvedImdbId && String(resolvedImdbId).startsWith('tt')) {
                     console.log(`[UnifiedDetail] Resolved TMDB ID ${numericTmdbId} → IMDb ${resolvedImdbId}`);
                     cinemetaId = resolvedImdbId;
                     item.imdbId = resolvedImdbId;
                     item.imdb_id = resolvedImdbId;
+                    if (window.currentDetailItem) {
+                        window.currentDetailItem.imdbId = resolvedImdbId;
+                        window.currentDetailItem.imdb_id = resolvedImdbId;
+                    }
+                    if (window.currentUnifiedDetailItem) {
+                        window.currentUnifiedDetailItem.imdbId = resolvedImdbId;
+                        window.currentUnifiedDetailItem.imdb_id = resolvedImdbId;
+                    }
                 } else {
-                    console.warn(`[UnifiedDetail] TMDB API did not return an IMDb ID for ${numericTmdbId}`);
+                    console.warn(`[UnifiedDetail] TMDB API did not return an IMDb ID for ${numericTmdbId}, trying ElfHosted fallback...`);
+                    const type2 = isSeries ? 'series' : 'movie';
+                    const elfRes = await fetch(`https://tmdb.elfhosted.com/meta/${type2}/tmdb:${numericTmdbId}.json`, { signal: AbortSignal.timeout(4000) }).then(r => r.json());
+                    const elfImdb = elfRes?.meta?.imdb_id || elfRes?.meta?.imdbId;
+                    if (elfImdb && String(elfImdb).startsWith('tt')) {
+                        console.log(`[UnifiedDetail] Resolved via ElfHosted: TMDB ${numericTmdbId} → IMDb ${elfImdb}`);
+                        cinemetaId = elfImdb;
+                        item.imdbId = elfImdb;
+                        item.imdb_id = elfImdb;
+                        if (window.currentDetailItem) {
+                            window.currentDetailItem.imdbId = elfImdb;
+                            window.currentDetailItem.imdb_id = elfImdb;
+                        }
+                    }
                 }
             } catch (err) {
-                console.error(`[UnifiedDetail] Failed to resolve TMDB ID to IMDb ID:`, err.message);
-            }
-        } else if (numericTmdbId && !tmdbKey) {
-            // No TMDB key — try via ElfHosted TMDB addon (no key required)
-            try {
-                const type2 = mediaType === 'tv' ? 'series' : 'movie';
-                const elfRes = await fetch(`https://tmdb.elfhosted.com/meta/${type2}/${numericTmdbId}.json`, { signal: AbortSignal.timeout(6000) }).then(r => r.json());
-                const resolvedImdbId = elfRes?.meta?.imdb_id || elfRes?.meta?.imdbId;
-                if (resolvedImdbId) {
-                    console.log(`[UnifiedDetail] Resolved via ElfHosted: TMDB ${numericTmdbId} → IMDb ${resolvedImdbId}`);
-                    cinemetaId = resolvedImdbId;
-                    item.imdbId = resolvedImdbId;
-                    item.imdb_id = resolvedImdbId;
-                }
-            } catch (err) {
-                console.warn(`[UnifiedDetail] ElfHosted fallback failed for ${numericTmdbId}:`, err.message);
+                console.warn(`[UnifiedDetail] TMDB API resolution note:`, err.message);
+                try {
+                    const type2 = isSeries ? 'series' : 'movie';
+                    const elfRes = await fetch(`https://tmdb.elfhosted.com/meta/${type2}/tmdb:${numericTmdbId}.json`, { signal: AbortSignal.timeout(4000) }).then(r => r.json());
+                    const elfImdb = elfRes?.meta?.imdb_id || elfRes?.meta?.imdbId;
+                    if (elfImdb && String(elfImdb).startsWith('tt')) {
+                        console.log(`[UnifiedDetail] Resolved via ElfHosted: TMDB ${numericTmdbId} → IMDb ${elfImdb}`);
+                        cinemetaId = elfImdb;
+                        item.imdbId = elfImdb;
+                        item.imdb_id = elfImdb;
+                        if (window.currentDetailItem) {
+                            window.currentDetailItem.imdbId = elfImdb;
+                            window.currentDetailItem.imdb_id = elfImdb;
+                        }
+                    }
+                } catch (e2) {}
             }
         }
 
@@ -2142,7 +2164,14 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         } else {
             // Movie: Ensure streams container exists then load
             content.innerHTML = `<div id="dd-streams-list" class="dd-streams-list-unified" style="display:grid; gap:10px; padding:10px"></div>`;
-            window.loadStreams(item, 'movie');
+            const resolvedImdb = item.imdb_id || item.imdbId || window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId || window.currentUnifiedDetailItem?.imdb_id || window.currentUnifiedDetailItem?.imdbId || null;
+            const payload = {
+                ...window.currentDetailItem,
+                ...item,
+                imdb_id: resolvedImdb,
+                imdbId: resolvedImdb
+            };
+            window.loadStreams(payload, 'movie');
         }
     };
 
@@ -2267,12 +2296,24 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         }
         // If we previously loaded a Kitsu season, prefer that kitsu id for searching streams
         const kitsuSeasonId = window._lastUnifiedKitsuSeasonId || window.currentDetailItem?.kitsuId || null;
-        const payload = { ...window.currentDetailItem, season, episode, epTitle: name, thumbnail: thumbUrl, media_type: 'tv' };
+        const currentItemObj = window.currentDetailItem || window.currentUnifiedDetailItem || item;
+        const resolvedImdb = currentItemObj?.imdb_id || currentItemObj?.imdbId || item?.imdb_id || item?.imdbId || window._lastTmdbData?.imdb_id || null;
+        const payload = {
+            ...currentItemObj,
+            ...item,
+            imdb_id: resolvedImdb,
+            imdbId: resolvedImdb,
+            season,
+            episode,
+            epTitle: name,
+            thumbnail: thumbUrl,
+            media_type: 'tv'
+        };
         if (kitsuSeasonId) payload.kitsuId = String(kitsuSeasonId).replace('kitsu:', '');
         if (path) {
             payload.path = path;
         }
-        const streamType = (window.currentDetailItem?.source === 'jikan' || window.currentDetailItem?.source === 'mal' || window.currentDetailItem?.source === 'kitsu' || payload.kitsuId) ? 'anime' : 'tv';
+        const streamType = (currentItemObj?.source === 'jikan' || currentItemObj?.source === 'mal' || currentItemObj?.source === 'kitsu' || payload.kitsuId) ? 'anime' : 'tv';
         window.loadStreams(payload, streamType);
     };
 

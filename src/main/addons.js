@@ -82,6 +82,49 @@ async function getKitsuIdFromMalId(malId) {
  * @param {Object} ipcMain - Electron's ipcMain module instance.
  * @param {Object} store - Local storage manager instance.
  */
+async function resolveTmdbToImdb(rawId, type, customTmdbKey = null) {
+    if (!rawId) return null;
+    let cleanId = rawId.toString().trim();
+    if (cleanId.startsWith('tt')) return cleanId;
+    if (cleanId.startsWith('tmdb:')) cleanId = cleanId.replace('tmdb:', '');
+    if (!/^\d+$/.test(cleanId)) return null;
+
+    const isSeries = type === 'series' || type === 'tv';
+    const tmdbType = isSeries ? 'tv' : 'movie';
+    const stremioType = isSeries ? 'series' : 'movie';
+    const tmdbKey = customTmdbKey || 'a3c751221b6d0efdb621869e9fc13c02';
+
+    // 1. Direct TMDB API v3 lookup (Fast & Highly Reliable, <200ms)
+    try {
+        const apiUrl = isSeries
+            ? `https://api.themoviedb.org/3/tv/${cleanId}/external_ids?api_key=${tmdbKey}`
+            : `https://api.themoviedb.org/3/movie/${cleanId}?api_key=${tmdbKey}`;
+        const resp = await axios.get(apiUrl, { timeout: 3500 }).then(r => r.data);
+        const resolved = resp?.imdb_id || resp?.external_ids?.imdb_id;
+        if (resolved && String(resolved).startsWith('tt')) {
+            console.log(`[Addons] ✓ TMDB API resolved ${cleanId} (${tmdbType}) -> IMDb: ${resolved}`);
+            return resolved;
+        }
+    } catch (e) {
+        console.warn(`[Addons] TMDB API resolve note for ${cleanId}:`, e.message);
+    }
+
+    // 2. Fallback: ElfHosted TMDB Stremio Addon
+    try {
+        const elfUrl = `https://tmdb.elfhosted.com/meta/${stremioType}/tmdb:${cleanId}.json`;
+        const resp = await axios.get(elfUrl, { timeout: 3500 }).then(r => r.data);
+        const resolved = resp?.meta?.imdb_id || resp?.meta?.imdbId;
+        if (resolved && String(resolved).startsWith('tt')) {
+            console.log(`[Addons] ✓ ElfHosted resolved ${cleanId} (${stremioType}) -> IMDb: ${resolved}`);
+            return resolved;
+        }
+    } catch (e) {
+        console.warn(`[Addons] ElfHosted resolve note for ${cleanId}:`, e.message);
+    }
+
+    return null;
+}
+
 function initAddonsIpc(ipcMain, store) {
     console.log('[Addons] Registering "search-addons" handler...');
 
@@ -97,6 +140,8 @@ function initAddonsIpc(ipcMain, store) {
             if (mappedKitsu) kitsuId = mappedKitsu;
         }
         
+        const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
+
         // Fast Stream Cache Lookup (0ms response if recently searched)
         const streamKey = `${imdbId || ''}_${tmdbId || ''}_${kitsuId || ''}_${season || ''}_${episode || ''}`;
         if (streamKey.length > 3 && streamCache.has(streamKey)) {
@@ -121,29 +166,16 @@ function initAddonsIpc(ipcMain, store) {
             }
         }
 
-        // Resolve TMDB to IMDb ID if necessary with fast 2s timeout
-        if (!tmdbId && imdbId) {
-            const strId = imdbId.toString();
-            if (strId.startsWith('tmdb:')) {
-                tmdbId = strId.replace('tmdb:', '');
-            } else if (/^\d+$/.test(strId)) {
-                tmdbId = strId;
+        // Resolve TMDB to IMDb ID if IMDb is missing or starts with tmdb:
+        if (!imdbId || !imdbId.toString().startsWith('tt')) {
+            const candidateTmdb = tmdbId || imdbId;
+            const resolved = await resolveTmdbToImdb(candidateTmdb, type, appData.tmdbKey);
+            if (resolved) {
+                imdbId = resolved;
             }
         }
-        if (tmdbId) {
-            try {
-                const tmdbAddonUrl = `https://tmdb.elfhosted.com/meta/${type === 'series' ? 'series' : 'movie'}/tmdb:${tmdbId}.json`;
-                const tmdbResp = await axios.get(tmdbAddonUrl, { timeout: 2000 }).then(r => r.data);
-                if (tmdbResp?.meta?.imdb_id) {
-                    imdbId = tmdbResp.meta.imdb_id;
-                    console.log(`[Addons] Resolved TMDB ID ${tmdbId} to IMDb ID: ${imdbId}`);
-                }
-            } catch (err) {
-                console.warn(`[Addons] TMDB ID resolution note:`, err.message);
-            }
-        }
-        console.log(`[Addons] "search-addons" invoked for: ${title} (IMDb: ${imdbId}, TMDB: ${tmdbId}, Kitsu: ${kitsuId}, MAL: ${malId})`);
-        const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
+
+        console.log(`[Addons] "search-addons" invoked for: ${title} (IMDb: ${imdbId}, TMDB: ${tmdbId}, Kitsu: ${kitsuId}, MAL: ${malId}, Type: ${type}, S${season}E${episode})`);
         const sc = appData.scraperConfig || {};
         sc.installedAddons = (Array.isArray(appData.installedAddons) && appData.installedAddons.length > 0)
             ? appData.installedAddons
@@ -172,6 +204,8 @@ function initAddonsIpc(ipcMain, store) {
             if (mappedKitsu) kitsuId = mappedKitsu;
         }
         
+        const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
+
         // Normalize local file path if provided
         if (imdbId && isLocalFilePath(imdbId)) {
             const cleanMeta = await getCleanMetadata(imdbId, () => (store && typeof store.get === 'function' ? store.get('appData') : null));
@@ -185,30 +219,14 @@ function initAddonsIpc(ipcMain, store) {
             }
         }
 
-        // Resolve TMDB to IMDb ID if necessary (supports prefix tmdb: and plain numeric)
-        let tmdbIdSub = null;
-        if (imdbId) {
-            const strId = imdbId.toString();
-            if (strId.startsWith('tmdb:')) {
-                tmdbIdSub = strId.replace('tmdb:', '');
-            } else if (/^\d+$/.test(strId)) {
-                tmdbIdSub = strId;
-            }
-        }
-        if (tmdbIdSub) {
-            try {
-                const tmdbAddonUrl = `https://tmdb.elfhosted.com/meta/${type === 'series' ? 'series' : 'movie'}/tmdb:${tmdbIdSub}.json`;
-                const tmdbResp = await axios.get(tmdbAddonUrl, { timeout: 8000 }).then(r => r.data);
-                if (tmdbResp?.meta?.imdb_id) {
-                    imdbId = tmdbResp.meta.imdb_id;
-                    console.log(`[Addons] Resolved TMDB ID ${tmdbIdSub} to IMDb ID for subtitles: ${imdbId}`);
-                }
-            } catch (err) {
-                console.warn(`[Addons] Failed to resolve TMDB ID ${tmdbIdSub} to IMDb ID for subtitles:`, err.message);
+        // Resolve TMDB to IMDb ID if necessary
+        if (!imdbId || !imdbId.toString().startsWith('tt')) {
+            const resolved = await resolveTmdbToImdb(imdbId, type, appData.tmdbKey);
+            if (resolved) {
+                imdbId = resolved;
             }
         }
         console.log(`[Addons] "fetch-addon-subtitles" invoked — IMDb: ${imdbId}, Kitsu: ${kitsuId}, MAL: ${malId}, Type: ${type}, S${season}E${episode}`);
-        const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
         const sc = appData.scraperConfig || {};
         sc.installedAddons = [...(appData.installedAddons || [])].filter(a => {
             const url = String(a.url || a.manifestUrl || '').toLowerCase();

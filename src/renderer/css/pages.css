@@ -1286,7 +1286,10 @@
 .discover-section-header .section-title-icon i,
 .discover-section-header .section-title-icon svg,
 .discover-section-header > i,
-.discover-section-header > svg {
+.discover-section-header > svg,
+#discover-local-home .discover-section-header i,
+#discover-local-home .discover-section-header svg,
+#discover-local-home h3 i {
   color: #ffffff !important;
   stroke: #ffffff !important;
   font-size: 18px !important;

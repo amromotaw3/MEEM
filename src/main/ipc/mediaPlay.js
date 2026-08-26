@@ -10,15 +10,21 @@ let activeVlcChild = null;
 
 function getMeemPlayerConfig() {
   const isWin = process.platform === 'win32';
+  const appExecDir = process.execPath ? path.dirname(process.execPath) : null;
   
   // 1. Root directories of MEEM Player to inspect
   const candidateDirs = [
-    path.resolve(__dirname, '../../../../MEEM Player'),
-    path.resolve(process.cwd(), '../MEEM Player'),
-    'C:\\Users\\motawa\\Documents\\MEEM-Workspace\\MEEM Player',
+    appExecDir ? path.join(appExecDir, 'MEEM-Player') : null,
+    appExecDir ? path.join(appExecDir, 'resources', 'MEEM-Player') : null,
+    appExecDir ? path.join(appExecDir, '..', 'MEEM-Player') : null,
     process.resourcesPath ? path.join(process.resourcesPath, 'MEEM-Player') : null,
     process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'MEEM-Player') : null,
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'MEEM Player') : null
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'MEEM Player') : null,
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'MEEM Player') : null,
+    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)'], 'MEEM Player') : null,
+    path.resolve(__dirname, '../../../../MEEM Player'),
+    path.resolve(process.cwd(), '../MEEM Player'),
+    'C:\\Users\\motawa\\Documents\\MEEM-Workspace\\MEEM Player'
   ].filter(Boolean);
 
   for (const baseDir of candidateDirs) {
@@ -480,30 +486,32 @@ function initMediaPlayIpc(ipcMain) {
     }
   }
 
-  // Primary playback router: MEEM Player (Default) -> VLC -> Native Window
+  // Primary playback router: MEEM Player (Standalone if installed) -> MEEM Built-in Player Window -> VLC (Only when explicitly chosen)
   async function playMedia(args) {
     const opts = typeof args === 'string' ? { path: args } : (args || {});
     
+    // Explicit request for VLC
+    if (opts.player === 'vlc' || opts.engine === 'vlc') {
+      return openInVlc(args);
+    }
+
     // Explicit request for native/internal player window
     if (opts.forceNative || opts.player === 'native' || opts.engine === 'native') {
       return playNativeWindow(args);
     }
 
-    // 1. PRIMARY DEFAULT: MEEM Player
-    const meemResult = await openInMeemPlayer(args);
-    if (meemResult && meemResult.success) {
-      return meemResult;
+    // 1. PRIMARY: Standalone MEEM Player executable if available on the system
+    const meemConfig = getMeemPlayerConfig();
+    if (meemConfig) {
+      const meemResult = await openInMeemPlayer(args);
+      if (meemResult && meemResult.success) {
+        return meemResult;
+      }
+      console.warn('[PLAY] Standalone MEEM Player launch failed, switching to built-in MEEM player window...', meemResult?.error);
     }
 
-    console.warn('[PLAY] MEEM Player unavailable or not found, trying VLC fallback...', meemResult?.error);
-
-    // 2. FALLBACK 1: VLC Media Player with MEEM Skin
-    const vlcResult = await openInVlc(args);
-    if (vlcResult && vlcResult.success) {
-      return vlcResult;
-    }
-
-    // 3. FALLBACK 2: Native player window
+    // 2. DEFAULT & CORE: MEEM Built-in Cinematic Native Player Window
+    // Guarantees distributed .exe plays seamlessly with MEEM's custom player interface on all users' machines
     return playNativeWindow(args);
   }
 
