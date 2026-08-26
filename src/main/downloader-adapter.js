@@ -86,22 +86,27 @@ function execYtDlp(args, options = {}) {
 }
 
 function getFfmpegPath() {
-  if (cachedFFmpegPath) return cachedFFmpegPath;
+  if (cachedFFmpegPath && fs.existsSync(cachedFFmpegPath)) return cachedFFmpegPath;
   try {
     const ffStatic = require('ffmpeg-static');
-    if (!ffStatic) {
-      console.warn('[Adapter] ffmpeg-static not available');
-      return null;
+    let fp = typeof ffStatic === 'string' ? ffStatic : (ffStatic?.path || String(ffStatic || ''));
+    
+    if (app && app.isPackaged || __dirname.includes('app.asar')) {
+      if (fp.includes('app.asar')) {
+        fp = fp.replace('app.asar', 'app.asar.unpacked');
+      }
     }
 
-    let fp = ffStatic;
-    if (app.isPackaged || __dirname.includes('app.asar')) {
-      fp = fp.replace('app.asar', 'app.asar.unpacked');
-    }
-
-    if (!fs.existsSync(fp)) {
-      console.warn('[Adapter] FFmpeg binary not found at:', fp);
-      return null;
+    if (!fp || !fs.existsSync(fp)) {
+      // Fallback: check explicit process.resourcesPath app.asar.unpacked directory
+      const exeName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+      const unpackedFp = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName);
+      if (fs.existsSync(unpackedFp)) {
+        fp = unpackedFp;
+      } else {
+        console.warn('[Adapter] FFmpeg binary not found at:', fp, 'or:', unpackedFp);
+        return null;
+      }
     }
 
     cachedFFmpegPath = fp;

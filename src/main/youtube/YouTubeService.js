@@ -73,7 +73,27 @@ class YouTubeService {
 
     this._initPromise = (async () => {
       try {
-        const { Innertube, UniversalCache, Platform } = await import('youtubei.js');
+        let Innertube, UniversalCache, Platform;
+        try {
+          const mod = await import('youtubei.js');
+          Innertube = mod.Innertube;
+          UniversalCache = mod.UniversalCache;
+          Platform = mod.Platform;
+        } catch (e1) {
+          try {
+            const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtubei.js', 'dist', 'src', 'index.js');
+            if (fs.existsSync(unpackedPath)) {
+              const mod = await import('file://' + unpackedPath.replace(/\\/g, '/'));
+              Innertube = mod.Innertube;
+              UniversalCache = mod.UniversalCache;
+              Platform = mod.Platform;
+            } else {
+              throw e1;
+            }
+          } catch (e2) {
+            throw e1;
+          }
+        }
         
         // CRITICAL FIX: Provide native JS evaluator on Platform.shim to enable signature deciphering
         if (Platform && Platform.shim) {

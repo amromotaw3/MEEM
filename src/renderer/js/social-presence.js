@@ -1522,16 +1522,21 @@
 
       const currentUserId = sessionData.session.user.id || window.currentProfile?.user_id || '';
 
-      // Find list IDs the current user is a member of
-      const { data: memberLists, error: err } = await client
+      // Find list IDs the current profile/user is a member of
+      let query = client
         .from('list_members')
-        .select('list_id')
+        .select('list_id, target_profile_id')
         .eq('user_id', currentUserId)
         .eq('status', 'joined');
 
+      const { data: memberLists, error: err } = await query;
       if (err) throw err;
 
-      const sharedListIds = (memberLists || []).map(m => m.list_id);
+      const currentProfId = window.currentProfile?.id || null;
+      const sharedListIds = (memberLists || [])
+        .filter(m => !m.target_profile_id || !currentProfId || m.target_profile_id === currentProfId)
+        .map(m => m.list_id);
+
       if (sharedListIds.length === 0) return;
 
       // Get other member user_ids from those shared lists (no direct FK to account_profiles, so we do a separate lookup)

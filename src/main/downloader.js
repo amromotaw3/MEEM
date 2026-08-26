@@ -171,9 +171,9 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
     const args = ['--no-playlist', '-o', outputTemplate, '--no-warnings', '--newline', '-N', '8'];
     
     if (ffmpegPath && fs.existsSync(ffmpegPath)) {
-      args.push('--ffmpeg-location', ffmpegPath, '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', '--merge-output-format', 'mp4');
+      args.push('--ffmpeg-location', ffmpegPath, '-f', 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best', '--merge-output-format', 'mp4');
     } else {
-      args.push('-f', 'b[ext=mp4]/b');
+      args.push('-f', 'best[height<=1080]/best');
     }
     
     args.push(url);
