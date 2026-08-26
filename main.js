@@ -15,6 +15,14 @@ try {
   }
 }
 
+// Disable proxy globally for axios to prevent ECONNREFUSED 127.0.0.1:443 when system proxy is misconfigured or inactive
+try {
+  const axios = require('axios');
+  if (axios && axios.defaults) {
+    axios.defaults.proxy = false;
+  }
+} catch (e) {}
+
 const { app, ipcMain, Tray, Menu, BrowserWindow, screen } = require('electron');
 
 const { createWindow, initWindowIpc, getMainWindow } = require('./src/main/windowManager');

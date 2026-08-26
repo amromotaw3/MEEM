@@ -42,9 +42,14 @@ function initUpdater(win) {
     win.webContents.send('update-status', { status: 'none', msg: 'App is up to date.' });
   });
 
+  let isManualCheck = false;
+
   autoUpdater.on('error', (err) => {
     console.error('[UPDATER] Error:', err.message);
-    win.webContents.send('update-status', { status: 'error', msg: `Update Error: ${err.message}` });
+    // Only send error modal to UI if the user manually triggered update check
+    if (isManualCheck) {
+      win.webContents.send('update-status', { status: 'error', msg: `Update Error: ${err.message}` });
+    }
   });
 
   autoUpdater.on('download-progress', (progressObj) => {
@@ -68,6 +73,7 @@ function initUpdater(win) {
   ipcMain.handle('check-for-updates', async () => {
     try {
       console.log('[UPDATER] Manual check requested');
+      isManualCheck = true;
       // Add a safety timeout for the update check to prevent UI hanging
       const checkPromise = autoUpdater.checkForUpdates();
       const timeoutPromise = new Promise((_, reject) =>

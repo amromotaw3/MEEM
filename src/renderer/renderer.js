@@ -7757,7 +7757,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (!rawVal) return;
 
     let effectiveUrl = rawVal;
-    if (rawVal.includes('/start?url=') && (rawVal.includes('127.0.0.1:11471') || rawVal.includes('localhost:11471') || rawVal.includes(':11471/start'))) {
+    if ((rawVal.includes('/start?url=') || rawVal.includes('/stream?url=')) && (rawVal.includes('127.0.0.1') || rawVal.includes('localhost') || rawVal.includes(':1147'))) {
       try {
         const parsed = new URL(rawVal);
         const innerUrl = parsed.searchParams.get('url');
@@ -12322,7 +12322,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     // Extract the actual magnet link and fileIdx from them.
     let extractedFileIdx = null;
     try {
-      if (url.includes('/start?url=') && (url.includes('127.0.0.1:11471') || url.includes('localhost:11471') || url.includes(':11471/start'))) {
+      if ((url.includes('/start?url=') || url.includes('/stream?url=')) && (url.includes('127.0.0.1') || url.includes('localhost') || url.includes(':1147'))) {
         const parsed = new URL(url);
         const innerUrl = parsed.searchParams.get('url');
         const fIdx = parsed.searchParams.get('fileIdx');

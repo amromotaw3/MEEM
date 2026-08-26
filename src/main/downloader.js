@@ -113,6 +113,7 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
         
         const tryCobaltAPI = async (apiUrl) => {
             const res = await axios.post(apiUrl, { url: url }, {
+                proxy: false,
                 headers: {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
@@ -127,7 +128,7 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
             // 1. TikTok specific high-success API (TikWM)
             if (url.includes('tiktok.com')) {
                 try {
-                    const tikRes = await axios.post('https://www.tikwm.com/api/', { url: url }, { timeout: 15000 });
+                    const tikRes = await axios.post('https://www.tikwm.com/api/', { url: url }, { proxy: false, timeout: 15000 });
                     if (tikRes.data && tikRes.data.data && tikRes.data.data.play) {
                         return tikRes.data.data.play;
                     }
@@ -228,8 +229,9 @@ async function downloadThumbnail(url, outputPath) {
       method: 'get',
       url: url,
       responseType: 'stream',
+      proxy: false,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Referer': 'https://www.youtube.com/'
       },
       timeout: 10000
@@ -246,30 +248,157 @@ async function downloadThumbnail(url, outputPath) {
   }
 }
 
+function downloadNativeStream(targetUrl, outputPath, downloadId, displayName, setReq, isCancelled, redirectCount = 0) {
+  const mainWindow = getMainWindow();
+  if (redirectCount > 10) return Promise.reject(new Error('Too many redirects'));
+
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(targetUrl);
+    } catch (e) {
+      return reject(new Error('Invalid URL: ' + targetUrl));
+    }
+
+    const isHttps = parsed.protocol === 'https:';
+    const client = isHttps ? https : http;
+    const port = parsed.port || (isHttps ? 443 : 80);
+    const reqOptions = {
+      hostname: parsed.hostname,
+      port: port,
+      path: (parsed.pathname || '/') + (parsed.search || ''),
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': targetUrl
+      },
+      rejectUnauthorized: false,
+      timeout: 45000
+    };
+
+    const req = client.request(reqOptions, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const nextUrl = new URL(res.headers.location, targetUrl).toString();
+        return resolve(downloadNativeStream(nextUrl, outputPath, downloadId, displayName, setReq, isCancelled, redirectCount + 1));
+      }
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        return reject(new Error(`HTTP ${res.statusCode} ${res.statusMessage || ''}`));
+      }
+
+      const totalBytes = parseInt(res.headers['content-length'], 10) || 0;
+      let downloadedBytes = 0;
+      const ws = fs.createWriteStream(outputPath);
+
+      res.on('data', (chunk) => {
+        if (isCancelled && isCancelled()) {
+          res.destroy();
+          ws.close();
+          return;
+        }
+        downloadedBytes += chunk.length;
+        const percent = totalBytes > 0 ? ((downloadedBytes / totalBytes) * 100).toFixed(1) : 0;
+        mainWindow?.webContents?.send?.('download-progress', {
+          id: downloadId,
+          name: displayName,
+          percent,
+          downloaded: formatBytes(downloadedBytes),
+          total: totalBytes > 0 ? formatBytes(totalBytes) : 'Streaming...',
+          status: 'downloading'
+        });
+      });
+
+      res.pipe(ws);
+      ws.on('finish', () => {
+        if (isCancelled && isCancelled()) return;
+        resolve();
+      });
+      ws.on('error', reject);
+      res.on('error', reject);
+    });
+
+    if (setReq) setReq(req);
+    req.on('timeout', () => { req.destroy(new Error('Native stream timed out')); });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function downloadWithYtDlpDirect(targetUrl, outputPath, downloadId, displayName, setChildProc, isCancelled) {
+  const mainWindow = getMainWindow();
+  return new Promise((resolve, reject) => {
+    const outputTemplate = outputPath.endsWith('.mp4') ? outputPath : `${outputPath}.%(ext)s`;
+    const args = ['--no-playlist', '-o', outputTemplate, '--no-warnings', '--newline', '-N', '4', targetUrl];
+    
+    let cp;
+    try {
+      cp = adapter.spawnYtDlp(args);
+      if (setChildProc) setChildProc(cp);
+    } catch (e) {
+      return reject(e);
+    }
+
+    cp.stdout.on('data', (d) => {
+      if (isCancelled && isCancelled()) return;
+      const t = d.toString();
+      const m = t.match(/\[download\]\s+([\d\.]+)%/);
+      if (m) {
+        mainWindow?.webContents?.send?.('download-progress', {
+          id: downloadId,
+          name: displayName,
+          percent: parseFloat(m[1]).toFixed(1),
+          downloaded: 'Downloading...',
+          total: 'Direct Stream',
+          status: 'downloading'
+        });
+      }
+    });
+
+    cp.on('close', (code) => {
+      if (isCancelled && isCancelled()) return;
+      if (code === 0) resolve();
+      else reject(new Error(`yt-dlp stream exited with code ${code}`));
+    });
+
+    cp.on('error', reject);
+  });
+}
+
 async function downloadDirect(url, outputPath, downloadId, displayName) {
   const mainWindow = getMainWindow();
   let cancelled = false;
   let response = null;
   let ws = null;
+  let activeReq = null;
+  let childProcess = null;
   
   activeDownloads.set(downloadId, { 
     cancel: () => { 
       cancelled = true; 
       try { if (response && response.data) response.data.destroy(); } catch(e) {}
+      try { if (activeReq) activeReq.destroy(); } catch(e) {}
+      try { if (childProcess) childProcess.kill('SIGKILL'); } catch(e) {}
       try { if (ws) ws.destroy(); } catch(e) {}
       try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch(e) {}
       mainWindow?.webContents?.send?.('download-cancelled', { id: downloadId, name: displayName });
     } 
   });
 
-  let currentUrl = url;
+  let currentUrl = (url || '').trim();
+  if (!currentUrl) throw new Error('No download URL provided');
+
+  if (!/^https?:\/\//i.test(currentUrl)) {
+    currentUrl = 'http://' + currentUrl;
+  }
 
   // Check if host is local/private
   const isLocalUrl = (urlStr) => {
     try {
       const u = new URL(urlStr);
       const host = u.hostname.toLowerCase();
-      if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0') return true;
       if (host.startsWith('192.168.') || host.startsWith('10.')) return true;
       if (host.startsWith('172.')) {
         const parts = host.split('.');
@@ -284,33 +413,31 @@ async function downloadDirect(url, outputPath, downloadId, displayName) {
     }
   };
 
-  try {
-    try {
-      response = await axios({
-        method: 'get',
-        url: currentUrl,
-        responseType: 'stream',
-        timeout: 30000,
-        headers: { 'User-Agent': 'MediaVault/3.0' }
-      });
-    } catch (err) {
-      if (currentUrl.startsWith('https://') && isLocalUrl(currentUrl)) {
-        console.warn(`[Downloader] HTTPS direct download failed for local URL: ${currentUrl}. Retrying with HTTP...`);
-        const fallbackUrl = currentUrl.replace(/^https:/i, 'http:');
-        currentUrl = fallbackUrl;
-        response = await axios({
-          method: 'get',
-          url: currentUrl,
-          responseType: 'stream',
-          timeout: 30000,
-          headers: { 'User-Agent': 'MediaVault/3.0' }
-        });
-      } else {
-        throw err;
-      }
-    }
+  if (isLocalUrl(currentUrl) && currentUrl.startsWith('https://')) {
+    currentUrl = currentUrl.replace(/^https:/i, 'http:');
+  }
 
-    const totalBytes = parseInt(response.headers['content-length']) || 0;
+  let downloadSuccess = false;
+  let lastError = null;
+
+  // Layer 1: Axios stream download with proxy: false
+  try {
+    response = await axios({
+      method: 'get',
+      url: currentUrl,
+      responseType: 'stream',
+      timeout: 35000,
+      proxy: false, // CRITICAL: Prevent ECONNREFUSED on local proxies (127.0.0.1:443)
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': currentUrl
+      },
+      maxRedirects: 10
+    });
+
+    const totalBytes = parseInt(response.headers['content-length'], 10) || 0;
     let downloadedBytes = 0;
     ws = fs.createWriteStream(outputPath);
 
@@ -328,20 +455,56 @@ async function downloadDirect(url, outputPath, downloadId, displayName) {
         name: displayName, 
         percent, 
         downloaded: formatBytes(downloadedBytes), 
-        total: formatBytes(totalBytes), 
+        total: totalBytes > 0 ? formatBytes(totalBytes) : 'Streaming...', 
         status: 'downloading' 
       });
     });
 
-    return new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       response.data.pipe(ws);
       ws.on('finish', () => { if (!cancelled) resolve(); });
       ws.on('error', reject);
       response.data.on('error', reject);
     });
 
-  } catch (err) {
-    throw new Error('Direct Download Failed: ' + (err.response?.statusText || err.message));
+    downloadSuccess = true;
+  } catch (axiosErr) {
+    lastError = axiosErr;
+    console.warn(`[Downloader] Axios direct download failed (${axiosErr.message}). Attempting native HTTP/HTTPS stream fallback...`);
+    try { if (ws) ws.destroy(); } catch (e) {}
+    try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (e) {}
+  }
+
+  // Layer 2: Native Node.js HTTP/HTTPS Stream
+  if (!downloadSuccess && !cancelled) {
+    try {
+      await downloadNativeStream(currentUrl, outputPath, downloadId, displayName, (req) => { activeReq = req; }, () => cancelled);
+      downloadSuccess = true;
+    } catch (nativeErr) {
+      lastError = nativeErr;
+      console.warn(`[Downloader] Native stream download failed (${nativeErr.message}). Checking yt-dlp fallback...`);
+      try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (e) {}
+    }
+  }
+
+  // Layer 3: yt-dlp fallback for streams & direct video links
+  if (!downloadSuccess && !cancelled) {
+    const ytPath = adapter.resolveYtDlpPath();
+    if (ytPath) {
+      try {
+        console.log(`[Downloader] Attempting yt-dlp direct media download for ${currentUrl}...`);
+        await downloadWithYtDlpDirect(currentUrl, outputPath, downloadId, displayName, (cp) => { childProcess = cp; }, () => cancelled);
+        downloadSuccess = true;
+      } catch (ytErr) {
+        lastError = ytErr;
+        console.warn(`[Downloader] yt-dlp direct fallback failed (${ytErr.message})`);
+        try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (e) {}
+      }
+    }
+  }
+
+  if (!downloadSuccess) {
+    throw new Error('Direct Download Failed: ' + (lastError?.response?.statusText || lastError?.message || 'Connection failed'));
   }
 }
 
@@ -878,22 +1041,40 @@ function initDownloaderIpc(ipcMain) {
     mainWindow?.webContents?.send?.('download-progress', { id, name: finalName, percent: 0, status: 'searching', statusText: 'Starting download...' });
     
     try {
-      if (url.startsWith('magnet:') || (url.length === 40 && !url.includes(':'))) { 
-        await downloadTorrent(url, tempPath, id, finalName, opts); 
+      let effectiveUrl = url;
+      // Extract magnet link if url is a local streamer control URL
+      if (effectiveUrl && (effectiveUrl.includes('/start?url=') || effectiveUrl.includes('/stream?url='))) {
+        try {
+          const parsed = new URL(effectiveUrl);
+          const innerMagnet = parsed.searchParams.get('url');
+          const fIdx = parsed.searchParams.get('fileIdx');
+          if (innerMagnet && (innerMagnet.startsWith('magnet:') || /^[a-fA-F0-9]{40}$/i.test(innerMagnet))) {
+            effectiveUrl = innerMagnet;
+            if (fIdx !== null && fIdx !== undefined && opts.fileIdx === undefined) {
+              opts.fileIdx = parseInt(fIdx, 10);
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (effectiveUrl.startsWith('magnet:') || (effectiveUrl.length === 40 && !effectiveUrl.includes(':'))) { 
+        await downloadTorrent(effectiveUrl, tempPath, id, finalName, opts); 
       } else {
-        // RADICAL FIX: Try Native Direct Download first for speed and reliability
-        // Only use yt-dlp if it's a known social media / video site that requires extraction
-        const useYtDlp = isYouTubeUrl(url) || isSocialMediaUrl(url);
+        const useYtDlp = isYouTubeUrl(effectiveUrl) || isSocialMediaUrl(effectiveUrl);
         
         if (useYtDlp) {
           try {
-            await downloadYouTube(url, tempPath, id, finalName);
+            await downloadYouTube(effectiveUrl, tempPath, id, finalName);
           } catch (ytErr) {
-            console.warn('[DL] yt-dlp failed, attempting native fallback:', ytErr.message);
-            await downloadDirect(url, tempPath, id, finalName);
+            console.warn('[DL] yt-dlp failed, attempting fallback:', ytErr.message);
+            if (/\.(mp4|mkv|webm|mov|avi|flv|m4v|mp3|m4a|wav)(\?|$)/i.test(effectiveUrl)) {
+              await downloadDirect(effectiveUrl, tempPath, id, finalName);
+            } else {
+              throw ytErr;
+            }
           }
         } else {
-          await downloadDirect(url, tempPath, id, finalName);
+          await downloadDirect(effectiveUrl, tempPath, id, finalName);
         }
       }
       
@@ -969,9 +1150,32 @@ function initDownloaderIpc(ipcMain) {
     return true;
   });
 
+  ipcMain.handle('clean-missing-downloads', async (_e, downloadsList) => {
+    if (!Array.isArray(downloadsList)) return [];
+    return downloadsList.filter(item => {
+      if (!item) return false;
+      const targetPath = item.savePath || item.path || item.filePath || item.fullPath;
+      if (!targetPath) return true; // Keep metadata-only entries
+      try {
+        return fs.existsSync(targetPath);
+      } catch (e) {
+        return false;
+      }
+    });
+  });
+
   ipcMain.handle('fetch-url-metadata', async (_e, url) => {
     if (!url || typeof url !== 'string') return { success: false, title: 'Media File', category: 'downloads' };
-    const cleanUrl = url.trim();
+    let cleanUrl = url.trim();
+
+    // 0. Streamer URL extraction
+    if (cleanUrl.includes('/start?url=') || cleanUrl.includes('/stream?url=')) {
+      try {
+        const parsed = new URL(cleanUrl);
+        const innerUrl = parsed.searchParams.get('url');
+        if (innerUrl) cleanUrl = innerUrl.trim();
+      } catch(e) {}
+    }
 
     // 1. Magnet link parsing
     if (cleanUrl.startsWith('magnet:')) {

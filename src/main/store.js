@@ -821,29 +821,45 @@ async function saveData(data, session = null) {
           }
 
            if (localWatchlist.length > 0) {
-            const watchlistRows = localWatchlist.map(item => ({
-              profile_id: profile.id,
-              media_id: item.id || item.radioUrl || item.streamUrl || item.url || item.path || ('wl_' + Math.random().toString(36).substr(2, 6)),
-              type: item.type || item.media_type || 'movie',
-              title: item.title || item.name || 'Untitled',
-              poster_path: item.poster_path || item.posterPath || item.favicon || item.logo || item.poster || null,
-              rating: item.rating ? Number(item.rating) : null,
-              added_at: item.listedAt ? new Date(item.listedAt).toISOString() : new Date().toISOString(),
-              source: item.source || null,
-              mal_id: item.mal_id ? String(item.mal_id) : (item.malId ? String(item.malId) : null),
-              anime_id: item.anime_id ? String(item.anime_id) : null,
-              backdrop_path: item.backdrop_path || item.backdrop || item.favicon || item.logo || null,
-              release_date: item.release_date || null,
-              overview: item.overview || null,
-              stream_url: item.streamUrl || item.url || null,
-              radio_url: item.radioUrl || item.url || null,
-              favicon: item.favicon || null,
-              logo: item.logo || item.tvgLogo || null,
-              country: item.country || null,
-              category: item.category || item.groupTitle || null,
-              path: item.path || null,
-              item_data: item
-            }));
+            const filterWebUrl = (url) => {
+              if (!url || typeof url !== 'string') return null;
+              const trimmed = url.trim();
+              if (/^[a-zA-Z]:[\\\/]/i.test(trimmed) || trimmed.startsWith('file:') || trimmed.includes('\\AppData\\') || trimmed.includes('/AppData/') || trimmed.includes('\\banners\\') || trimmed.includes('/banners/')) {
+                return null;
+              }
+              return trimmed;
+            };
+
+            const watchlistRows = localWatchlist.map(item => {
+              const rawPoster = item.poster_path || item.posterPath || item.poster || item.logo || item.favicon || null;
+              const rawBackdrop = item.backdrop_path || item.backdrop || item.backdropPath || item.logo || item.favicon || null;
+              const cleanPoster = filterWebUrl(rawPoster) || filterWebUrl(rawBackdrop) || null;
+              const cleanBackdrop = filterWebUrl(rawBackdrop) || filterWebUrl(rawPoster) || null;
+
+              return {
+                profile_id: profile.id,
+                media_id: item.id || item.radioUrl || item.streamUrl || item.url || item.path || ('wl_' + Math.random().toString(36).substr(2, 6)),
+                type: item.type || item.media_type || 'movie',
+                title: item.title || item.name || 'Untitled',
+                poster_path: cleanPoster,
+                rating: item.rating ? Number(item.rating) : null,
+                added_at: item.listedAt ? new Date(item.listedAt).toISOString() : new Date().toISOString(),
+                source: item.source || null,
+                mal_id: item.mal_id ? String(item.mal_id) : (item.malId ? String(item.malId) : null),
+                anime_id: item.anime_id ? String(item.anime_id) : null,
+                backdrop_path: cleanBackdrop,
+                release_date: item.release_date || null,
+                overview: item.overview || null,
+                stream_url: item.streamUrl || item.url || null,
+                radio_url: item.radioUrl || item.url || null,
+                favicon: item.favicon || null,
+                logo: item.logo || item.tvgLogo || null,
+                country: item.country || null,
+                category: item.category || item.groupTitle || null,
+                path: item.path || null,
+                item_data: item
+              };
+            });
 
             const { error: upsertWlError } = await client
               .from('watchlist_items')

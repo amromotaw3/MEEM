@@ -1,6 +1,6 @@
 {
   "name": "meem",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "MEEM — Play Anything. Anytime.",
   "main": "main.js",
   "repository": {
@@ -64,6 +64,13 @@
     "directories": {
       "output": "build_out"
     },
+    "extraResources": [
+      {
+        "from": "../MEEM Player/dist/MEEM-Player",
+        "to": "MEEM-Player",
+        "filter": ["**/*"]
+      }
+    ],
     "asarUnpack": [
       "**/node_modules/youtube-dl-exec/bin/**/*",
       "**/node_modules/webtorrent/**/*"

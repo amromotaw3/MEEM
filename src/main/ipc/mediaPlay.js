@@ -34,12 +34,13 @@ function getMeemPlayerConfig() {
     const exePaths = [
       path.join(baseDir, 'MEEM-Player.exe'),
       path.join(baseDir, 'dist', 'MEEM-Player.exe'),
+      path.join(baseDir, 'dist', 'MEEM-Player', 'MEEM-Player.exe'),
       path.join(baseDir, 'dist', 'main.exe'),
       path.join(baseDir, 'main.exe')
     ];
     for (const exe of exePaths) {
       if (fs.existsSync(exe)) {
-        return { type: 'exe', command: exe, args: [], cwd: baseDir };
+        return { type: 'exe', command: exe, args: [], cwd: path.dirname(exe) };
       }
     }
 
@@ -500,9 +501,10 @@ function initMediaPlayIpc(ipcMain) {
       return playNativeWindow(args);
     }
 
-    // 1. PRIMARY: Standalone MEEM Player executable if available on the system
+    // 1. PRIMARY & DESIRED PLAYER: MEEM Player (PySide6 Native Player)
     const meemConfig = getMeemPlayerConfig();
     if (meemConfig) {
+      console.log('[PLAY] Found MEEM Player instance:', meemConfig);
       const meemResult = await openInMeemPlayer(args);
       if (meemResult && meemResult.success) {
         return meemResult;
