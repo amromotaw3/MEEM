@@ -1,4 +1,4 @@
-/* global appData, currentProfile, persist, showToast, isEditingProfiles, isTransitioningAway, checkSubscriptionStatus */
+﻿/* global appData, currentProfile, persist, showToast, isEditingProfiles, isTransitioningAway, checkSubscriptionStatus */
 /* global AVATARS, DEFAULT_AVATAR_SVG, hardwareIdCache, authFlowCompleted, _supabaseRendererClient, editingProfileId */
 /* global ensureDefaultAddons, selectProfile, openProfileModal, scanLibrary, renderLibrary, renderSidebar, renderDownloadHistory */
 /* global renderSocial, switchView, renderContinueWatchingDiscover, initStremioAddonsUI, initSubdlUI, initTraktUI, syncTraktWatchlistToLocal, syncTraktContinueWatching */
@@ -222,7 +222,7 @@
             color: white;
             cursor: pointer;
             transition: all 0.2s;
-          ">🔄 Check login status (or clipboard)</button>
+          ">ðŸ”„ Check login status (or clipboard)</button>
         </div>
         <div style="display: flex; gap: 6px; justify-content: center; align-items: center;">
           <input type="text" id="manual-oauth-url" placeholder="Paste the link here if not redirected automatically..." style="
@@ -369,7 +369,7 @@
         if (clipText && isAuthCallbackUrl(clipText)) {
           console.log('[AUTH] Detected auth callback/token in clipboard:', clipText.slice(0, 30) + '...');
           if (typeof showToast === 'function') {
-            showToast('✓ Login token detected, logging in...');
+            showToast('âœ“ Login token detected, logging in...');
           }
           cleanupListeners();
           const handled = await handleOAuthDeepLink(clipText);
@@ -384,14 +384,14 @@
 
     // Fires when user returns to app window (desktop/web/mobile focus)
     const onWindowFocus = () => {
-      console.log('[AUTH] Window focused — checking for active session / clipboard...');
+      console.log('[AUTH] Window focused â€” checking for active session / clipboard...');
       checkActiveSession();
       setTimeout(checkActiveSession, 800);
     };
 
-    // Fires when Capacitor Browser plugin closes (Android — from bridge.js browserFinished)
+    // Fires when Capacitor Browser plugin closes (Android â€” from bridge.js browserFinished)
     const onBrowserClosed = () => {
-      console.log('[AUTH] Received mediavault-oauth-browser-closed — checking session & clipboard...');
+      console.log('[AUTH] Received mediavault-oauth-browser-closed â€” checking session & clipboard...');
       setTimeout(checkActiveSession, 200);
       setTimeout(checkActiveSession, 800);
       setTimeout(checkActiveSession, 2000);
@@ -405,14 +405,14 @@
     if (App && typeof App.addListener === 'function') {
       try {
         App.addListener('resume', () => {
-          console.log('[AUTH] App resumed — checking session...');
+          console.log('[AUTH] App resumed â€” checking session...');
           setTimeout(checkActiveSession, 200);
           setTimeout(checkActiveSession, 1000);
         }).then(h => { appResumeHandle = h; }).catch(() => {});
 
         App.addListener('appStateChange', (state) => {
           if (state && state.isActive) {
-            console.log('[AUTH] App became active — checking session...');
+            console.log('[AUTH] App became active â€” checking session...');
             setTimeout(checkActiveSession, 200);
             setTimeout(checkActiveSession, 1000);
           }
@@ -436,7 +436,7 @@
     if (manualCheckBtn) {
       manualCheckBtn.onclick = async () => {
         manualCheckBtn.disabled = true;
-        manualCheckBtn.textContent = 'جاري التحقق...';
+        manualCheckBtn.textContent = 'Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù‚Ù‚...';
         await checkActiveSession();
         // If still on this screen, attempt to read clipboard and fill the input
         try {
@@ -455,7 +455,7 @@
         setTimeout(() => {
           if (manualCheckBtn) {
             manualCheckBtn.disabled = false;
-            manualCheckBtn.textContent = '🔄 Check login status (or clipboard)';
+            manualCheckBtn.textContent = 'ðŸ”„ Check login status (or clipboard)';
           }
         }, 1500);
       };
@@ -469,17 +469,17 @@
         const rawVal = inputEl.value.trim();
         if (!rawVal) return;
         submitBtn.disabled = true;
-        submitBtn.textContent = 'جاري الConfirm...';
+        submitBtn.textContent = 'Ø¬Ø§Ø±ÙŠ Ø§Ù„Confirm...';
         try {
           cleanupListeners();
           const handled = await handleOAuthDeepLink(rawVal);
           if (!handled) {
-            showToast('❌ Invalid link or token.');
+            showToast('âŒ Invalid link or token.');
             submitBtn.disabled = false;
             submitBtn.textContent = 'Confirm';
           }
         } catch (err) {
-          showToast('❌ Verification failed: ' + err.message);
+          showToast('âŒ Verification failed: ' + err.message);
           submitBtn.disabled = false;
           submitBtn.textContent = 'Confirm';
         }
@@ -1007,7 +1007,7 @@
     btn.disabled = loading;
     if (loading) {
       btn.dataset.prevLabel = btn.textContent;
-      btn.innerHTML = '<span class="auth-spinner"></span>Please wait…';
+      btn.innerHTML = '<span class="auth-spinner"></span>Please waitâ€¦';
     } else {
       btn.textContent = btn.dataset.prevLabel || (authMode === 'register' ? 'Create account' : 'Sign in');
     }
@@ -1057,7 +1057,7 @@
 
             <div class="auth-input-wrap">
               <i class="fa-solid fa-lock" aria-hidden="true"></i>
-              <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" placeholder="••••••••" required>
+              <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required>
             </div>
           </div>
           <button type="submit" id="auth-submit" class="auth-submit">Sign in</button>
@@ -1190,7 +1190,7 @@
 
       <form id="auth-otp-form" style="display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%;">
         <div class="auth-field" style="width: 100%; display: flex; justify-content: center;">
-          <input id="auth-otp-input" class="auth-input" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="••••••" autofocus
+          <input id="auth-otp-input" class="auth-input" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢" autofocus
             style="width: 220px; text-align: center; font-size: 28px; letter-spacing: 10px; font-family: monospace; font-weight: 900; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.25); color: #fff;" required>
         </div>
         <button type="submit" id="auth-otp-submit" class="auth-submit" style="width: 100%;">Verify and Log in</button>
@@ -1259,7 +1259,7 @@
 
         await proceedAfterAuthenticatedLogin();
         if (typeof showToast === 'function') {
-          showToast('✓ Account verified and logged in successfully!');
+          showToast('âœ“ Account verified and logged in successfully!');
         }
       } catch (err) {
         console.error('[AUTH] OTP verification error:', err);
@@ -1447,7 +1447,7 @@
       }
 
       console.log('[AUTH] Registration success. Auto-logging in...');
-      setAuthMessage(msgEl, 'Account created — signing you in…', true);
+      setAuthMessage(msgEl, 'Account created â€” signing you inâ€¦', true);
       authMode = 'login';
       await handleAuthLogin();
     } catch (e) {
@@ -1477,7 +1477,7 @@
 
         let resp = null;
 
-        // ── Fast-path: main process already authenticated via hardware-ID ──
+        // â”€â”€ Fast-path: main process already authenticated via hardware-ID â”€â”€
         // If loadData() returned authenticated:true it means the device is
         // recognised in Supabase by its hardware ID.  We don't need a Supabase
         // JWT in the renderer to boot the app; skip the getSession() dance and
@@ -2038,11 +2038,11 @@
 
     const overlay = document.createElement('div');
     overlay.className = 'onboarding-overlay';
-    overlay.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:10000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px);padding:20px;text-align:center;color:#fff;';
+    overlay.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:30000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px);padding:20px;text-align:center;color:#fff;';
 
     overlay.innerHTML = `
       <div style="max-width:400px; background: rgba(30,30,45,0.95); padding: 30px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px rgba(0,0,0,0.5);">
-        <div style="font-size:60px;margin-bottom:20px;">🚀</div>
+        <div style="font-size:60px;margin-bottom:20px;">ðŸš€</div>
         <h2 style="font-size:24px;margin-bottom:15px;font-weight:800;">Welcome to MediaVault</h2>
         <p style="opacity:0.7;line-height:1.6;margin-bottom:25px;">Ready to build your cinematic library? Let's name your mobile storage folder.</p>
         
@@ -2231,7 +2231,7 @@
   function openProfileModal(id = null) {
     if (!id && appData.profiles && appData.profiles.length >= 1) {
       if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
-        showToast('👑 Creating multiple profiles is available exclusively for MEEM VIP members!');
+        showToast('ðŸ‘‘ Creating multiple profiles is available exclusively for MEEM VIP members!');
         if (typeof window.openSubscriptionModal === 'function') window.openSubscriptionModal('Multiple Profiles');
         return;
       }
@@ -2794,10 +2794,10 @@
           if (statusRes && statusRes.status === 'claimed') {
             clearInterval(pcQrPollTimer);
             clearInterval(pcQrCountdownTimer);
-            if (badge) badge.innerHTML = '<i class="fas fa-check-circle" style="color:#22c55e;font-size:16px;"></i> <span style="color:#22c55e;font-weight:700;">✓ Logged in on mobile successfully!</span>';
+            if (badge) badge.innerHTML = '<i class="fas fa-check-circle" style="color:#22c55e;font-size:16px;"></i> <span style="color:#22c55e;font-weight:700;">âœ“ Logged in on mobile successfully!</span>';
             setTimeout(() => {
               cleanup();
-              if (typeof showToast === 'function') showToast('✓ Mobile login successful!');
+              if (typeof showToast === 'function') showToast('âœ“ Mobile login successful!');
             }, 2500);
           } else if (statusRes && statusRes.status === 'expired') {
             clearInterval(pcQrPollTimer);
@@ -2997,7 +2997,7 @@
         closeModal();
         await proceedAfterAuthenticatedLogin();
         if (typeof showToast === 'function') {
-          showToast('✓ Successfully logged in via QR Code!');
+          showToast('âœ“ Successfully logged in via QR Code!');
         }
       } catch (err) {
         console.error('[AUTH] Claim QR failed:', err);
@@ -3250,7 +3250,7 @@
   function openFavoritesAvatarModal(mode = 'avatar') {
     if (mode === 'banner' && window.AppCapabilities && !window.AppCapabilities.can('banner-search')) {
       if (typeof showToast === 'function') {
-        showToast('⚠️ Banner search requires Cinemeta or TMDB add-on to be installed');
+        showToast('âš ï¸ Banner search requires Cinemeta or TMDB add-on to be installed');
       }
       return;
     }
@@ -3599,7 +3599,7 @@
       if (cast && cast.length) {
         return cast.filter(c => c.profile_path || c.image).map(c => ({
           src: c.profile_path || c.image,
-          label: (c.character || c.name) + (c.role ? ` • ${c.role}` : ''),
+          label: (c.character || c.name) + (c.role ? ` â€¢ ${c.role}` : ''),
           type: 'avatar'
         }));
       }
@@ -4380,7 +4380,7 @@
     overlay.id = 'modal-image-cropper';
     overlay.className = 'modal-overlay';
     overlay.style.cssText = `
-      display: flex; position: fixed; inset: 0; z-index: 1000010;
+      display: flex; position: fixed; inset: 0; z-index: 3000010;
       background: rgba(5, 5, 8, 0.92); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px);
       align-items: center; justify-content: center; padding: 20px;
     `;
@@ -4533,7 +4533,7 @@
     overlay.id = 'modal-adjust-banner-position';
     overlay.className = 'modal-overlay';
     overlay.style.cssText = `
-      display: flex; position: fixed; inset: 0; z-index: 1000010;
+      display: flex; position: fixed; inset: 0; z-index: 3000010;
       background: rgba(5, 5, 8, 0.92); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px);
       align-items: center; justify-content: center; padding: 20px;
     `;
@@ -4680,7 +4680,7 @@
           input.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
         if (typeof showToast === 'function') {
-          showToast('🔑 Please purchase your plan on Gumroad and paste your License Key above for instant VIP activation!');
+          showToast('ðŸ”‘ Please purchase your plan on Gumroad and paste your License Key above for instant VIP activation!');
         }
         return;
       }
@@ -4714,7 +4714,7 @@
           feedback.style.color = '#ff4757';
           feedback.innerHTML = '<i class="fas fa-exclamation-circle"></i> Please enter your Gumroad License Key.';
         }
-        if (typeof showToast === 'function') showToast('⚠️ Please enter a Gumroad License Key.');
+        if (typeof showToast === 'function') showToast('âš ï¸ Please enter a Gumroad License Key.');
         if (input) input.focus();
         return;
       }
@@ -4754,7 +4754,7 @@
           if (badge) badge.style.display = 'inline-flex';
 
           if (typeof showToast === 'function') {
-            showToast(`👑 MEEM VIP Activated! Welcome, ${res.licenseInfo?.email || 'VIP Member'}!`);
+            showToast(`ðŸ‘‘ MEEM VIP Activated! Welcome, ${res.licenseInfo?.email || 'VIP Member'}!`);
           }
 
           if (typeof renderProfileWidget === 'function') renderProfileWidget();
@@ -4773,7 +4773,7 @@
             feedback.style.color = 'rgba(255, 255, 255, 0.9)';
             feedback.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ffffff;"></i> ${errMsg}`;
           }
-          if (typeof showToast === 'function') showToast(`❌ ${errMsg}`);
+          if (typeof showToast === 'function') showToast(`âŒ ${errMsg}`);
         }
       } catch (err) {
         console.error('[Gumroad Verify Error]:', err);
@@ -4785,7 +4785,7 @@
           feedback.style.color = 'rgba(255, 255, 255, 0.9)';
           feedback.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ffffff;"></i> ${errMsg}`;
         }
-        if (typeof showToast === 'function') showToast(`❌ ${errMsg}`);
+        if (typeof showToast === 'function') showToast(`âŒ ${errMsg}`);
       } finally {
         btn.innerHTML = originalHtml;
         btn.disabled = false;

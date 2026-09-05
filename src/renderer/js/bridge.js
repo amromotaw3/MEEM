@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MediaVault Bridge v4.0
  * Handles real API fetching, robust data persistence, and
  * INTERNAL VIDEO PLAYER for Android/Mobile.
@@ -37,11 +37,11 @@
 
     if (isElectron) return;
 
-    // Supabase configuration — set by supabase-public.js or preload (Electron)
+    // Supabase configuration â€” set by supabase-public.js or preload (Electron)
     const SUPABASE_URL = window.SUPABASE_URL || window.MEDIAVAULT_SUPABASE_URL || window.NEXT_PUBLIC_SUPABASE_URL || 'https://vvjnkgdrhyxilnderjdy.supabase.co';
     const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || window.MEDIAVAULT_SUPABASE_ANON_KEY || window.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2am5rZ2RyaHl4aWxuZGVyamR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMTM2ODEsImV4cCI6MjA5NDg4OTY4MX0.Rb1OLJGXDToYZz-8h_gy2UNx_ou0P6BwGXc1ExFWSCU';
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      console.warn('[Bridge] Supabase config missing — load js/supabase-public.js or set env in .env');
+      console.warn('[Bridge] Supabase config missing â€” load js/supabase-public.js or set env in .env');
     } else {
       console.log('[Bridge] Supabase configured:', SUPABASE_URL.replace(/^https?:\/\//, '').split('/')[0]);
     }
@@ -256,19 +256,36 @@
         return { watchlist, playback, lockedItems, custom_lists };
     }
 
+    function withTimeout(promise, ms = 30000, errorMsg = 'Operation timed out') {
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(errorMsg)), ms);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+    }
+
     async function cloudAuthHttp(path, body) {
       if (!BACKEND_URL) {
-        return { error: 'Cloud sign-in requires MEDIAVAULT_BACKEND_URL (deploy api/ to Vercel or run vercel dev).' };
+        return { error: 'Cloud sign-in requires MEDIAVAULT_BACKEND_URL.' };
       }
-      const res = await fetch(`${BACKEND_URL}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(body)
-      });
-      let data;
-      try { data = await res.json(); } catch (e) { data = { error: 'Invalid server response' }; }
-      if (!res.ok && !data.error) data.error = data.message || `Request failed (${res.status})`;
-      return data;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      try {
+        const res = await fetch(`${BACKEND_URL}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+        let data;
+        try { data = await res.json(); } catch (e) { data = { error: 'Invalid server response' }; }
+        if (!res.ok && !data.error) data.error = data.message || `Request failed (${res.status})`;
+        return data;
+      } catch (e) {
+        return { error: e.name === 'AbortError' ? 'Request timed out' : e.message };
+      } finally {
+        clearTimeout(timeoutId);
+      }
     }
 
     let _supabaseClient = null;
@@ -289,27 +306,34 @@
 
         const client = getSupabaseClient();
         if (client) {
-            const { data, error } = await client.rpc(fn, body);
+            const { data, error } = await withTimeout(client.rpc(fn, body), 30000, `Supabase RPC ${fn} timed out`);
             if (error) throw error;
             return data;
         }
 
         const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/${fn}`;
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'apikey': SUPABASE_ANON_KEY,
-                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(body)
-        });
-        if (!res.ok) {
-            const text = await res.text();
-            throw new Error(`Supabase RPC ${fn} failed: ${res.status} ${text}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(body),
+                signal: controller.signal
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(`Supabase RPC ${fn} failed: ${res.status} ${text}`);
+            }
+            try { return await res.json(); } catch (e) { return null; }
+        } finally {
+            clearTimeout(timeoutId);
         }
-        try { return await res.json(); } catch (e) { return null; }
     }
 
     async function supabaseTable(method, table, params = {}) {
@@ -331,13 +355,13 @@
         return await res.json();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    //  PLAY MEDIA SERVICE — Internal Player via Local HTTP Server
-    // ═══════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  PLAY MEDIA SERVICE â€” Internal Player via Local HTTP Server
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  All "Play" actions on mobile go through this service.
     //  Phase 3: Local HTTP Server serves files at http://localhost
     //  Phase 4: InternalPlayer component renders HTML5 <video>
-    // ═══════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     const PlayMediaService = {
         /**
          * Determine the type of media source.
@@ -393,7 +417,7 @@
                 try {
                     const result = await Filesystem.getUri({ path: filePath, directory: dir });
                     if (result && result.uri) {
-                        console.log(`[PlayMediaService] Resolved "${filePath}" → "${result.uri}" (dir=${dir})`);
+                        console.log(`[PlayMediaService] Resolved "${filePath}" â†’ "${result.uri}" (dir=${dir})`);
                         return { uri: result.uri, directory: dir };
                     }
                 } catch (e) {
@@ -435,21 +459,21 @@
                 await this._ensureServer();
                 const result = await LocalServer.serveFile({ path: nativePath });
                 if (result && result.url) {
-                    console.log(`[PlayMediaService] ✓ Success: Serving via ${result.url}`);
+                    console.log(`[PlayMediaService] âœ“ Success: Serving via ${result.url}`);
                     return result.url;
                 }
                 throw new Error('LocalServer returned invalid result');
             } catch (e) {
-                console.error('[PlayMediaService] ✗ Failed to serve file:', e);
+                console.error('[PlayMediaService] âœ— Failed to serve file:', e);
                 window.dispatchEvent(new CustomEvent('toast', { detail: 'Server Error: ' + (e.message || 'Check logs') }));
                 return null;
             }
         },
 
         /**
-         * Universal entry point — routes to Internal Player via Local HTTP Server.
+         * Universal entry point â€” routes to Internal Player via Local HTTP Server.
          *
-         * For local files: resolves path → serves via localhost → returns streamable URL
+         * For local files: resolves path â†’ serves via localhost â†’ returns streamable URL
          * For HTTP streams: passes URL directly (no server needed)
          * For magnets: hands off to OS via intent:// scheme
          *
@@ -461,7 +485,7 @@
             if (!url) return { success: false, error: 'No URL provided' };
 
             const sourceType = this._classifySource(url);
-            console.log(`[PlayMediaService] play("${url.substring(0, 80)}...") → type=${sourceType}`, meta.title || '');
+            console.log(`[PlayMediaService] play("${url.substring(0, 80)}...") â†’ type=${sourceType}`, meta.title || '');
 
             // Magnet links & Torrent files: hand off to OS via native intent
             if (sourceType === 'magnet' || sourceType === 'torrent_file') {
@@ -471,24 +495,27 @@
                 }
 
                 if (isAndroid) {
-                    if (!LocalServer) {
-                        console.warn('[PlayMediaService] LocalServer plugin missing from window.Capacitor.Plugins');
-                        if (window.showToast) window.showToast('Native Bridge not found. Please rebuild the app.');
-                    } else {
-                        try {
-                            console.log('[PlayMediaService] Opening magnet/torrent via native intent:', magnetUrl);
-                            await LocalServer.openUrl({ url: magnetUrl });
-                            return { success: true, method: 'native-intent' };
-                        } catch (e) {
-                            console.error('[PlayMediaService] Native intent failed:', e);
-                            if (window.showToast) window.showToast('Native Error: ' + (e.message || 'Check if a torrent app is installed'));
+                    try {
+                        console.log('[PlayMediaService] Opening magnet/torrent via App Chooser intent:', magnetUrl);
+                        const chooserIntent = `intent:${magnetUrl.substring(magnetUrl.indexOf(':') + 1)}#Intent;scheme=magnet;action=android.intent.action.VIEW;end;`;
+                        window.location.href = chooserIntent;
+                        return { success: true, method: 'app-chooser-intent' };
+                    } catch (e) {
+                        console.error('[PlayMediaService] App Chooser intent launch failed:', e);
+                        if (typeof LocalServer !== 'undefined' && LocalServer) {
+                            try {
+                                await LocalServer.openUrl({ url: magnetUrl });
+                                return { success: true, method: 'native-intent' };
+                            } catch (err) {
+                                console.error('[PlayMediaService] Fallback native intent failed:', err);
+                            }
                         }
                     }
                 }
 
-                // Fallback to legacy methods
+                // Fallback to legacy magnet intent
                 try {
-                    const intentUrl = `intent:${magnetUrl.substring(magnetUrl.indexOf(':') + 1)}#Intent;scheme=magnet;end`;
+                    const intentUrl = `intent:${magnetUrl.substring(magnetUrl.indexOf(':') + 1)}#Intent;scheme=magnet;action=android.intent.action.VIEW;end;`;
                     window.location.href = intentUrl;
                     return { success: true, method: 'intent-scheme' };
                 } catch (e) {
@@ -500,11 +527,11 @@
 
             // HTTP streams: pass directly to internal player (no server needed)
             if (sourceType === 'http_stream') {
-                console.log('[PlayMediaService] HTTP stream → Internal Player:', url);
+                console.log('[PlayMediaService] HTTP stream â†’ Internal Player:', url);
                 return { success: true, streamUrl: url, method: 'direct-http' };
             }
 
-            // Local files: resolve path → convert to WebView-friendly URL
+            // Local files: resolve path â†’ convert to WebView-friendly URL
             if (sourceType === 'local_file' || sourceType === 'content_uri') {
                 const resolved = await this._resolveToNativeUri(url);
                 console.log('[PlayMediaService] Resolved native URI:', resolved.uri);
@@ -512,14 +539,14 @@
                 // Use the official Capacitor way to convert file:// or content:// to a streamable URL
                 if (window.Capacitor && window.Capacitor.convertFileSrc) {
                     const webUrl = window.Capacitor.convertFileSrc(resolved.uri);
-                    console.log('[PlayMediaService] ✓ Success: Using convertFileSrc:', webUrl);
+                    console.log('[PlayMediaService] âœ“ Success: Using convertFileSrc:', webUrl);
                     return { success: true, streamUrl: webUrl, method: 'capacitor-convert' };
                 }
 
                 // Fallback to local server if convertFileSrc is missing
                 const localhostUrl = await this._serveViaLocalhost(resolved.uri);
                 if (localhostUrl) {
-                    console.log('[PlayMediaService] ✓ Fallback: Streaming via localhost:', localhostUrl);
+                    console.log('[PlayMediaService] âœ“ Fallback: Streaming via localhost:', localhostUrl);
                     return { success: true, streamUrl: localhostUrl, method: 'local-server' };
                 }
 
@@ -540,11 +567,11 @@
     let cloudSession = null;
 
     // Cross-platform storage helpers. Persistence layers, in order:
-    //   1. @capacitor/preferences (native, survives restart) — best on Android
-    //   2. localStorage — also survives restart in the Capacitor Android WebView and
+    //   1. @capacitor/preferences (native, survives restart) â€” best on Android
+    //   2. localStorage â€” also survives restart in the Capacitor Android WebView and
     //      in the browser, so the app stays logged in even before the native plugin is
     //      installed via `npx cap sync`
-    //   3. in-memory Map — last resort, keeps values stable within the session
+    //   3. in-memory Map â€” last resort, keeps values stable within the session
     const _memoryStore = new Map();
     // Prefer @capacitor/preferences (Capacitor 4+), fall back to the legacy
     // @capacitor/storage plugin name if present.
@@ -640,7 +667,7 @@
                 console.warn('[Bridge] check_hardware_ban RPC failed:', e.message);
                 // Try backend HTTP fallback if RPC is broken (ambiguous hardware_id error)
                 try {
-                    const backend = 'http://localhost:3000';
+                    const backend = (BACKEND_URL || window.MEEM_BACKEND_URL || 'https://meem-watch.vercel.app').replace(/\/$/, '');
                     const fb = await fetch(`${backend}/api/auth/device-session?hardware_id=${encodeURIComponent(hw)}`);
                     if (fb && fb.status === 403) {
                         showBannedOverlay('Banned (backend)');
@@ -659,7 +686,7 @@
                 console.warn('[Bridge] device_session RPC failed:', e.message);
                 // If RPC fails due to ambiguous hardware_id in server function, try HTTP fallback
                 try {
-                    const backend = 'http://localhost:3000';
+                    const backend = (BACKEND_URL || window.MEEM_BACKEND_URL || 'https://meem-watch.vercel.app').replace(/\/$/, '');
                     const fb = await fetch(`${backend}/api/auth/device-session?hardware_id=${encodeURIComponent(hw)}`);
                     if (fb && fb.ok) {
                         const data = await fb.json();
@@ -682,18 +709,24 @@
         }
     }
 
-    // Get Android device hardware ID — persistent across app restarts.
+    function checkIsAndroid() {
+        if (window.Capacitor) return true;
+        if (typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '')) return true;
+        return false;
+    }
+
+    // Get Android device hardware ID â€” persistent across app restarts.
     // Cached in-memory so it stays IDENTICAL for every call within a session even if
     // the persistent store is unavailable. Without this, a missing storage/Device
     // plugin produced a brand-new random ID on each call, registering a new device
     // every time and quickly hitting DEVICE_LIMIT_REACHED.
     let _cachedHardwareId = null;
     async function getHardwareId() {
-        if (!isAndroid) return 'web-unknown';
+        if (!checkIsAndroid() && !isAndroid) return 'web-unknown';
         if (_cachedHardwareId) return _cachedHardwareId;
 
         let storedId = await storageGet('mediavault_device_id');
-        if (storedId && String(storedId).trim()) {
+        if (storedId && String(storedId).trim() && storedId !== 'web-unknown') {
             _cachedHardwareId = String(storedId).trim();
             return _cachedHardwareId;
         }
@@ -807,7 +840,7 @@
         storageRemove: storageRemove,
         storageClear: storageClear,
 
-        // Persistence — Stored via Capacitor Storage on mobile
+        // Persistence â€” Stored via Capacitor Storage on mobile
         loadData: async () => {
             try {
                 const storedRaw = await storageGet(STORAGE_KEY);
@@ -822,7 +855,7 @@
                 
                 const hwId = await getHardwareId();
 
-                if (!localData || localData.authenticated !== true) {
+                if ((!localData || localData.authenticated !== true) && (!cloudSession || !cloudSession.authenticated)) {
                     console.log('[Bridge] AppData cleared or user logged out (localData.authenticated !== true). Returning logged-out state immediately.');
                     cloudSession = null;
                     window.cloudSession = null;
@@ -831,7 +864,7 @@
                 
                 console.log(`[Bridge] Loading cloud session for device: ${hwId}`);
 
-                // 1️⃣ Perform online ban check first if online
+                // 1ï¸âƒ£ Perform online ban check first if online
                 let isHardwareBanned = false;
                 let banReasonText = '';
                 if (navigator.onLine) {
@@ -853,7 +886,7 @@
                     return { banned: true, banReason: banReasonText, hardwareId: hwId };
                 }
 
-                // 2️⃣ Check if locally flagged as banned to prevent offline bypass
+                // 2ï¸âƒ£ Check if locally flagged as banned to prevent offline bypass
                 const isLocallyBanned = await storageGet('mediavault_device_banned');
                 if (isLocallyBanned === 'true' || isLocallyBanned === true) {
                     return { banned: true, banReason: 'Permanently Banned (Offline Signature)', hardwareId: hwId };
@@ -891,7 +924,7 @@
                         (sessionRow.user.is_banned === true || sessionRow.user.is_banned === 'true');
 
                     if (isBanned) {
-                        // Account is banned — block regardless of any local session.
+                        // Account is banned â€” block regardless of any local session.
                         console.warn('[Bridge] User is banned:', sessionRow.user.email);
                         await storageSet('mediavault_device_banned', 'true');
                         const cleared = {
@@ -905,7 +938,7 @@
 
                     // Not banned: device_session only said "no" because this device isn't
                     // bound yet (typical for Google/Discord OAuth users). If a VALID
-                    // Supabase Auth session exists, the user IS logged in — bind the device
+                    // Supabase Auth session exists, the user IS logged in â€” bind the device
                     // and continue instead of destroying the session. This is the login-loop fix.
                     let supaUser = null;
                     try {
@@ -917,12 +950,11 @@
                     } catch (e) { /* no valid Supabase session */ }
 
                     if (supaUser && supaUser.id) {
-                        console.log('[Bridge] device_session=false but valid Supabase session present — recovering instead of wiping.');
+                        console.log('[Bridge] device_session=false but valid Supabase session present â€” recovering instead of wiping.');
 
                         // Best-effort: bind this device so device_session works next launch.
-                        // (Skipped silently if the register_device RPC isn't deployed yet.)
                         try {
-                            const reg = unwrapRpcRow(await supabaseRpc('register_device', { p_user_id: supaUser.id, p_hardware_id: hwId }));
+                            const reg = unwrapRpcRow(await supabaseRpc('sync_user_session', { p_user_id: supaUser.id, p_email: supaUser.email, p_username: '', p_hardware_id: hwId }));
                             if (reg && reg.error === 'DEVICE_LIMIT_REACHED') {
                                 const cleared = {
                                     ...(localData || {}),
@@ -932,27 +964,32 @@
                                 await storageSet(STORAGE_KEY, JSON.stringify(cleared));
                                 return { ...cleared, hardwareId: hwId };
                             }
-                        } catch (e) { console.warn('[Bridge] register_device during load failed:', e.message); }
+                            if (reg && reg.success) {
+                                sessionRow = { authenticated: true, user: reg.user || { id: supaUser.id, email: supaUser.email }, profiles: reg.profiles || [] };
+                            }
+                        } catch (e) { console.warn('[Bridge] sync_user_session during load failed:', e.message); }
 
-                        // The valid Supabase session is the source of truth — build an
-                        // authenticated row directly so a logged-in user is never wiped
-                        // (works even before the register_device migration is deployed).
-                        // Shape matches device_session: raw users_accounts + account_profiles rows.
-                        sessionRow = { authenticated: true, user: { id: supaUser.id, email: supaUser.email }, profiles: [] };
-                        try {
-                            const client = getSupabaseClient();
-                            const { data: accData } = await client.from('users_accounts').select('*').eq('id', supaUser.id).maybeSingle();
-                            const { data: profData } = await client.from('account_profiles').select('*').eq('user_id', supaUser.id);
-                            if (accData) sessionRow.user = accData;
-                            if (profData) sessionRow.profiles = profData;
-                        } catch (e) {
-                            console.warn('[Bridge] Supabase recovery fetch failed (continuing with session user):', e.message);
+                        if (!sessionRow || !sessionRow.authenticated) {
+                            sessionRow = { authenticated: true, user: { id: supaUser.id, email: supaUser.email }, profiles: [] };
+                            try {
+                                const client = getSupabaseClient();
+                                const { data: accData } = await client.from('users_accounts').select('*').eq('id', supaUser.id).maybeSingle();
+                                const { data: profData } = await client.from('account_profiles').select('*').eq('user_id', supaUser.id);
+                                if (accData) sessionRow.user = accData;
+                                if (profData) sessionRow.profiles = profData;
+                            } catch (e) {
+                                console.warn('[Bridge] Supabase recovery fetch failed (continuing with session user):', e.message);
+                            }
                         }
                     }
 
-                    // Still not authenticated (no valid Supabase session) → genuine logout.
+                    // Still not authenticated (no valid Supabase session) â†’ only clear if not locally authenticated
                     if (sessionRow && !sessionRow.authenticated) {
-                        console.warn('[Bridge] No valid session — clearing local auth state.');
+                        if (localData && localData.authenticated && localData.user) {
+                            console.warn('[Bridge] device_session unauthenticated, but preserving valid local session.');
+                            return { ...localData, hardwareId: hwId };
+                        }
+                        console.warn('[Bridge] No valid session â€” clearing local auth state.');
                         const cleared = {
                             ...(localData || {}),
                             authenticated: false, user: null, profiles: [], activeProfileId: null
@@ -1118,42 +1155,45 @@
                                         if (upsertWlError) throw upsertWlError;
                                     }
 
-                                    // 3. Sync playback_history
-                                    const localPlayback = profile.playback || {};
-                                    const { data: dbPlayback, error: pbFetchError } = await client
-                                        .from('playback_history')
-                                        .select('media_id')
-                                        .eq('profile_id', profile.id);
-                                    if (pbFetchError) throw pbFetchError;
-
-                                    const dbPlaybackIds = new Set((dbPlayback || []).map(x => x.media_id));
-                                    const localPlaybackIds = new Set(Object.keys(localPlayback));
-
-                                    const toDeletePb = [...dbPlaybackIds].filter(id => !localPlaybackIds.has(id));
-                                    if (toDeletePb.length > 0) {
-                                        const { error: delPbError } = await client
+                                    // 3. Sync playback_history (VIP only)
+                                    const isVipUser = typeof window.isAccountVIP === 'function' ? window.isAccountVIP() : false;
+                                    if (isVipUser) {
+                                        const localPlayback = profile.playback || {};
+                                        const { data: dbPlayback, error: pbFetchError } = await client
                                             .from('playback_history')
-                                            .delete()
-                                            .eq('profile_id', profile.id)
-                                            .in('media_id', toDeletePb);
-                                        if (delPbError) throw delPbError;
-                                    }
+                                            .select('media_id')
+                                            .eq('profile_id', profile.id);
+                                        if (pbFetchError) throw pbFetchError;
 
-                                    const localPlaybackEntries = Object.entries(localPlayback);
-                                    if (localPlaybackEntries.length > 0) {
-                                        const playbackRows = localPlaybackEntries.map(([mediaId, entry]) => ({
-                                            profile_id: profile.id,
-                                            media_id: mediaId,
-                                            progress: entry.time ? Number(entry.time) : 0,
-                                            duration: entry.duration ? Number(entry.duration) : 0,
-                                            last_watched_at: entry.lastWatched ? new Date(entry.lastWatched).toISOString() : new Date().toISOString(),
-                                            watched: entry.watched ? true : false
-                                        }));
+                                        const dbPlaybackIds = new Set((dbPlayback || []).map(x => x.media_id));
+                                        const localPlaybackIds = new Set(Object.keys(localPlayback));
 
-                                        const { error: upsertPbError } = await client
-                                            .from('playback_history')
-                                            .upsert(playbackRows, { onConflict: 'profile_id,media_id' });
-                                        if (upsertPbError) throw upsertPbError;
+                                        const toDeletePb = [...dbPlaybackIds].filter(id => !localPlaybackIds.has(id));
+                                        if (toDeletePb.length > 0) {
+                                            const { error: delPbError } = await client
+                                                .from('playback_history')
+                                                .delete()
+                                                .eq('profile_id', profile.id)
+                                                .in('media_id', toDeletePb);
+                                            if (delPbError) throw delPbError;
+                                        }
+
+                                        const localPlaybackEntries = Object.entries(localPlayback);
+                                        if (localPlaybackEntries.length > 0) {
+                                            const playbackRows = localPlaybackEntries.map(([mediaId, entry]) => ({
+                                                profile_id: profile.id,
+                                                media_id: mediaId,
+                                                progress: entry.time ? Number(entry.time) : 0,
+                                                duration: entry.duration ? Number(entry.duration) : 0,
+                                                last_watched_at: entry.lastWatched ? new Date(entry.lastWatched).toISOString() : new Date().toISOString(),
+                                                watched: entry.watched ? true : false
+                                            }));
+
+                                            const { error: upsertPbError } = await client
+                                                .from('playback_history')
+                                                .upsert(playbackRows, { onConflict: 'profile_id,media_id' });
+                                            if (upsertPbError) throw upsertPbError;
+                                        }
                                     }
 
                                     // 4. Sync locked_items
@@ -1211,7 +1251,7 @@
                                         if (delListsError) throw delListsError;
                                     }
 
-                                    // NOTE: Auto-leave on sync REMOVED — caused race condition deleting
+                                    // NOTE: Auto-leave on sync REMOVED â€” caused race condition deleting
                                     // newly-accepted invitations. Leave via explicit user action only.
 
                                     for (const localList of localLists) {
@@ -1354,18 +1394,134 @@
 
 
         // --- Cloud Auth Operations ---
+        // --- Cloud Auth Operations ---
         cloudLogin: async (email, password) => {
             const hwId = await getHardwareId();
+            let result = null;
+            let lastError = null;
+
+            // 1. Primary: Standard Supabase Auth signInWithPassword
             try {
-                let result;
-                if (isAndroid && SUPABASE_URL && SUPABASE_ANON_KEY) {
-                    result = unwrapRpcRow(await supabaseRpc('handle_secure_login', { email, password, hardware_id: hwId }));
-                } else if (BACKEND_URL) {
-                    result = await cloudAuthHttp('/api/auth/login', { email, password, hardware_id: hwId });
-                } else {
-                    result = unwrapRpcRow(await supabaseRpc('handle_secure_login', { email, password, hardware_id: hwId }));
+                const client = getSupabaseClient();
+                if (client) {
+                    const { data, error } = await withTimeout(
+                        client.auth.signInWithPassword({ email, password }),
+                        30000,
+                        'Supabase sign-in timed out'
+                    );
+                    if (error) {
+                        const errMsg = (error.message || '').toLowerCase();
+                        if (errMsg.includes('email not confirmed')) {
+                            return { error: 'EMAIL_NOT_CONFIRMED', message: 'Email not confirmed' };
+                        }
+                        lastError = error.message;
+                    } else if (data && data.user && data.session) {
+                        // Sync user session & bind device
+                        const syncRes = unwrapRpcRow(await supabaseRpc('sync_user_session', {
+                            p_user_id: data.user.id,
+                            p_email: data.user.email,
+                            p_username: data.user.user_metadata?.username || data.user.user_metadata?.name || '',
+                            p_hardware_id: hwId
+                        }).catch(() => null));
+
+                        result = {
+                            success: true,
+                            user: syncRes?.user || data.user,
+                            session: data.session,
+                            profiles: syncRes?.profiles || []
+                        };
+                    }
                 }
-                if (result && (result.success || result.user)) {
+            } catch (sbErr) {
+                console.warn('[Bridge] signInWithPassword error:', sbErr.message);
+                lastError = sbErr.message;
+            }
+
+            // 2. Fallback: Direct RPC handle_secure_login for legacy accounts
+            if (!result && SUPABASE_URL && SUPABASE_ANON_KEY) {
+                try {
+                    const rpcRes = unwrapRpcRow(await withTimeout(
+                        supabaseRpc('handle_secure_login', { email, password, hardware_id: hwId }),
+                        30000,
+                        'Login request timed out'
+                    ));
+                    if (rpcRes && rpcRes.success) {
+                        result = rpcRes;
+                    } else if (rpcRes && rpcRes.error) {
+                        lastError = rpcRes.message || rpcRes.error;
+                    }
+                } catch (e) {
+                    console.warn('[Bridge] Direct RPC handle_secure_login fallback failed:', e.message);
+                }
+            }
+
+            if (result && (result.success || result.user)) {
+                cloudSession = {
+                    user: result.user,
+                    profiles: result.profiles || [],
+                    activeProfileId: result.profiles?.[0]?.id || null,
+                    authenticated: true,
+                    hardwareId: hwId
+                };
+                window.cloudSession = cloudSession;
+
+                const toSave = {
+                    authenticated: true,
+                    user: result.user,
+                    profiles: result.profiles || [],
+                    activeProfileId: result.profiles?.[0]?.id || null,
+                    hardwareId: hwId
+                };
+                await storageSet(STORAGE_KEY, JSON.stringify(toSave));
+
+                if (result.session) {
+                    await storageSet('mediavault_supabase_session', JSON.stringify({
+                        access_token: result.session.access_token,
+                        refresh_token: result.session.refresh_token
+                    }));
+                }
+                return result;
+            }
+
+            return result || { error: lastError || 'Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ Ø£Ùˆ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ØºÙŠØ± ØµØ­ÙŠØ­Ø©' };
+        },
+
+        cloudRegister: async (email, password, username = '') => {
+            const hwId = await getHardwareId();
+            let result = null;
+            let lastError = null;
+
+            try {
+                const client = getSupabaseClient();
+                if (client) {
+                    console.log('[Bridge] Registering via Supabase auth.signUp...');
+                    const { data, error } = await withTimeout(
+                        client.auth.signUp({
+                            email,
+                            password,
+                            options: { data: { username: username || email.split('@')[0] } }
+                        }),
+                        30000,
+                        'Supabase signUp timed out'
+                    );
+                    if (error) throw error;
+                    if (data && data.user) {
+                        const needsConfirmation = !data.session && !data.user.confirmed_at;
+                        result = {
+                            success: true,
+                            needsConfirmation: needsConfirmation,
+                            user: data.user,
+                            session: data.session
+                        };
+                    }
+                }
+            } catch (sbErr) {
+                console.error('[Bridge] Supabase signUp error:', sbErr.message);
+                lastError = sbErr.message;
+            }
+
+            if (result && result.success) {
+                if (!result.needsConfirmation && result.session) {
                     cloudSession = {
                         user: result.user,
                         profiles: result.profiles || [],
@@ -1374,134 +1530,222 @@
                         hardwareId: hwId
                     };
                     window.cloudSession = cloudSession;
+
+                    const toSave = {
+                        authenticated: true,
+                        user: result.user,
+                        profiles: result.profiles || [],
+                        activeProfileId: result.profiles?.[0]?.id || null,
+                        hardwareId: hwId
+                    };
+                    await storageSet(STORAGE_KEY, JSON.stringify(toSave));
                 }
                 return result;
-            } catch (e) {
-                console.error('[Bridge] cloudLogin error:', e.message);
-                return { error: e.message };
+            }
+
+            return { error: lastError || 'Registration failed. Try a different email.' };
+        },
+
+        cloudVerifyOtp: async (email, token) => {
+            const hwId = await getHardwareId();
+            try {
+                const client = getSupabaseClient();
+                if (!client) throw new Error('Supabase client not available');
+
+                let verifyRes = await client.auth.verifyOtp({
+                    email,
+                    token,
+                    type: 'signup'
+                });
+
+                if (verifyRes.error) {
+                    verifyRes = await client.auth.verifyOtp({
+                        email,
+                        token,
+                        type: 'email'
+                    });
+                }
+
+                if (verifyRes.error) throw verifyRes.error;
+                const data = verifyRes.data;
+
+                if (!data?.user || !data?.session) {
+                    return { error: 'Verification failed - no session returned' };
+                }
+
+                const syncRes = unwrapRpcRow(await supabaseRpc('sync_user_session', {
+                    p_user_id: data.user.id,
+                    p_email: data.user.email,
+                    p_username: data.user.user_metadata?.username || '',
+                    p_hardware_id: hwId
+                }).catch(() => null));
+
+                const result = {
+                    success: true,
+                    user: syncRes?.user || data.user,
+                    profiles: syncRes?.profiles || [],
+                    session: data.session
+                };
+
+                cloudSession = {
+                    user: result.user,
+                    profiles: result.profiles || [],
+                    activeProfileId: result.profiles?.[0]?.id || null,
+                    authenticated: true,
+                    hardwareId: hwId
+                };
+                window.cloudSession = cloudSession;
+
+                const toSave = {
+                    authenticated: true,
+                    user: result.user,
+                    profiles: result.profiles || [],
+                    activeProfileId: result.profiles?.[0]?.id || null,
+                    hardwareId: hwId
+                };
+                await storageSet(STORAGE_KEY, JSON.stringify(toSave));
+
+                if (result.session) {
+                    await storageSet('mediavault_supabase_session', JSON.stringify({
+                        access_token: result.session.access_token,
+                        refresh_token: result.session.refresh_token
+                    }));
+                }
+
+                return result;
+            } catch (err) {
+                console.error('[Bridge] cloudVerifyOtp error:', err.message);
+                return { error: err.message || 'OTP verification failed' };
             }
         },
 
-
-        cloudRegister: async (email, password) => {
+        claimQrSession: async (ticketId, shortCode) => {
+            const hwId = await getHardwareId();
             try {
-                const hwId = await getHardwareId();
-                if (isAndroid && SUPABASE_URL && SUPABASE_ANON_KEY) {
-                    return unwrapRpcRow(await supabaseRpc('handle_register', { email, password, hardware_id: hwId }));
+                const rpcRes = unwrapRpcRow(await supabaseRpc('claim_qr_session', {
+                    p_ticket_id: ticketId || null,
+                    p_short_code: shortCode || null,
+                    p_hardware_id: hwId
+                }));
+
+                if (!rpcRes || rpcRes.error) {
+                    return { error: rpcRes?.message || rpcRes?.error || 'ÙØ´Ù„ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ø±Ù…Ø² QR' };
                 }
-                if (BACKEND_URL) {
-                    return await cloudAuthHttp('/api/auth/register', { email, password, hardware_id: hwId });
+
+                const refreshToken = rpcRes.refresh_token;
+                if (!refreshToken) {
+                    return { error: 'No refresh token received from QR claim' };
                 }
-                return unwrapRpcRow(await supabaseRpc('handle_register', { email, password, hardware_id: hwId }));
+
+                const client = getSupabaseClient();
+                const { data: sessionData, error: refreshError } = await client.auth.refreshSession({
+                    refresh_token: refreshToken
+                });
+
+                if (refreshError) throw refreshError;
+
+                const session = sessionData.session;
+                const user = sessionData.user || rpcRes.user;
+
+                const result = {
+                    success: true,
+                    user: user,
+                    profiles: rpcRes.profiles || [],
+                    session: session
+                };
+
+                cloudSession = {
+                    user: result.user,
+                    profiles: result.profiles || [],
+                    activeProfileId: result.profiles?.[0]?.id || null,
+                    authenticated: true,
+                    hardwareId: hwId
+                };
+                window.cloudSession = cloudSession;
+
+                const toSave = {
+                    authenticated: true,
+                    user: result.user,
+                    profiles: result.profiles || [],
+                    activeProfileId: result.profiles?.[0]?.id || null,
+                    hardwareId: hwId
+                };
+                await storageSet(STORAGE_KEY, JSON.stringify(toSave));
+
+                if (session) {
+                    await storageSet('mediavault_supabase_session', JSON.stringify({
+                        access_token: session.access_token,
+                        refresh_token: session.refresh_token
+                    }));
+                }
+
+                return result;
             } catch (e) {
-                console.error('[Bridge] cloudRegister error:', e.message);
-                return { error: e.message };
+                console.error('[Bridge] claimQrSession error:', e);
+                return { error: e.message || 'ÙØ´Ù„ ØªØ£ÙƒÙŠØ¯ Ø±Ù…Ø² QR' };
             }
         },
 
         cloudSyncUserSession: async (userId, email, username, session) => {
             try {
+                // Support flexible parameter passing (object or positional)
+                if (userId && typeof userId === 'object' && !Array.isArray(userId)) {
+                    const opts = userId;
+                    session = opts.session;
+                    username = opts.username;
+                    email = opts.email;
+                    userId = opts.userId || opts.id;
+                }
+
                 const client = getSupabaseClient();
-                if (client && session) {
-                    await client.auth.setSession({
-                        access_token: session.access_token,
-                        refresh_token: session.refresh_token
-                    });
+                if (client && session && session.access_token) {
+                    try {
+                        await client.auth.setSession({
+                            access_token: session.access_token,
+                            refresh_token: session.refresh_token || ''
+                        });
+                    } catch (_) {}
                 }
                 const hwId = await getHardwareId();
 
-                // Bind this device to the account so device_session() recognises it on
-                // subsequent launches. Without this, OAuth (Google/Discord) devices were
-                // never registered in user_devices → device_session returned
-                // authenticated:false → the client wiped the valid session → login loop.
+                // Call sync_user_session directly (handles device binding, ban check, users_accounts, and profiles)
+                let rpcRes = null;
                 try {
-                    const reg = unwrapRpcRow(await supabaseRpc('register_device', { p_user_id: userId, p_hardware_id: hwId }));
-                    if (reg && reg.error === 'DEVICE_LIMIT_REACHED') {
-                        return { error: 'DEVICE_LIMIT_REACHED', message: reg.message };
-                    }
-                    if (reg && (reg.error === 'HARDWARE_BANNED' || reg.error === 'ACCOUNT_BANNED')) {
-                        await storageSet('mediavault_device_banned', 'true');
-                        return { error: reg.error, message: reg.message };
-                    }
+                    rpcRes = unwrapRpcRow(await withTimeout(
+                        supabaseRpc('sync_user_session', {
+                            p_user_id: userId,
+                            p_email: email,
+                            p_username: username || '',
+                            p_hardware_id: hwId
+                        }),
+                        30000,
+                        'Sync user session timed out'
+                    ));
                 } catch (e) {
-                    console.warn('[Bridge] register_device failed (continuing):', e.message);
+                    console.warn('[Bridge] sync_user_session RPC failed:', e.message);
                 }
 
-                // Fetch the actual record from Supabase public.users_accounts directly
-                let subExpiresAt = null;
-                let tmdbKeyVal = null;
-                let subdlKeyVal = null;
-                let fanartKeyVal = null;
-                let subdlEnabledVal = false;
-                let subdlLangsVal = 'AR,EN';
-                let subdlHiVal = 'hiInclude';
-                let traktAccessTokenVal = null;
-                let traktRefreshTokenVal = null;
-                let traktCreatedAtVal = null;
-                let traktExpiresInVal = null;
-
-                if (client) {
-                    const { data: accData, error: accError } = await client
-                        .from('users_accounts')
-                        .select('*')
-                        .eq('id', userId)
-                        .maybeSingle();
-                    if (!accError && accData) {
-                        subExpiresAt = accData.subscription_expires_at;
-                        tmdbKeyVal = accData.tmdb_api_key;
-                        subdlKeyVal = accData.subdl_api_key;
-                        fanartKeyVal = accData.fanart_api_key;
-                        subdlEnabledVal = accData.subdl_enabled;
-                        subdlLangsVal = accData.subdl_languages || 'AR,EN';
-                        subdlHiVal = accData.subdl_hearing_impairment || 'hiInclude';
-                        traktAccessTokenVal = accData.trakt_access_token;
-                        traktRefreshTokenVal = accData.trakt_refresh_token;
-                        traktCreatedAtVal = accData.trakt_created_at;
-                        traktExpiresInVal = accData.trakt_expires_in;
+                if (rpcRes && rpcRes.error) {
+                    if (rpcRes.error === 'DEVICE_LIMIT_REACHED') {
+                        return { error: 'DEVICE_LIMIT_REACHED', message: rpcRes.message };
+                    }
+                    if (rpcRes.error === 'HARDWARE_BANNED' || rpcRes.error === 'ACCOUNT_BANNED') {
+                        await storageSet('mediavault_device_banned', 'true');
+                        return { error: rpcRes.error, message: rpcRes.message };
                     }
                 }
 
-                // Fetch profiles from Supabase public.account_profiles directly
-                let dbProfiles = [];
-                if (client) {
-                    const { data: profData, error: profError } = await client
-                        .from('account_profiles')
-                        .select('*')
-                        .eq('user_id', userId);
-                    if (!profError && profData) {
-                        dbProfiles = profData.map(p => ({
-                            id: p.id,
-                            user_id: p.user_id,
-                            name: p.name,
-                            avatar: p.avatar,
-                            max_age_rating: p.max_age_rating ?? 18,
-                            vaultPin: p.profile_pin || p.pin || null,
-                            banner: p.banner || null
-                        }));
-                    }
+                const syncUser = rpcRes?.user || { id: userId, email: email, username: username || '' };
+                let syncProfiles = rpcRes?.profiles || [];
+
+                if (syncProfiles.length === 0 && cloudSession && Array.isArray(cloudSession.profiles) && cloudSession.profiles.length > 0) {
+                    syncProfiles = cloudSession.profiles;
                 }
-
-
 
                 const result = {
                     success: true,
-                    user: { 
-                        id: userId, 
-                        email: email, 
-                        username: username || '',
-                        subscription_expires_at: subExpiresAt,
-                        tmdb_api_key: tmdbKeyVal,
-                        subdl_api_key: subdlKeyVal,
-                        fanart_api_key: fanartKeyVal,
-                        subdl_enabled: subdlEnabledVal,
-                        subdl_languages: subdlLangsVal,
-                        subdl_hearing_impairment: subdlHiVal,
-                        trakt_access_token: traktAccessTokenVal,
-                        trakt_refresh_token: traktRefreshTokenVal,
-                        trakt_created_at: traktCreatedAtVal,
-                        trakt_expires_in: traktExpiresInVal
-                    },
-                    profiles: dbProfiles,
+                    user: syncUser,
+                    profiles: syncProfiles,
                     message: "Synchronized user session directly from Supabase."
                 };
 
@@ -1514,6 +1758,23 @@
                 };
                 window.cloudSession = cloudSession;
 
+                // Save to storage
+                const toSave = {
+                    authenticated: true,
+                    user: result.user,
+                    profiles: result.profiles || [],
+                    activeProfileId: result.profiles?.[0]?.id || null,
+                    hardwareId: hwId
+                };
+                await storageSet(STORAGE_KEY, JSON.stringify(toSave));
+
+                if (session && session.access_token) {
+                    await storageSet('mediavault_supabase_session', JSON.stringify({
+                        access_token: session.access_token,
+                        refresh_token: session.refresh_token
+                    }));
+                }
+
                 return result;
             } catch (e) {
                 console.error('[Bridge] cloudSyncUserSession failed:', e.message);
@@ -1522,42 +1783,92 @@
         },
 
         cloudOAuthLogin: async (url) => {
-            console.log('[Bridge] Opening OAuth in system browser:', url);
-            if (isAndroid) {
-                const Browser = window.Capacitor?.Plugins?.Browser;
+            console.log('[Bridge] Opening OAuth in external system browser:', url);
+            const isMobileDevice = /android|iphone|ipad|ipod/i.test(navigator.userAgent || '') || isAndroid;
+
+            if (isMobileDevice) {
+                let Browser = window.Capacitor?.Plugins?.Browser;
+                if (!Browser) {
+                    for (let i = 0; i < 20; i++) {
+                        await new Promise(r => setTimeout(r, 100));
+                        Browser = window.Capacitor?.Plugins?.Browser;
+                        if (Browser) break;
+                    }
+                }
+
                 if (Browser && typeof Browser.open === 'function') {
+                    // Attach a one-shot "browser closed" listener BEFORE opening
+                    // so we don't miss the event if the user returns quickly.
+                    let browserFinishedHandle = null;
+                    try {
+                        browserFinishedHandle = await Browser.addListener('browserFinished', () => {
+                            console.log('[Bridge] OAuth Browser closed â€” checking for active session...');
+                            // Dispatch a synthetic event that auth.js is already listening for.
+                            window.dispatchEvent(new CustomEvent('mediavault-oauth-browser-closed'));
+                            // Also force a getLaunchUrl check â€” the deep link may have been
+                            // delivered as a launch intent instead of appUrlOpen.
+                            const App = window.Capacitor?.Plugins?.App;
+                            if (App) {
+                                [0, 400, 900, 1800].forEach(delay => {
+                                    setTimeout(() => {
+                                        App.getLaunchUrl().then(data => {
+                                            if (data && data.url) dispatchDeepLink(data.url);
+                                        }).catch(() => {});
+                                    }, delay);
+                                });
+                            }
+                            if (browserFinishedHandle) {
+                                try { browserFinishedHandle.remove(); } catch (_) {}
+                                browserFinishedHandle = null;
+                            }
+                        });
+                    } catch (e) {
+                        console.warn('[Bridge] Could not attach browserFinished listener:', e.message);
+                    }
+
                     await Browser.open({ url, toolbarColor: '#050508' });
                     return true;
                 }
-                const LocalServer = window.Capacitor?.Plugins?.LocalServer;
-                if (LocalServer && typeof LocalServer.openUrl === 'function') {
-                    await LocalServer.openUrl({ url });
-                    return true;
+
+                // Fallback: Force external browser open on Android WebView
+                try {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.target = '_system';
+                    a.rel = 'noopener noreferrer';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                } catch (e) {
+                    window.open(url, '_system') || (window.location.href = url);
                 }
-                console.warn('[Bridge] Browser plugin missing — falling back to window.open');
-                window.open(url, '_system');
             } else {
                 window.open(url, '_blank');
             }
             return true;
         },
 
+
         onDeepLink: (cb) => {
-            if (!isAndroid) return () => {};
             activeDeepLinkHandler = cb;
+
+            // Immediately deliver any queued URLs
             while (pendingDeepLinkUrls.length) {
-                cb(pendingDeepLinkUrls.shift());
+                try {
+                    cb(pendingDeepLinkUrls.shift());
+                } catch (e) {
+                    console.error('[Bridge] Error processing pending deep link:', e);
+                }
             }
 
-            const App = window.Capacitor?.Plugins?.App;
-            if (!App) {
-                console.warn('[Bridge] Capacitor App plugin not available for deep links');
-                return () => { activeDeepLinkHandler = null; };
-            }
+            // Track URLs we've already dispatched to avoid double-processing
+            // getLaunchUrl across multiple polled calls.
+            const dispatchedLaunchUrls = new Set();
 
-            const deliverLaunchUrl = () => {
+            const deliverLaunchUrl = (App) => {
                 App.getLaunchUrl().then((launchData) => {
-                    if (launchData && launchData.url) {
+                    if (launchData && launchData.url && !dispatchedLaunchUrls.has(launchData.url)) {
+                        dispatchedLaunchUrls.add(launchData.url);
                         dispatchDeepLink(launchData.url);
                     }
                 }).catch((err) => {
@@ -1565,27 +1876,59 @@
                 });
             };
 
-            const listener = App.addListener('appUrlOpen', (data) => {
-                console.log('[Bridge] Deep link received (appUrlOpen):', redactUrl(data?.url));
-                if (data && data.url) {
-                    dispatchDeepLink(data.url);
+            const setupAppListener = () => {
+                const App = window.Capacitor?.Plugins?.App;
+                if (!App) return false;
+
+                try {
+                    App.addListener('appUrlOpen', (data) => {
+                        console.log('[Bridge] Deep link received (appUrlOpen):', redactUrl(data?.url));
+                        if (data && data.url) {
+                            dispatchDeepLink(data.url);
+                        }
+                    });
+
+                    // 'resume' fires when the app returns to foreground (Android < 14).
+                    App.addListener('resume', () => {
+                        deliverLaunchUrl(App);
+                    });
+
+                    // 'appStateChange' fires on Android 14+ when activity becomes active.
+                    try {
+                        App.addListener('appStateChange', (state) => {
+                            if (state && state.isActive) {
+                                deliverLaunchUrl(App);
+                            }
+                        });
+                    } catch (_) { /* not available on all Capacitor versions */ }
+
+                    // Poll getLaunchUrl at intervals: the OS may not have delivered the
+                    // intent yet when the webview first initialises.
+                    [300, 800, 1500, 3000].forEach(delay => {
+                        setTimeout(() => deliverLaunchUrl(App), delay);
+                    });
+
+                    return true;
+                } catch (e) {
+                    console.warn('[Bridge] Error setting App listeners:', e);
+                    return false;
                 }
-            });
+            };
 
-            App.addListener('resume', () => {
-                deliverLaunchUrl();
-            });
-
-            setTimeout(deliverLaunchUrl, 300);
-            setTimeout(deliverLaunchUrl, 1200);
+            if (!setupAppListener()) {
+                const interval = setInterval(() => {
+                    if (setupAppListener()) {
+                        clearInterval(interval);
+                    }
+                }, 300);
+                setTimeout(() => clearInterval(interval), 30000);
+            }
 
             return () => {
                 activeDeepLinkHandler = null;
-                listener.then(h => h.remove()).catch(err => {
-                    console.warn('[Bridge] Failed to remove appUrlOpen listener:', err);
-                });
             };
         },
+
 
 
         // --- Cloud Profile CRUD ---
@@ -1622,6 +1965,9 @@
 
         // --- Playback Position Sync ---
         savePlaybackPosition: async (profileId, key, entry) => {
+            if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+                return false;
+            }
             if (!profileId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profileId)) {
                 return false;
             }
@@ -1729,7 +2075,7 @@
                         if (!allFilesCheck.granted) {
                             console.log('[Bridge] Requesting All Files Access via system settings...');
                             await LocalServer.requestAllFilesAccess();
-                            // The user is taken to Settings — we return true but they need to grant it
+                            // The user is taken to Settings â€” we return true but they need to grant it
                             return true;
                         }
                     } catch (e) {
@@ -1743,7 +2089,7 @@
             }
         },
 
-        // TMDB functions removed — use Cinemeta/Kitsu APIs instead
+        // TMDB functions removed â€” use Cinemeta/Kitsu APIs instead
 
         cinemetaSearch: async (query) => {
             try {
@@ -1930,7 +2276,7 @@
             const results = [];
             const stremioType = type === 'movie' ? 'movie' : 'series';
             
-            // Default Providers — Anime Alt (Kitsu) removed; all streams go through standard IMDb-based IDs.
+            // Default Providers â€” Anime Alt (Kitsu) removed; all streams go through standard IMDb-based IDs.
             const providers = [
                 { name: 'Torrentio', url: 'https://torrentio.strem.fun', icon: 'fas fa-bolt' },
                 { name: 'KnightCrawler', url: 'https://main.knightcrawler.elfhosted.com', icon: 'fas fa-dragon' }
@@ -1946,15 +2292,15 @@
 
             const promises = providers.map(async (p) => {
                 try {
-                    // Guard: skip if imdbId is missing — prevents "null:1:5.json" URLs
+                    // Guard: skip if imdbId is missing â€” prevents "null:1:5.json" URLs
                     if (!imdbId || imdbId === 'null' || imdbId === 'undefined') {
-                        console.warn(`[Bridge] ${p.name}: skipping — no valid IMDb ID for "${title}"`);
+                        console.warn(`[Bridge] ${p.name}: skipping â€” no valid IMDb ID for "${title}"`);
                         return;
                     }
 
                     let stremioId = type === 'movie' ? imdbId : `${imdbId}:${season}:${episode}`;
                     const url = `${p.url}/stream/${stremioType}/${stremioId}.json`;
-                    console.log(`[Bridge] ${p.name} → ${url}`);
+                    console.log(`[Bridge] ${p.name} â†’ ${url}`);
                     const resp = await fetch(url);
                     if (!resp.ok) {
                         console.warn(`[Bridge] ${p.name} HTTP ${resp.status} for ${url}`);
@@ -1980,8 +2326,8 @@
                                     torrentTitle.startsWith(`${epStr} `) ||
                                     new RegExp(`[Ee]p?${epNum}\\b`).test(torrentTitle) ||
                                     new RegExp(`\\b${epNum}\\b`).test(torrentTitle) ||
-                                    torrentTitle.includes('⛔️') ||
-                                    torrentTitle.includes('⚠️')
+                                    torrentTitle.includes('â›”ï¸') ||
+                                    torrentTitle.includes('âš ï¸')
                                 );
                                 if (!hasEp) return;
                             }
@@ -2051,20 +2397,72 @@
                         } catch(e) { console.warn('[Bridge] TikWM failed:', e); }
                     }
 
-                    // 2. Cobalt API v11 for everything else
+                    // 1b. Serverless YouTube parser using public Invidious API instances
+                    const getYouTubeId = (u) => {
+                        const m = u.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+                        return m ? m[1] : null;
+                    };
+                    const ytId = getYouTubeId(url);
+                    if (ytId && !directUrl) {
+                        const invidiousInstances = [
+                            'https://invidious.flokinet.to',
+                            'https://yewtu.be',
+                            'https://invidious.projectsegfau.lt',
+                            'https://inv.tux.im',
+                            'https://invidious.nerdvpn.de',
+                            'https://invidious.no-logs.com'
+                        ];
+                        for (let inst of invidiousInstances) {
+                            try {
+                                const fetchUrl = `${inst}/api/v1/videos/${ytId}`;
+                                let ytRes;
+                                if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                                    const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
+                                    ytRes = res.data;
+                                } else {
+                                    const res = await fetch(fetchUrl);
+                                    ytRes = await res.json();
+                                }
+                                if (ytRes && ytRes.formatStreams && ytRes.formatStreams.length > 0) {
+                                    const sorted = ytRes.formatStreams.sort((a, b) => {
+                                        const qA = parseInt(a.qualityLabel) || 0;
+                                        const qB = parseInt(b.qualityLabel) || 0;
+                                        return qB - qA;
+                                    });
+                                    if (sorted[0]?.url) {
+                                        directUrl = sorted[0].url;
+                                        console.log('[Bridge] Resolved YouTube via Invidious:', inst);
+                                        break;
+                                    }
+                                }
+                            } catch(e) {
+                                console.warn('[Bridge] Invidious instance failed:', inst, e);
+                            }
+                        }
+                    }
+
+                    // 2. Cobalt API instances for everything else
                     if (!directUrl) {
                         const instances = [
+                            'https://api.cobalt.tools/',
                             'https://co.wuk.sh/', 
-                            'https://cobalt.q0.wtf/', 
                             'https://api.vve.wtf/', 
-                            'https://cobalt.catbox.video/', 
-                            'https://api.cobalt.tools/'
+                            'https://cobalt.q0.wtf/', 
+                            'https://cobalt.catbox.video/'
                         ];
-                        for (let apiUrl of instances) {
-                            try {
-                                const cobRes = await makeReq(apiUrl, { url });
-                                if (cobRes && cobRes.url) { directUrl = cobRes.url; break; }
-                            } catch(e) { console.warn('[Bridge] Cobalt failed at', apiUrl); }
+                        for (let apiBase of instances) {
+                            const endpoints = [apiBase, apiBase.replace(/\/$/, '') + '/api/json'];
+                            for (let apiUrl of endpoints) {
+                                try {
+                                    const cobRes = await makeReq(apiUrl, { url });
+                                    if (cobRes && cobRes.url) { directUrl = cobRes.url; break; }
+                                    if (cobRes && cobRes.picker) {
+                                        const firstItem = cobRes.picker.find(i => i.type === 'video' || i.url);
+                                        if (firstItem && firstItem.url) { directUrl = firstItem.url; break; }
+                                    }
+                                } catch(e) { console.warn('[Bridge] Cobalt failed at', apiUrl); }
+                            }
+                            if (directUrl) break;
                         }
                     }
 
@@ -2109,7 +2507,7 @@
                 detail: { id, name: fileName, percent: 0, status: 'downloading', statusText: 'Starting...' }
             }));
 
-            // Use the outer isAndroid (window.Capacitor presence) — window.Capacitor.platform
+            // Use the outer isAndroid (window.Capacitor presence) â€” window.Capacitor.platform
             // is not a reliable property in Capacitor v5+; getPlatform() is the correct API.
             const onAndroid = isAndroid && window.Capacitor.Plugins.Filesystem;
 
@@ -2135,7 +2533,7 @@
                 // Ensure destination folder exists before downloading
                 try {
                     await fs.mkdir({ path: SAVE_SUBDIR, directory: SAVE_DIR, recursive: true });
-                } catch (e) { /* already exists — safe to ignore */ }
+                } catch (e) { /* already exists â€” safe to ignore */ }
 
                 // Register progress listener BEFORE starting the download.
                 // @capacitor/filesystem v5+ emits { url, bytes, contentLength } per chunk.
@@ -2207,8 +2605,10 @@
                     if (localhostUrl) finalUrl = localhostUrl;
                 }
 
-                // Force Amnis Player directly via Intent
-                const intentUrl = `intent://${finalUrl.replace(/^https?:\/\//, '')}#Intent;package=com.amnis.player;scheme=http;end;`;
+                // Launch Android App Chooser to let the user select their preferred video player (Amnis, VLC, MX Player, etc.)
+                const scheme = finalUrl.startsWith('https') ? 'https' : 'http';
+                const cleanUrl = finalUrl.replace(/^https?:\/\//, '');
+                const intentUrl = `intent://${cleanUrl}#Intent;scheme=${scheme};type=video/*;action=android.intent.action.VIEW;end;`;
                 window.location.href = intentUrl;
                 return { success: true };
             } catch (e) {
@@ -2328,7 +2728,19 @@
             if (channel === 'select-files') return window.api.selectFiles(args[0]);
             // Cloud Auth/Profile IPC mappings
             if (channel === 'cloud-login') return window.api.cloudLogin(args[0]?.email, args[0]?.password);
-            if (channel === 'cloud-register') return window.api.cloudRegister(args[0]?.email, args[0]?.password);
+            if (channel === 'cloud-register') return window.api.cloudRegister(args[0]?.email, args[0]?.password, args[0]?.username);
+            if (channel === 'cloud-verify-otp') return window.api.cloudVerifyOtp(args[0]?.email, args[0]?.token);
+            if (channel === 'claim-qr-session') return window.api.claimQrSession(args[0]?.ticketId, args[0]?.shortCode);
+            if (channel === 'cloud-create-qr-session') {
+                const sessionRaw = await storageGet('mediavault_supabase_session');
+                const session = sessionRaw ? JSON.parse(sessionRaw) : null;
+                const refreshToken = session?.refresh_token;
+                if (!refreshToken) return { error: 'No active session found to generate QR code' };
+                return unwrapRpcRow(await supabaseRpc('create_qr_session', { p_refresh_token: refreshToken }));
+            }
+            if (channel === 'cloud-check-qr-status') {
+                return unwrapRpcRow(await supabaseRpc('check_qr_session_status', { p_ticket_id: args[0]?.ticketId }));
+            }
             if (channel === 'cloud-sync-user-session') return window.api.cloudSyncUserSession(args[0]?.userId, args[0]?.email, args[0]?.username, args[0]?.session);
             if (channel === 'clear-session') {
                 // Log out across ALL storage layers (memory + localStorage + Preferences),
@@ -2495,12 +2907,12 @@
                         // Fallback for anime: use Kitsu ID format
                         stremioId = `kitsu:${tmdbId}:${episode || 1}`;
                     } else {
-                        console.warn(`[Bridge-Mobile] ${name}: skipping — no valid IMDb ID for "${title}"`);
+                        console.warn(`[Bridge-Mobile] ${name}: skipping â€” no valid IMDb ID for "${title}"`);
                         return;
                     }
 
                     const url = `${baseUrl}/stream/${stremioType}/${stremioId}.json`;
-                    console.log(`[Bridge-Mobile] ${name} → ${url}`);
+                    console.log(`[Bridge-Mobile] ${name} â†’ ${url}`);
                     const resp = await fetch(url).catch(() => null);
                     if (!resp || !resp.ok) return;
                     const data = await resp.json();
@@ -2514,7 +2926,7 @@
                                 
                                 // Strict episode matching: look for E01, EP01, or standalone 01
                                 const epRegex = new RegExp(`(e|ep|episode|\\s)${epStr}(\\s|\\b|\\.|$)`, 'i');
-                                const isMatch = epRegex.test(torrentTitle) || torrentTitle.includes('⛔️') || torrentTitle.includes('⚠️');
+                                const isMatch = epRegex.test(torrentTitle) || torrentTitle.includes('â›”ï¸') || torrentTitle.includes('âš ï¸');
                                 
                                 if (!isMatch) return; // Skip season packs or wrong episodes
                             }
@@ -2535,8 +2947,8 @@
             };
 
             await Promise.all([
-                fetchStremioAddon('Torrentio', torrentioUrl, '⚡'),
-                fetchStremioAddon('Cinemeta', cinemetaUrl, '🎬')
+                fetchStremioAddon('Torrentio', torrentioUrl, 'âš¡'),
+                fetchStremioAddon('Cinemeta', cinemetaUrl, 'ðŸŽ¬')
             ]);
             return results;
         },
@@ -2569,7 +2981,7 @@
 
                 const VIDEO_EXTS = /\.(mp4|mkv|avi|webm|mov|m4v|ts)$/i;
 
-                // ── walk: Use native Java File listing (bypasses scoped storage) ──
+                // â”€â”€ walk: Use native Java File listing (bypasses scoped storage) â”€â”€
                 async function walk(dirPath) {
                     let results = { files: [], dirs: [] };
                     const items = await readDirRobust(dirPath);
@@ -2584,7 +2996,7 @@
                 }
 
                 const rootFiles = await walk(libPath);
-                console.log(`[Bridge] scanLibrary root "${libPath}" → ${rootFiles.files.length} files, ${rootFiles.dirs.length} dirs`);
+                console.log(`[Bridge] scanLibrary root "${libPath}" â†’ ${rootFiles.files.length} files, ${rootFiles.dirs.length} dirs`);
 
                 // If it's a generic folder (like Downloads), we try to guess content or just add everything as movies
                 if (isMoviesFolder || isDownloads) {
@@ -3004,7 +3416,7 @@
         },
 
         /**
-         * playNative — Internal Player Handoff
+         * playNative â€” Internal Player Handoff
          * On mobile, ALL play actions route through PlayMediaService
          * which will serve local files via localhost and play in
          * the built-in HTML5 Internal Player.
@@ -3012,12 +3424,12 @@
         playNative: async (options) => {
             if (!isAndroid) return { success: false, error: 'Not on Android' };
             const { url, title } = options;
-            console.log('[Bridge] playNative → Internal Player:', title, url);
+            console.log('[Bridge] playNative â†’ Internal Player:', title, url);
             return PlayMediaService.play(url, { title: title || 'MediaVault' });
         },
 
         /**
-         * playMedia — The canonical API for ALL mobile playback.
+         * playMedia â€” The canonical API for ALL mobile playback.
          * Routes to the Internal Player via PlayMediaService.
          */
         playExternal: async (url, meta = {}) => {
