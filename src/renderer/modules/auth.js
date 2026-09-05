@@ -177,17 +177,13 @@
     let relayId = null;
     if (isMobileClient()) {
       try {
-        const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000));
-        const { data: rData, error: rErr } = await Promise.race([
-          client.rpc('create_mobile_auth_relay'),
-          timeoutPromise
-        ]);
+        const { data: rData, error: rErr } = await client.rpc('create_mobile_auth_relay');
         if (!rErr && rData) {
           relayId = typeof rData === 'object' ? rData.relay_id : rData;
           console.log('[AUTH] Mobile auth relay created:', relayId);
         }
       } catch (e) {
-        console.warn('[AUTH] create_mobile_auth_relay error/timeout:', e);
+        console.warn('[AUTH] create_mobile_auth_relay error:', e);
       }
     }
 
@@ -205,19 +201,7 @@
     if (error) throw error;
     if (!data?.url) throw new Error('Could not start OAuth login');
 
-    const authUrl = data.url;
     sessionStorage.setItem('mv_oauth_pending', '1');
-
-    // Trigger browser open IMMEDIATELY so user gets instant response
-    try {
-      if (window.api && typeof window.api.cloudOAuthLogin === 'function') {
-        window.api.cloudOAuthLogin(authUrl).catch(err => console.warn('[AUTH] cloudOAuthLogin err:', err));
-      } else {
-        window.open(authUrl, '_blank');
-      }
-    } catch (openErr) {
-      console.error('[AUTH] Failed to open OAuth URL:', openErr);
-    }
 
     const providerName = provider === 'google' ? 'Google' : 'Discord';
     msgEl.innerHTML = `
@@ -385,7 +369,7 @@
         if (clipText && isAuthCallbackUrl(clipText)) {
           console.log('[AUTH] Detected auth callback/token in clipboard:', clipText.slice(0, 30) + '...');
           if (typeof showToast === 'function') {
-            showToast('âœ“ Login token detected, logging in...');
+            showToast('✓ Login token detected, logging in...');
           }
           cleanupListeners();
           const handled = await handleOAuthDeepLink(clipText);
@@ -501,6 +485,8 @@
         }
       };
     }
+
+    await window.api.cloudOAuthLogin(data.url);
   }
 
 
@@ -1069,9 +1055,12 @@
               <a href="#" id="auth-forgot-password" style="font-size: 12px; color: rgba(255, 255, 255, 0.7); text-decoration: none;">Forgot Password?</a>
             </div>
 
-            <div class="auth-input-wrap">
+            <div class="auth-input-wrap" style="position: relative;">
               <i class="fa-solid fa-lock" aria-hidden="true"></i>
-              <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="••••••••" required>
+              <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Enter password" required style="padding-right: 40px;">
+              <button type="button" id="toggle-auth-password" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 4px;" aria-label="Toggle password visibility">
+                <i class="fa-regular fa-eye" id="toggle-password-icon"></i>
+              </button>
             </div>
           </div>
           <button type="submit" id="auth-submit" class="auth-submit">Sign in</button>
@@ -1126,6 +1115,18 @@
         } catch (e) {
           console.error('[AUTH] Google OAuth start failed', e);
           setAuthMessage(msgEl, formatAuthMessage(e));
+        }
+      };
+    const togglePasswordBtn = overlay.querySelector('#toggle-auth-password');
+    if (togglePasswordBtn) {
+      togglePasswordBtn.onclick = () => {
+        const input = overlay.querySelector('#auth-password');
+        const icon = overlay.querySelector('#toggle-password-icon');
+        if (!input) return;
+        const isPassword = input.type === 'password';
+        input.type = isPassword ? 'text' : 'password';
+        if (icon) {
+          icon.className = isPassword ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
         }
       };
     }
@@ -1273,7 +1274,7 @@
 
         await proceedAfterAuthenticatedLogin();
         if (typeof showToast === 'function') {
-          showToast('âœ“ Account verified and logged in successfully!');
+          showToast('✓ Account verified and logged in successfully!');
         }
       } catch (err) {
         console.error('[AUTH] OTP verification error:', err);
@@ -1409,7 +1410,7 @@
     } catch (e) {
       console.error('[AUTH] Login error', e);
       let errorMsg = e.message || 'Login failed';
-      if (errorMsg.includes('Invalid email or password') || errorMsg.includes('INVALID_CREDENTIALS') || errorMsg.includes('Invalid login credentials')) {
+      if (errorMsg.includes('Invalid email or password') || errorMsg.includes('INVALID_CREDENTIALS')) {
         errorMsg = 'Incorrect email or password';
       } else if (errorMsg.includes('timed out')) {
         errorMsg = 'Server connection timed out, please try again';
@@ -2808,10 +2809,10 @@
           if (statusRes && statusRes.status === 'claimed') {
             clearInterval(pcQrPollTimer);
             clearInterval(pcQrCountdownTimer);
-            if (badge) badge.innerHTML = '<i class="fas fa-check-circle" style="color:#22c55e;font-size:16px;"></i> <span style="color:#22c55e;font-weight:700;">âœ“ Logged in on mobile successfully!</span>';
+            if (badge) badge.innerHTML = '<i class="fas fa-check-circle" style="color:#22c55e;font-size:16px;"></i> <span style="color:#22c55e;font-weight:700;">✓ Logged in on mobile successfully!</span>';
             setTimeout(() => {
               cleanup();
-              if (typeof showToast === 'function') showToast('âœ“ Mobile login successful!');
+              if (typeof showToast === 'function') showToast('✓ Mobile login successful!');
             }, 2500);
           } else if (statusRes && statusRes.status === 'expired') {
             clearInterval(pcQrPollTimer);
@@ -3011,7 +3012,7 @@
         closeModal();
         await proceedAfterAuthenticatedLogin();
         if (typeof showToast === 'function') {
-          showToast('âœ“ Successfully logged in via QR Code!');
+          showToast('✓ Successfully logged in via QR Code!');
         }
       } catch (err) {
         console.error('[AUTH] Claim QR failed:', err);

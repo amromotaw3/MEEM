@@ -459,7 +459,7 @@
                 await this._ensureServer();
                 const result = await LocalServer.serveFile({ path: nativePath });
                 if (result && result.url) {
-                    console.log(`[PlayMediaService] âœ“ Success: Serving via ${result.url}`);
+                    console.log(`[PlayMediaService] ✓ Success: Serving via ${result.url}`);
                     return result.url;
                 }
                 throw new Error('LocalServer returned invalid result');
@@ -539,14 +539,14 @@
                 // Use the official Capacitor way to convert file:// or content:// to a streamable URL
                 if (window.Capacitor && window.Capacitor.convertFileSrc) {
                     const webUrl = window.Capacitor.convertFileSrc(resolved.uri);
-                    console.log('[PlayMediaService] âœ“ Success: Using convertFileSrc:', webUrl);
+                    console.log('[PlayMediaService] ✓ Success: Using convertFileSrc:', webUrl);
                     return { success: true, streamUrl: webUrl, method: 'capacitor-convert' };
                 }
 
                 // Fallback to local server if convertFileSrc is missing
                 const localhostUrl = await this._serveViaLocalhost(resolved.uri);
                 if (localhostUrl) {
-                    console.log('[PlayMediaService] âœ“ Fallback: Streaming via localhost:', localhostUrl);
+                    console.log('[PlayMediaService] ✓ Fallback: Streaming via localhost:', localhostUrl);
                     return { success: true, streamUrl: localhostUrl, method: 'local-server' };
                 }
 
@@ -1483,7 +1483,7 @@
                 return result;
             }
 
-            return result || { error: lastError || 'Invalid email or password' };
+            return result || { error: lastError || 'Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ Ø£Ùˆ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ØºÙŠØ± ØµØ­ÙŠØ­Ø©' };
         },
 
         cloudRegister: async (email, password, username = '') => {
@@ -1629,44 +1629,23 @@
                 }));
 
                 if (!rpcRes || rpcRes.error) {
-                    return { error: rpcRes?.message || rpcRes?.error || 'Failed to sign in with QR code' };
+                    return { error: rpcRes?.message || rpcRes?.error || 'Failed to claim QR code session' };
                 }
 
                 const refreshToken = rpcRes.refresh_token;
-                const accessToken = rpcRes.access_token;
-                let session = null;
-                let user = rpcRes.user;
+                if (!refreshToken) {
+                    return { error: 'No refresh token received from QR claim' };
+                }
 
                 const client = getSupabaseClient();
-                if (client) {
-                    if (accessToken) {
-                        try {
-                            const { data: sData, error: sErr } = await client.auth.setSession({
-                                access_token: accessToken,
-                                refresh_token: refreshToken || ''
-                            });
-                            if (!sErr && sData?.session) {
-                                session = sData.session;
-                                user = sData.user || user;
-                            }
-                        } catch (sEx) {
-                            console.warn('[Bridge] setSession in claimQrSession failed:', sEx.message);
-                        }
-                    }
-                    if (!session && refreshToken) {
-                        try {
-                            const { data: sessionData, error: refreshError } = await client.auth.refreshSession({
-                                refresh_token: refreshToken
-                            });
-                            if (!refreshError && sessionData?.session) {
-                                session = sessionData.session;
-                                user = sessionData.user || user;
-                            }
-                        } catch (rEx) {
-                            console.warn('[Bridge] refreshSession in claimQrSession failed:', rEx.message);
-                        }
-                    }
-                }
+                const { data: sessionData, error: refreshError } = await client.auth.refreshSession({
+                    refresh_token: refreshToken
+                });
+
+                if (refreshError) throw refreshError;
+
+                const session = sessionData.session;
+                const user = sessionData.user || rpcRes.user;
 
                 const result = {
                     success: true,
@@ -1703,7 +1682,7 @@
                 return result;
             } catch (e) {
                 console.error('[Bridge] claimQrSession error:', e);
-                return { error: e.message || 'ÙØ´Ù„ ØªØ£ÙƒÙŠØ¯ Ø±Ù…Ø² QR' };
+                return { error: e.message || 'Failed to confirm QR code' };
             }
         },
 
@@ -1824,7 +1803,10 @@
                     try {
                         browserFinishedHandle = await Browser.addListener('browserFinished', () => {
                             console.log('[Bridge] OAuth Browser closed — checking for active session...');
+                            // Dispatch a synthetic event that auth.js is already listening for.
                             window.dispatchEvent(new CustomEvent('mediavault-oauth-browser-closed'));
+                            // Also force a getLaunchUrl check — the deep link may have been
+                            // delivered as a launch intent instead of appUrlOpen.
                             const App = window.Capacitor?.Plugins?.App;
                             if (App) {
                                 [0, 400, 900, 1800].forEach(delay => {
@@ -1844,12 +1826,8 @@
                         console.warn('[Bridge] Could not attach browserFinished listener:', e.message);
                     }
 
-                    try {
-                        await Browser.open({ url, toolbarColor: '#050508' });
-                        return true;
-                    } catch (openErr) {
-                        console.warn('[Bridge] Browser.open rejected, falling back to system intent/window.open:', openErr);
-                    }
+                    await Browser.open({ url, toolbarColor: '#050508' });
+                    return true;
                 }
 
                 // Fallback: Force external browser open on Android WebView
@@ -1860,16 +1838,9 @@
                     a.rel = 'noopener noreferrer';
                     document.body.appendChild(a);
                     a.click();
-                    setTimeout(() => a.remove(), 100);
-                    return true;
+                    document.body.removeChild(a);
                 } catch (e) {
-                    try {
-                        window.open(url, '_system');
-                        return true;
-                    } catch (_) {
-                        window.location.href = url;
-                        return true;
-                    }
+                    window.open(url, '_system') || (window.location.href = url);
                 }
             } else {
                 window.open(url, '_blank');
