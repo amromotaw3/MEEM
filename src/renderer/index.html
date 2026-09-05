@@ -717,7 +717,20 @@
     } else if (new URLSearchParams(window.location.search).get('mvWindow') === 'chat') {
       document.body.classList.add('mv-chat-window');
     }
+    // Universal reload shortcut
+    window.addEventListener('keydown', function(e) {
+      if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
+        window.location.reload();
+      }
+    });
   </script>
+
+  <!-- ═══ AMBIENT LIGHT GLOW (CINEMATIC BACKDROP FROM LANDING.HTML) ═══ -->
+  <div id="ambient-glow-container" aria-hidden="true">
+    <div class="ambient-glow-orb orb-1"></div>
+    <div class="ambient-glow-orb orb-2"></div>
+    <div class="ambient-glow-orb orb-3"></div>
+  </div>
 
 
   <!-- ═══ PREMIUM PLAYER SPLASH SCREEN ═══ -->
@@ -740,7 +753,7 @@
       <div id="player-splash-default" style="display:flex; flex-direction:column; align-items:center; gap:16px;">
         <img src="imgs/appicon.png" class="player-splash-logo"
           style="width:84px; height:84px; object-fit:contain; filter:none;">
-        <div class="player-splash-text" style="font-size:15px; font-weight:600; color:rgba(255,255,255,0.6); letter-spacing:1px; text-transform:uppercase;">MEEM Player</div>
+        <div class="player-splash-text" style="font-size:15px; font-weight:600; color:rgba(255,255,255,0.6); letter-spacing:1px; text-transform:uppercase;">MEEM</div>
         <div style="width:36px; height:36px; border-radius:50%;
                     border: 3px solid rgba(255,255,255,0.1);
                     border-top-color: rgba(255,255,255,0.7);
@@ -750,38 +763,46 @@
     </div>
   </div>
 
-  <!-- ═══ PREMIUM SPLASH SCREEN (MOBILE & DESKTOP) ═══ -->
+  <!-- ═══ PREMIUM RESPONSIVE SPLASH SCREEN (MOBILE & DESKTOP) ═══ -->
   <div id="app-splash"
-    style="position: fixed; inset: 0; background: #000000 !important; z-index: 9999999; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.8s ease, visibility 0.8s; color: #ffffff; font-family: 'Cairo', sans-serif; overflow: hidden;">
+    style="position: fixed; inset: 0; background: #000000 !important; z-index: 9999999; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.8s; color: #ffffff; font-family: 'Cairo', sans-serif; overflow: hidden; padding: max(24px, env(safe-area-inset-top)) 20px max(40px, env(safe-area-inset-bottom)) 20px;">
 
-    <!-- Minimalist Geometric Background Art (Dynamic Drawing Animation) -->
+    <!-- Minimalist Geometric Background Art (Full Screen Cover on Mobile & PC) -->
     <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
-      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
         <!-- Concentric Orbital Circles Drawing Out -->
-        <circle cx="720" cy="450" r="140" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;" />
-        <circle cx="720" cy="450" r="220" stroke="#ffffff" stroke-width="1" stroke-dasharray="1500 12" stroke-dashoffset="1500" style="animation: splashDraw 2.3s cubic-bezier(0.25, 1, 0.5, 1) 0.1s forwards;" />
-        <circle cx="720" cy="450" r="360" stroke="#ffffff" stroke-width="1" stroke-dasharray="2400 24" stroke-dashoffset="2400" style="animation: splashDraw 2.4s cubic-bezier(0.25, 1, 0.5, 1) 0.15s forwards;" />
+        <circle cx="720" cy="450" r="180" stroke="#ffffff" stroke-width="1.8" stroke-dasharray="1200" stroke-dashoffset="1200" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;" />
+        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="2000 16" stroke-dashoffset="2000" style="animation: splashDraw 2.3s cubic-bezier(0.25, 1, 0.5, 1) 0.1s forwards;" />
+        <circle cx="720" cy="450" r="500" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="3200 32" stroke-dashoffset="3200" style="animation: splashDraw 2.4s cubic-bezier(0.25, 1, 0.5, 1) 0.15s forwards;" />
 
         <!-- Abstract Curved Lines & Waves Drawing Out -->
-        <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;" />
-        <path d="M-100 650 C450 220, 850 820, 1540 520" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.3s cubic-bezier(0.25, 1, 0.5, 1) 0.1s forwards;" />
-        <path d="M250 -100 C550 480, 250 780, 1050 1000" stroke="#ffffff" stroke-width="1" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.4s cubic-bezier(0.25, 1, 0.5, 1) 0.15s forwards;" />
+        <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.8" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;" />
+        <path d="M-100 650 C450 220, 850 820, 1540 520" stroke="#ffffff" stroke-width="1.8" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.3s cubic-bezier(0.25, 1, 0.5, 1) 0.1s forwards;" />
+        <path d="M250 -100 C550 480, 250 780, 1050 1000" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.4s cubic-bezier(0.25, 1, 0.5, 1) 0.15s forwards;" />
 
         <!-- Minimalist Corner Crosshairs & Dots -->
         <g style="animation: splashPopNode 2.2s ease forwards;">
-          <circle cx="180" cy="180" r="3.5" fill="#ffffff" />
-          <circle cx="1260" cy="680" r="3.5" fill="#ffffff" />
-          <circle cx="1120" cy="160" r="2.5" fill="#ffffff" />
-          <circle cx="320" cy="730" r="2.5" fill="#ffffff" />
+          <circle cx="180" cy="180" r="4" fill="#ffffff" />
+          <circle cx="1260" cy="680" r="4" fill="#ffffff" />
+          <circle cx="1120" cy="160" r="3" fill="#ffffff" />
+          <circle cx="320" cy="730" r="3" fill="#ffffff" />
         </g>
       </svg>
     </div>
 
-    <img src="imgs/appicon.png" alt="MEEM"
-      style="width: 120px; height: 120px; border-radius: 24px; margin-bottom: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7); animation: splashFadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; position: relative; z-index: 10;">
-    <h1
-      style="font-size: 3rem; font-weight: 900; letter-spacing: 3px; margin: 0; text-shadow: 0 10px 40px rgba(0,0,0,0.9); animation: splashFadeIn 1.2s cubic-bezier(0.16, 1, 0.3, 1); position: relative; z-index: 10; font-family: 'Cairo', sans-serif !important;">
-      MEEM</h1>
+    <!-- Central Logo Container -->
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; z-index: 10; gap: 16px;">
+      <div class="splash-logo-wrapper" style="position: relative; display: flex; align-items: center; justify-content: center;">
+        <img src="imgs/appicon.png" alt="MEEM" class="splash-logo-img"
+          style="width: clamp(86px, 20vw, 110px); height: clamp(86px, 20vw, 110px); border-radius: clamp(18px, 4vw, 24px); background: #000000; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.9); animation: splashLogoEnter 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards; object-fit: contain;">
+      </div>
+
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+        <h1 class="splash-title"
+          style="font-size: clamp(2.2rem, 6vw, 3.2rem); font-weight: 900; letter-spacing: 6px; margin: 0; text-transform: uppercase; color: #ffffff; animation: splashTextEnter 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; font-family: 'Cairo', sans-serif !important;">
+          MEEM</h1>
+      </div>
+    </div>
 
     <style>
       @keyframes splashDraw {
@@ -789,12 +810,12 @@
           stroke-dashoffset: 2500;
           opacity: 0;
         }
-        15% {
-          opacity: 0.5;
+        20% {
+          opacity: 0.7;
         }
         90%, 100% {
           stroke-dashoffset: 0;
-          opacity: 0.25;
+          opacity: 0.5;
         }
       }
 
@@ -803,68 +824,25 @@
           opacity: 0;
         }
         100% {
-          opacity: 0.3;
+          opacity: 0.6;
         }
       }
 
-
-      @keyframes splashRotate {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
+      @keyframes splashLogoEnter {
+        0% { opacity: 0; transform: translateY(18px) scale(0.9); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
       }
 
-      @keyframes splashFloat {
-        0%, 100% { transform: translateY(0px) rotate(0deg); }
-        50% { transform: translateY(-12px) rotate(0.8deg); }
+      @keyframes splashTextEnter {
+        0% { opacity: 0; transform: translateY(12px); }
+        100% { opacity: 1; transform: translateY(0); }
       }
 
-
-      @keyframes splashOrbit {
-
-        0%,
-        100% {
-          transform: translate(0, 0) scale(1) rotate(0deg);
-        }
-
-        25% {
-          transform: translate(15%, 10%) scale(1.1) rotate(5deg);
-        }
-
-        50% {
-          transform: translate(-10%, 20%) scale(0.9) rotate(-5deg);
-        }
-
-        75% {
-          transform: translate(-15%, -5%) scale(1.05) rotate(3deg);
-        }
-      }
-
-      @keyframes splashFadeIn {
-        from {
-          opacity: 0;
-          transform: translateY(20px) scale(0.95);
-        }
-
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
-      }
-
-      @keyframes splashWrite {
-        0% {
-          clip-path: inset(0 100% 0 0);
-          opacity: 0;
-        }
-
-        10% {
-          opacity: 1;
-        }
-
-        100% {
-          clip-path: inset(0 0 0 0);
-          opacity: 0.9;
-        }
+      @keyframes splashProgressBar {
+        0% { width: 0%; }
+        40% { width: 45%; }
+        85% { width: 88%; }
+        100% { width: 100%; }
       }
 
       @keyframes offlinePulse {
@@ -874,9 +852,9 @@
       }
 
       body.app-ready #app-splash {
-        opacity: 0;
-        visibility: hidden;
-        pointer-events: none;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
       }
     </style>
   </div>
@@ -956,7 +934,7 @@
   <div id="app-body">
     <!-- ═══ PERSISTENT SIGNATURE WATERMARK ═══ -->
     <div id="app-watermark" class="hide-on-mobile"
-      style="position: fixed; bottom: 40px; right: 50px; z-index: 0; pointer-events: none; opacity: 0.4;">
+      style="position: fixed; bottom: 40px; right: 50px; z-index: 1; pointer-events: none; opacity: 0.4;">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="imgs/signature_w.png">
         <source media="(prefers-color-scheme: dark)" srcset="imgs/signature_w.png">
@@ -966,6 +944,23 @@
 
     <!-- Sidebar Wrapper for smooth vertical hover area without screen-edge flickering -->
     <div class="sidebar-wrapper">
+      <!-- Mobile Drawer Branding & Close Header -->
+      <div class="mobile-drawer-header">
+        <div class="drawer-brand">
+          <img src="imgs/appicon.png" class="drawer-brand-logo" alt="MEEM" />
+          <div class="drawer-brand-text">
+            <span class="drawer-brand-title">MEEM</span>
+            <span class="drawer-brand-badge">PRO</span>
+          </div>
+        </div>
+        <button id="mobile-drawer-close-btn" class="drawer-close-btn" aria-label="Close Navigation" title="Close Menu">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
       <!-- Sidebar -->
       <nav id="sidebar">
       <div class="sidebar-group" style="margin-top: 10px;">
@@ -1025,20 +1020,30 @@
           </svg>
           <span>My List</span>
         </button>
+        <button class="nav-btn hidden" data-view="anime-schedule" id="nav-anime-schedule" style="display: none !important;">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+          <span>Anime Schedule</span>
+        </button>
         <div class="sidebar-flyout-wrap" id="nav-live-wrapper">
           <button class="nav-btn nav-flyout-btn" id="nav-live-channels">
-            <i class="fas fa-satellite-dish" style="color: #ffffff !important;"></i>
+            <i class="fas fa-satellite-dish"></i>
             <span class="nav-text" id="nav-live-main-label">Live</span>
             <i class="fas fa-chevron-right flyout-arrow"></i>
           </button>
           <div class="sidebar-flyout-menu">
             <div class="flyout-header">LIVE BROADCAST</div>
             <button class="flyout-item" data-view="iptv" onclick="switchView('iptv')">
-              <i class="fas fa-tv" style="color: #ffffff !important;"></i>
+              <i class="fas fa-tv"></i>
               <span>IPTV</span>
             </button>
             <button class="flyout-item" data-view="radio" onclick="switchView('radio')">
-              <i class="fas fa-radio" style="color: #ffffff !important;"></i>
+              <i class="fas fa-radio"></i>
               <span>Live Radio</span>
             </button>
           </div>
@@ -1117,9 +1122,16 @@
     <main id="content">
       <!-- Centered Mobile Title -->
       <div id="mobile-nav-header" class="mobile-view-title">
-        <i class="fas fa-chevron-left"></i>
+        <div class="mobile-nav-left-group">
+          <button id="mobile-hamburger-btn" class="mobile-nav-btn-icon" title="Open Menu">
+            <i class="fas fa-bars-staggered"></i>
+          </button>
+          <button id="mobile-header-search-btn" class="mobile-nav-btn-icon" title="Search" onclick="switchView('search')">
+            <i class="fas fa-search"></i>
+          </button>
+        </div>
         <h2 id="mobile-nav-title">Dashboard</h2>
-        <i class="fas fa-chevron-right"></i>
+        <div style="width: 38px;"></div> <!-- balance spaces -->
       </div>
 
       <!-- Home Page -->
@@ -1127,7 +1139,10 @@
       <!-- Movies -->
       <section id="view-movies" class="view">
         <div class="view-header">
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0;">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
+            <button class="mobile-hamburger-nav-btn hide-on-pc" title="Open Menu">
+              <i class="fas fa-bars-staggered"></i>
+            </button>
             <div class="search-box">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
                 style="margin-left: 15px; opacity: 0.5;">
@@ -1168,7 +1183,10 @@
       <!-- TV Shows -->
       <section id="view-shows" class="view">
         <div class="view-header">
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0;">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
+            <button class="mobile-hamburger-nav-btn hide-on-pc" title="Open Menu">
+              <i class="fas fa-bars-staggered"></i>
+            </button>
             <div class="search-box"
               style="flex: 1; height: 50px; background: rgba(255,255,255,0.05); border-radius: 15px; border: 1px solid rgba(255,255,255,0.1);">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
@@ -1210,8 +1228,11 @@
       <!-- Social Content -->
       <!-- Social Content -->
       <section id="view-social" class="view">
-        <div class="view-header" style="flex-direction: column; align-items: flex-start; gap: 12px;">
-          <div class="sub-tab-pills-row">
+        <div class="view-header" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <button class="mobile-hamburger-nav-btn" title="Open Menu">
+            <i class="fas fa-bars-staggered"></i>
+          </button>
+          <div class="sub-tab-pills-row" style="margin: 0;">
             <button class="sub-tab-pill active" onclick="switchSocialMusicSubTab('video')">
               <i class="fas fa-video"></i> Video Clips
             </button>
@@ -1219,7 +1240,7 @@
               <i class="fas fa-music"></i> Audio Tracks
             </button>
           </div>
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; width: 100%; min-width: 0;">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 220px;">
             <div class="search-box">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
                 style="margin-left: 15px; opacity: 0.5;">
@@ -1247,8 +1268,11 @@
 
       <!-- Music -->
       <section id="view-music" class="view">
-        <div class="view-header" style="flex-direction: column; align-items: flex-start; gap: 12px;">
-          <div class="sub-tab-pills-row">
+        <div class="view-header" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <button class="mobile-hamburger-nav-btn" title="Open Menu">
+            <i class="fas fa-bars-staggered"></i>
+          </button>
+          <div class="sub-tab-pills-row" style="margin: 0;">
             <button class="sub-tab-pill" onclick="switchSocialMusicSubTab('video')">
               <i class="fas fa-video"></i> Video Clips
             </button>
@@ -1256,7 +1280,7 @@
               <i class="fas fa-music"></i> Audio Tracks
             </button>
           </div>
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; width: 100%; min-width: 0;">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 220px;">
             <div class="search-box">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
                 style="margin-left: 15px; opacity: 0.5;">
@@ -1298,7 +1322,10 @@
       <!-- Search View -->
       <section id="view-search" class="view" style="padding: 10px 40px !important;">
         <div class="view-header" style="margin-bottom: 20px !important; padding: 0 !important;">
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; flex: 1;">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1;">
+            <button class="mobile-hamburger-nav-btn" title="Open Menu">
+              <i class="fas fa-bars-staggered"></i>
+            </button>
             <div class="search-box discover-search-box" style="display: flex; align-items: center; padding-right: 6px; position: relative; width: 100%; max-width: 600px; flex: 1;">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 15px; opacity: 0.5; flex-shrink: 0;">
                 <circle cx="11" cy="11" r="8"></circle>
@@ -1331,7 +1358,10 @@
 
       <section id="view-discover" class="view sidebar-collapsed">
         <div class="view-header">
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0;">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
+            <button id="mobile-hamburger-btn" class="mobile-hamburger-nav-btn hide-on-pc" title="Open Menu">
+              <i class="fas fa-bars-staggered"></i>
+            </button>
             <div class="search-box discover-search-box" style="display: flex; align-items: center; padding-right: 6px; position: relative; width: 100%; max-width: 600px; flex: 1;">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
                 style="margin-left: 15px; opacity: 0.5; flex-shrink: 0;">
@@ -1389,41 +1419,97 @@
               </div>
             </div>
             <div class="discover-content" id="discover-content">
-              <!-- New Immersive Hero Section -->
-              <div id="discover-hero" class="discover-hero">
-                <div class="discover-hero-skeleton"></div>
-                <div class="hero-pagination" id="hero-pagination"></div>
-              </div>
-
-              <!-- Continue Watching Shelf (Moved below Hero) -->
-              <div id="discover-continue-section" class="discover-section" style="display: none; margin-bottom: 35px;">
-                <div class="discover-section-header">
-                  <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ffffff"
-                      stroke-width="2.5" style="color: #ffffff !important;">
-                      <path
-                        d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                    </svg>
+              <!-- Bento Grid Dashboard Shell (Monochrome Modern Bento Architecture) -->
+              <div class="bento-dashboard-wrapper">
+                <!-- Top Row: Bento Hero (Left) + Rich Quick Access & Shortcuts (Right) -->
+                <div class="bento-top-row">
+                  <div id="discover-hero" class="discover-hero bento-hero-card">
+                    <div class="discover-hero-skeleton"></div>
+                    <div class="hero-pagination" id="hero-pagination"></div>
                   </div>
-                  <h2>Continue Watching</h2>
-                  <button id="btn-clear-continue" class="btn-clear-minimal" onclick="clearContinueWatching()">Clear
-                    All</button>
-                  <div class="header-divider"></div>
-                  <div class="discover-header-nav">
-                    <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24"
-                        width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <polyline points="15 18 9 12 15 6" />
-                      </svg></button>
-                    <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24"
-                        width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg></button>
+
+                  <!-- Right Side Bento Card (Rich Quick Access & Portal Shortcuts) -->
+                  <div class="bento-card bento-side-panel">
+                    <div class="bento-card-header">
+                      <div class="bento-card-title"><i class="fas fa-layer-group"></i> Quick Portals</div>
+                    </div>
+                    <div id="bento-side-content" class="bento-side-content" style="display:flex; flex-direction:column; gap:8px; height:100%; justify-content:center; overflow-y:auto; padding-right:4px;">
+                      <div class="bento-shortcut-item" onclick="if(typeof switchView === 'function') switchView('iptv');">
+                        <i class="fas fa-tv"></i>
+                        <div>
+                          <div style="font-size:13px; font-weight:800; color:#fff;">IPTV</div>
+                          <div style="font-size:11px; color:rgba(255,255,255,0.6);">Stream live broadcasts</div>
+                        </div>
+                      </div>
+
+                      <div class="bento-shortcut-item" onclick="if(typeof switchView === 'function') switchView('subtitles');">
+                        <i class="fas fa-closed-captioning"></i>
+                        <div>
+                          <div style="font-size:13px; font-weight:800; color:#fff;">Subtitle Center</div>
+                          <div style="font-size:11px; color:rgba(255,255,255,0.6);">Manage & fetch subtitles</div>
+                        </div>
+                      </div>
+
+                      <div class="bento-shortcut-item" onclick="if(typeof switchView === 'function') switchView('addons');">
+                        <i class="fas fa-puzzle-piece"></i>
+                        <div>
+                          <div style="font-size:13px; font-weight:800; color:#fff;">Add-on Store</div>
+                          <div style="font-size:11px; color:rgba(255,255,255,0.6);">Manage stream sources</div>
+                        </div>
+                      </div>
+
+                      <div class="bento-shortcut-item" onclick="if(typeof switchView === 'function') switchView('account');">
+                        <i class="fas fa-user-gear"></i>
+                        <div>
+                          <div style="font-size:13px; font-weight:800; color:#fff;">Account Settings</div>
+                          <div style="font-size:11px; color:rgba(255,255,255,0.6);">Profile & account preferences</div>
+                        </div>
+                      </div>
+
+                      <div class="bento-shortcut-item" onclick="if(typeof switchView === 'function') switchView('watchlist');">
+                        <i class="fas fa-bookmark"></i>
+                        <div>
+                          <div style="font-size:13px; font-weight:800; color:#fff;">My Watchlist</div>
+                          <div style="font-size:11px; color:rgba(255,255,255,0.6);">Saved movies & shows</div>
+                        </div>
+                      </div>
+
+                      <div class="bento-shortcut-item" onclick="if(typeof switchView === 'function') switchView('downloads');">
+                        <i class="fas fa-download"></i>
+                        <div>
+                          <div style="font-size:13px; font-weight:800; color:#fff;">Downloads</div>
+                          <div style="font-size:11px; color:rgba(255,255,255,0.6);">Offline downloaded media</div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div class="discover-row-wrapper">
-                  <div id="discover-continue-row" class="discover-row"></div>
+
+                <!-- Bottom Row: Wide Continue Watching Card + Media Controller -->
+                <div class="bento-bottom-row">
+                  <!-- Wide Continue Watching Card (Spans 2/3 of Bottom Row) -->
+                  <div class="bento-card bento-card-left-wide" id="discover-continue-section">
+                    <div class="bento-card-header">
+                      <div class="bento-card-title"><i class="fas fa-circle-play"></i> Continue Watching</div>
+                      <button id="btn-clear-continue" class="btn-clear-minimal" onclick="clearContinueWatching()">Clear All</button>
+                    </div>
+                    <div id="discover-continue-row" class="discover-row" style="gap:14px; overflow-x:auto; padding-bottom:8px;"></div>
+                  </div>
+
+                  <!-- Integrated Media Controller Widget -->
+                  <div class="bento-card bento-card-right">
+                    <div class="bento-card-header">
+                      <div class="bento-card-title"><i class="fas fa-sliders"></i> Controller</div>
+                    </div>
+                    <div class="bento-media-body">
+                      <div class="bento-media-track" id="bento-media-title">Media Vault Active</div>
+                      <div class="bento-media-controls">
+                        <button onclick="if(typeof bentoMediaControl === 'function') bentoMediaControl('prev');"><i class="fas fa-backward-step"></i></button>
+                        <button class="bento-play-main" onclick="if(typeof bentoMediaControl === 'function') bentoMediaControl('toggle');"><i class="fas fa-play"></i></button>
+                        <button onclick="if(typeof bentoMediaControl === 'function') bentoMediaControl('next');"><i class="fas fa-forward-step"></i></button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1625,7 +1711,10 @@
       <!-- Watchlist -->
       <section id="view-watchlist" class="view" style="max-width: 1400px; margin: 0 auto; width: 100%;">
         <div class="view-header">
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0;">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
+            <button class="mobile-hamburger-nav-btn" title="Open Menu">
+              <i class="fas fa-bars-staggered"></i>
+            </button>
             <button id="btn-create-watchlist-collection" class="btn-primary" style="padding: 10px 20px; font-size: 14px; background: linear-gradient(135deg, #00adb5 0%, #00f2fe 100%); border: none; border-radius: 12px; color: #fff; display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 700; box-shadow: 0 4px 15px rgba(0, 173, 181, 0.2); transition: all 0.3s ease; white-space: nowrap;">
               <i class="fas fa-folder-plus"></i> Create List
             </button>
@@ -1711,7 +1800,10 @@
         <div class="radio-view-container">
           <!-- Header & Search Bar -->
           <div class="radio-header">
-            <div class="radio-header-top">
+            <div class="radio-header-top" style="display: flex; align-items: center; gap: 12px;">
+              <button class="mobile-hamburger-nav-btn" title="Open Menu">
+                <i class="fas fa-bars-staggered"></i>
+              </button>
               <div class="radio-title-wrap">
                 <div class="radio-title-icon">
                   <i class="fas fa-broadcast-tower"></i>
@@ -1782,6 +1874,69 @@
       </div>
 
 
+      <!-- Dedicated Anime Schedule Addon Page View -->
+      <section id="view-anime-schedule" class="view" style="width: 100%; max-width: 100%; box-sizing: border-box; padding: 24px 36px 20px; height: 100%; display: flex; flex-direction: column; overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-shrink: 0; flex-wrap: wrap; gap: 16px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <button class="mobile-hamburger-nav-btn" title="Open Menu">
+              <i class="fas fa-bars-staggered"></i>
+            </button>
+            <h2 style="font-size: 1.5rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 10px;">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85;">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              Anime Release Schedule
+            </h2>
+          </div>
+
+          <!-- Schedule Search Bar -->
+          <div style="display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 6px 14px; min-width: 240px; max-width: 320px; flex: 1;">
+            <i class="fas fa-search" style="color: var(--text-muted); font-size: 13px;"></i>
+            <input type="text" id="anime-schedule-search-input" placeholder="Search anime schedule..." style="background: transparent; border: none; outline: none; color: #fff; font-size: 0.85rem; width: 100%;">
+            <button id="anime-schedule-search-clear" style="background: none; border: none; color: var(--text-muted); cursor: pointer; display: none; padding: 0;" title="Clear Search">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" id="anime-schedule-day-filters">
+            <button class="anime-schedule-filter-btn active" data-day="" onclick="window.loadAnimeSchedule('')" style="padding: 7px 16px; border-radius: 20px; background: #fff; color: #000; font-weight: 800; border: none; cursor: pointer;">All</button>
+            <button class="anime-schedule-filter-btn" data-day="monday" onclick="window.loadAnimeSchedule('monday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Mon</button>
+            <button class="anime-schedule-filter-btn" data-day="tuesday" onclick="window.loadAnimeSchedule('tuesday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Tue</button>
+            <button class="anime-schedule-filter-btn" data-day="wednesday" onclick="window.loadAnimeSchedule('wednesday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Wed</button>
+            <button class="anime-schedule-filter-btn" data-day="thursday" onclick="window.loadAnimeSchedule('thursday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Thu</button>
+            <button class="anime-schedule-filter-btn" data-day="friday" onclick="window.loadAnimeSchedule('friday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Fri</button>
+            <button class="anime-schedule-filter-btn" data-day="saturday" onclick="window.loadAnimeSchedule('saturday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Sat</button>
+            <button class="anime-schedule-filter-btn" data-day="sunday" onclick="window.loadAnimeSchedule('sunday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Sun</button>
+          </div>
+        </div>
+
+        <style>
+          #anime-schedule-grid .anime-card {
+            cursor: default !important;
+            pointer-events: none !important;
+            user-select: none !important;
+          }
+          #anime-schedule-grid .anime-card .btn-anime-favorite-toggle,
+          #anime-schedule-grid .anime-card .btn-anime-unfavorite {
+            pointer-events: auto !important;
+            cursor: pointer !important;
+          }
+          #anime-schedule-grid .anime-card .btn-anime-favorite-toggle:hover {
+            transform: scale(1.15);
+          }
+          #anime-schedule-grid .anime-card .btn-anime-unfavorite:hover {
+            transform: scale(1.15);
+            background: rgba(239, 68, 68, 0.9) !important;
+            color: #fff !important;
+          }
+        </style>
+        <div id="anime-schedule-grid" style="width: 100%; flex: 1; min-height: 0; overflow-y: auto; box-sizing: border-box; padding-bottom: 30px;">
+        </div>
+      </section>
+
       <!-- Dedicated Add-on Store & Manager View -->
       <section id="view-addons" class="view" style="width: 100%; max-width: 100%; box-sizing: border-box; padding: 24px 36px 20px; height: 100%; display: flex; flex-direction: column; overflow: hidden;">
         <div class="addons-page-header" style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; flex-shrink: 0;">
@@ -1791,6 +1946,9 @@
             
             <!-- Left Side: 2 Filter Tabs (Available vs Installed) & Type Selector -->
             <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <button class="mobile-hamburger-nav-btn" title="Open Menu">
+                <i class="fas fa-bars-staggered"></i>
+              </button>
               <button id="addons-tab-store" class="addons-tab-btn active" style="padding: 9px 20px; border-radius: 20px; background: #ffffff; border: 1px solid #ffffff; color: #0f0f13; font-weight: 800; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.25s; box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25);">
                 <i class="fas fa-store"></i> Available Addons
               </button>
@@ -1875,7 +2033,10 @@
       <!-- Downloads -->
       <section id="view-downloads" class="view">
         <div class="view-header">
-          <div class="view-header-left">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px;">
+            <button class="mobile-hamburger-nav-btn" title="Open Menu">
+              <i class="fas fa-bars-staggered"></i>
+            </button>
             <h1>Downloads</h1>
           </div>
         </div>
@@ -2275,7 +2436,10 @@
 
       <section id="view-account" class="view" style="position: relative;">
         <div id="account-banner-container"></div>
-        <div class="view-header" style="position: relative; z-index: 2;">
+        <div class="view-header" style="position: relative; z-index: 2; display: flex; align-items: center; gap: 12px;">
+          <button class="mobile-hamburger-nav-btn" title="Open Menu">
+            <i class="fas fa-bars-staggered"></i>
+          </button>
           <h2>Account Details</h2>
         </div>
         <div style="position: relative; z-index: 2; padding: 20px 40px; display: flex; flex-direction: column; align-items: center;">
@@ -2298,37 +2462,36 @@
                 <span style="color: var(--text-muted);">Expiration Date</span>
                 <span id="account-page-sub-expires" style="font-weight: 600; color: rgba(255,255,255,0.8);">Never</span>
               </div>
+              <button id="account-upgrade-vip-btn" class="btn-primary" style="width: 100%; margin-top: 6px; padding: 10px; background: linear-gradient(135deg, #00ADB5 0%, #00777B 100%); color: #fff; font-weight: 700; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; border: none; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
+                <i class="fas fa-crown" style="color: #FACC15;"></i>
+                <span>Upgrade to MEEM VIP</span>
+              </button>
             </div>
-            <!-- Action Grid (Switch Profile, Reset Password, Log Out) -->
+            <!-- Action Grid (Switch Profile, Adjust Banner, Reset Password, Log Out) -->
             <div class="account-actions-grid" style="margin-top: 10px;">
               <button id="account-page-switch-profile" class="account-square-btn">
-                <i class="fas fa-users" style="font-size: 24px; margin-bottom: 8px; color: var(--accent);"></i>
-                <span style="font-size: 13px; font-weight: 600;">Switch Profile</span>
+                <i class="fas fa-users" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
+                <span style="font-size: 12px; font-weight: 600;">Switch Profile</span>
+              </button>
+              <button id="account-btn-adjust-banner" class="account-square-btn">
+                <i class="fas fa-arrows-up-down-left-right" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
+                <span style="font-size: 12px; font-weight: 600;">Adjust Banner</span>
               </button>
               <button id="account-reset-password-btn" class="account-square-btn">
-                <i class="fas fa-key" style="font-size: 24px; margin-bottom: 8px; color: #EAB308;"></i>
-                <span style="font-size: 13px; font-weight: 600;">Reset Password</span>
+                <i class="fas fa-key" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
+                <span style="font-size: 12px; font-weight: 600;">Reset Password</span>
+              </button>
+              <button id="account-qr-login-btn" class="account-square-btn" title="Quick Mobile Login via QR Code">
+                <i class="fas fa-qrcode" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
+                <span style="font-size: 12px; font-weight: 600;">Mobile Login (QR)</span>
               </button>
               <button id="account-page-logout" class="account-square-btn">
-                <i class="fas fa-sign-out-alt" style="font-size: 24px; margin-bottom: 8px; color: #EF4444;"></i>
-                <span style="font-size: 13px; font-weight: 600;">Log Out</span>
+                <i class="fas fa-sign-out-alt" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
+                <span style="font-size: 12px; font-weight: 600;">Log Out</span>
               </button>
             </div>
 
             <!-- Settings fields list below the grid -->
-            <div style="width: 100%; text-align: left; margin-top: 15px;">
-              <label style="color: #fff; font-weight: 600; display: block; margin-bottom: 8px;">Age Restriction</label>
-              <div style="display: flex; gap: 10px;">
-                <select id="account-age-rating" style="flex: 1; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-weight: 600; outline: none; cursor: pointer; color-scheme: dark;">
-                  <option value="18">All Content (18+ / Adult)</option>
-                  <option value="16">16+ (Teens &amp; Older)</option>
-                  <option value="13">13+ (PG-13 / Teens)</option>
-                  <option value="7">7+ (Kids &amp; Older)</option>
-                  <option value="0">All Ages (0+ / Family Friendly)</option>
-                </select>
-                <button id="account-update-age-btn" class="btn-primary" style="flex-shrink:0;">Save Rating</button>
-              </div>
-            </div>
 
             <div style="width: 100%; text-align: left; margin-top: 10px;">
               <label style="color: #fff; font-weight: 600; display: block; margin-bottom: 8px;">Change Username</label>
@@ -2363,7 +2526,10 @@
       <!-- Settings -->
       <section id="view-settings" class="view">
         <div class="view-header">
-          <div class="view-header-left">
+          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px;">
+            <button class="mobile-hamburger-nav-btn" title="Open Menu">
+              <i class="fas fa-bars-staggered"></i>
+            </button>
             <h1>Settings</h1>
           </div>
         </div>
@@ -2773,26 +2939,18 @@
 
           <div class="settings-card hide-on-mobile">
             <h3 style="margin-bottom:15px; display:flex; align-items:center; gap:8px;">
-              <i class="fas fa-play-circle" style="color:#ffffff;"></i>Primary Video Player
+              <i class="fas fa-play-circle" style="color:#ffffff;"></i>Built-in Player
             </h3>
             <div style="padding: 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; margin-bottom: 14px;">
               <div style="display: flex; align-items: center; justify-content: space-between;">
                 <div>
                   <div style="font-size: 13px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
-                    <span>MEEM Player</span>
+                    <span>Built-in Player</span>
                     <span style="font-size: 10px; padding: 2px 6px; background: #ffffff; color: #000000; border-radius: 6px; font-weight: 700;">DEFAULT</span>
                   </div>
-                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">High-performance native desktop engine with LibVLC, hardware acceleration & MEEM dark UI.</div>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">HTML5 media engine with subtitle support, playback speed control, picture-in-picture, and equalizer.</div>
                 </div>
               </div>
-            </div>
-            <div>
-              <button class="btn-outline"
-                onclick="window.api.invoke('open-in-meem-player', { path: '' })"
-                style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 46px; padding: 0 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.15); color: #ffffff; cursor: pointer; transition: all 0.2s ease;">
-                <i class="fas fa-play" style="font-size: 14px; color: #ffffff;"></i>
-                <span style="font-size: 13px; font-weight: 600; color: #ffffff;">Launch MEEM Player</span>
-              </button>
             </div>
           </div>
           <div class="settings-card">
@@ -2809,7 +2967,7 @@
                   <i class="fas fa-code-branch"></i>
                 </div>
                 <div>
-                  <div id="app-version-label" style="font-size: 13px; font-weight: 700; color: #fff;">MEEM v2.7.0</div>
+                  <div id="app-version-label" style="font-size: 13px; font-weight: 700; color: #fff;">MEEM v3.9.1</div>
                   <div id="update-status-detail" style="font-size: 11px; color: var(--text-muted);">Build is up to date</div>
                 </div>
               </div>
@@ -2955,7 +3113,10 @@
 
           <!-- PANE 2: Categories & Channels Explorer -->
           <div class="iptv-middle-panel" id="iptv-middle-panel" style="width: 350px; min-width: 200px; max-width: 650px; flex-shrink: 0;">
-            <div class="iptv-panel-header">
+            <div class="iptv-panel-header" style="display: flex; align-items: center; gap: 10px;">
+              <button class="mobile-hamburger-nav-btn" title="Open Menu">
+                <i class="fas fa-bars-staggered"></i>
+              </button>
               <h3 class="iptv-panel-title"><i class="fas fa-tv" style="color: #ffffff;"></i> Channels</h3>
             </div>
             
@@ -3262,50 +3423,123 @@
           </div>
           <div class="player-gradient-bottom"></div>
           <div id="player-topbar" class="player-topbar">
-            <button id="btn-back-player" class="player-ghost-btn"><svg viewBox="0 0 24 24" width="20" height="20"
-                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                <polyline points="15 18 9 12 15 6" />
-              </svg></button>
-            <div class="player-title-block"><span id="player-show-name" class="player-show-name"></span><span
-                id="player-title" class="player-ep-title"></span></div>
+            <!-- Left: Close + Now Playing -->
+            <div class="player-topbar-left">
+              <button id="btn-back-player" class="player-close-btn" title="Close (Esc)">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+              <div class="player-now-playing" id="player-now-playing">
+                <img id="player-now-poster" class="player-now-poster" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" alt="">
+                <div class="player-now-text">
+                  <span id="player-show-name" class="player-show-name"></span>
+                  <span id="player-title" class="player-ep-title"></span>
+                </div>
+              </div>
+            </div>
 
-
-
-            <div class="player-top-center"
-              style="position: absolute; left: 50%; transform: translateX(-50%); display: flex; gap: 8px;">
+            <!-- Center: Music Mode Toggle (hidden by default) -->
+            <div class="player-top-center">
               <div id="player-music-toggle" class="music-toggle-pills" style="display:none">
                 <button class="pill-btn active" id="btn-player-art">Art</button>
                 <button class="pill-btn" id="btn-player-video">Video</button>
               </div>
             </div>
 
-            <button id="btn-toggle-playlist" class="player-ghost-btn" title="Episode List"><svg viewBox="0 0 24 24"
-                width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <line x1="8" y1="6" x2="21" y2="6" />
-                <line x1="8" y1="12" x2="21" y2="12" />
-                <line x1="8" y1="18" x2="21" y2="18" />
-                <circle cx="3" cy="6" r="1.5" fill="currentColor" stroke="none" />
-                <circle cx="3" cy="12" r="1.5" fill="currentColor" stroke="none" />
-                <circle cx="3" cy="18" r="1.5" fill="currentColor" stroke="none" />
-              </svg></button>
-            <button id="btn-player-minimize" class="player-ghost-btn" title="Minimize">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                <line x1="5" y1="12" x2="19" y2="12" />
+            <!-- Right: Action Buttons Pill -->
+            <div class="player-topbar-right">
+              <div class="player-action-pill">
+                <!-- Volume -->
+                <button id="btn-mute" class="action-pill-btn" title="Mute (M)">
+                  <svg id="icon-vol" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  </svg>
+                  <svg id="icon-mute" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                    <line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
+                  </svg>
+                </button>
+                <!-- Settings Gear -->
+                <div class="player-settings-wrap">
+                  <button id="btn-player-settings" class="action-pill-btn" title="Settings">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                      <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                  </button>
+                  <!-- Settings Dropdown -->
+                  <div id="player-settings-dropdown" class="player-settings-dropdown" style="display:none">
+                    <div class="psd-section">
+                      <div class="psd-label">Speed</div>
+                      <div class="psd-row">
+                        <button class="psd-speed-btn" data-speed="0.5">0.5x</button>
+                        <button class="psd-speed-btn" data-speed="0.75">0.75x</button>
+                        <button class="psd-speed-btn active" data-speed="1">Normal</button>
+                        <button class="psd-speed-btn" data-speed="1.25">1.25x</button>
+                        <button class="psd-speed-btn" data-speed="1.5">1.5x</button>
+                        <button class="psd-speed-btn" data-speed="2">2x</button>
+                      </div>
+                    </div>
+                    <div class="psd-divider"></div>
+                    <button id="psd-btn-subtitle" class="psd-option"><i class="fas fa-closed-captioning"></i> Subtitles<span id="psd-sub-status" class="psd-status">Off</span></button>
+                    <button id="psd-btn-subdl" class="psd-option"><img src="imgs/subdl.png" style="width:16px;height:16px;border-radius:3px;opacity:.8"> Search Subtitles</button>
+                    <button id="psd-btn-eq" class="psd-option"><i class="fas fa-sliders-h"></i> Equalizer</button>
+                    <button id="psd-btn-transcode" class="psd-option"><i class="fas fa-wrench"></i> Fix Audio (AC3/DTS)</button>
+                    <button id="psd-btn-pip" class="psd-option"><i class="fas fa-external-link-alt"></i> Picture-in-Picture</button>
+                  </div>
+                </div>
+                <!-- Episode List -->
+                <button id="btn-toggle-playlist" class="action-pill-btn" title="Episode List">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+                    <circle cx="3" cy="6" r="1.5" fill="currentColor" stroke="none" /><circle cx="3" cy="12" r="1.5" fill="currentColor" stroke="none" /><circle cx="3" cy="18" r="1.5" fill="currentColor" stroke="none" />
+                  </svg>
+                </button>
+                <!-- More (...) -->
+                <div class="player-more-wrap">
+                  <button id="btn-player-more" class="action-pill-btn" title="More">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                  </button>
+                  <div id="player-more-dropdown" class="player-settings-dropdown" style="display:none">
+                    <button id="psd-btn-yt-download" class="psd-option" style="display:none"><i class="fab fa-youtube" style="color:#ffffff"></i> Download YouTube</button>
+                    <div id="psd-yt-quality-section" style="display:none">
+                      <div class="psd-label">YouTube Quality</div>
+                      <div class="psd-row">
+                        <button class="yt-quality-opt psd-speed-btn" data-quality="1080">1080p</button>
+                        <button class="yt-quality-opt psd-speed-btn" data-quality="720">720p</button>
+                        <button class="yt-quality-opt psd-speed-btn" data-quality="480">480p</button>
+                        <button class="yt-quality-opt psd-speed-btn active" data-quality="best">Auto</button>
+                      </div>
+                    </div>
+                    <button id="psd-btn-minimize" class="psd-option"><i class="fas fa-window-minimize"></i> Minimize</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Center Play Controls Overlay -->
+          <div id="player-center-controls" class="player-center-controls">
+            <button id="btn-skip-back" class="center-skip-btn" title="Back 10s (←)">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              <span class="skip-label">10</span>
+            </button>
+            <button id="btn-play-pause" class="center-play-btn" title="Play/Pause (Space)">
+              <svg id="icon-play" viewBox="0 0 24 24" width="44" height="44" fill="currentColor">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              <svg id="icon-pause" viewBox="0 0 24 24" width="44" height="44" fill="currentColor" style="display:none">
+                <rect x="5" y="3" width="4" height="18" rx="1" /><rect x="15" y="3" width="4" height="18" rx="1" />
               </svg>
             </button>
-            <button id="btn-player-fullscreen" class="player-ghost-btn" title="Toggle Fullscreen">
-              <svg class="icon-player-expand" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <polyline points="15 3 21 3 21 9" />
-                <polyline points="9 21 3 21 3 15" />
-                <line x1="21" y1="3" x2="14" y2="10" />
-                <line x1="3" y1="21" x2="10" y2="14" />
+            <button id="btn-skip-forward" class="center-skip-btn" title="Forward 10s (→)">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
               </svg>
-              <svg class="icon-player-shrink" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none">
-                <polyline points="4 14 10 14 10 20" />
-                <polyline points="20 10 14 10 14 4" />
-                <line x1="10" y1="14" x2="3" y2="21" />
-                <line x1="21" y1="3" x2="14" y2="10" />
-              </svg>
+              <span class="skip-label">10</span>
             </button>
           </div>
           <div id="player-controls" class="player-controls">
@@ -3322,136 +3556,27 @@
                 <div id="seek-buffered" class="seek-buffered"></div>
                 <div id="seek-filled" class="seek-filled"></div><input type="range" id="seek-bar" class="seek-bar"
                   value="0" min="0" max="1000" step="1">
-              </div><span id="time-display" class="time-display">0:00 / 0:00</span>
+              </div>
             </div>
             <div class="controls-row">
-              <div class="controls-left">
-                <button id="btn-play-pause" class="ctrl-btn large" title="Play/Pause"><svg id="icon-play"
-                    viewBox="0 0 24 24" width="30" height="30" fill="currentColor">
-                    <polygon points="5 3 19 12 5 21 5 3" />
-                  </svg><svg id="icon-pause" viewBox="0 0 24 24" width="30" height="30" fill="currentColor"
-                    style="display:none">
-                    <rect x="5" y="3" width="4" height="18" rx="1" />
-                    <rect x="15" y="3" width="4" height="18" rx="1" />
-                  </svg></button>
-                <button id="btn-skip-back" class="ctrl-btn" title="Back 10s"><svg viewBox="0 0 24 24" width="22"
-                    height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <polyline points="1 4 1 10 7 10" />
-                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                  </svg><span class="skip-label">10</span></button>
-                <button id="btn-skip-forward" class="ctrl-btn" title="Forward 10s"><svg viewBox="0 0 24 24" width="22"
-                    height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <polyline points="23 4 23 10 17 10" />
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                  </svg><span class="skip-label">10</span></button>
-                <div class="volume-group"><button id="btn-mute" class="ctrl-btn" title="Mute"><svg id="icon-vol"
-                      viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
-                      stroke-linecap="round">
-                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                    </svg><svg id="icon-mute" viewBox="0 0 24 24" width="20" height="20" fill="none"
-                      stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none">
-                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                      <line x1="23" y1="9" x2="17" y2="15" />
-                      <line x1="17" y1="9" x2="23" y2="15" />
-                    </svg></button><input type="range" id="volume-bar" class="volume-bar" value="100" min="0" max="100"
-                    step="1"></div>
-                <button id="btn-eq" class="ctrl-btn" title="Audio Equalizer"><svg viewBox="0 0 24 24" width="20"
-                    height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <line x1="4" y1="21" x2="4" y2="14" />
-                    <line x1="4" y1="10" x2="4" y2="3" />
-                    <line x1="12" y1="21" x2="12" y2="12" />
-                    <line x1="12" y1="8" x2="12" y2="3" />
-                    <line x1="20" y1="21" x2="20" y2="16" />
-                    <line x1="20" y1="12" x2="20" y2="3" />
-                    <line x1="1" y1="14" x2="7" y2="14" />
-                    <line x1="9" y1="8" x2="15" y2="8" />
-                    <line x1="17" y1="16" x2="23" y2="16" />
-                  </svg></button>
-              </div>
-              <div class="controls-right">
-                <button id="btn-playback-speed" class="ctrl-btn" title="Playback Speed"
-                  style="font-weight:700; font-size:13px; font-family:var(--font);">Normal</button>
-                <button id="btn-external-player" class="ctrl-btn" title="Open in VLC / External Player"><svg
-                    viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                    <polyline points="15 3 21 3 21 9" />
-                    <line x1="10" y1="14" x2="21" y2="3" />
-                  </svg></button>
-                <button id="btn-pip" class="ctrl-btn" title="Picture-in-Picture"><svg viewBox="0 0 24 24" width="20"
-                    height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <path d="M21 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" />
-                    <rect x="12" y="11" width="10" height="7" rx="1" />
-                  </svg></button>
-                <!-- YouTube Video Quality Selector -->
-                <div style="position:relative; display:inline-block;">
-                  <button id="btn-player-yt-quality" class="ctrl-btn" title="Video Quality" style="display:none; font-weight:700; font-size:12px; font-family:var(--font); color:var(--accent);">
-                    <span id="player-yt-quality-label">Auto</span>
-                  </button>
-                  <div id="player-yt-quality-menu" style="display:none; position:absolute; bottom:42px; right:0; background:rgba(18,20,32,0.96); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:8px; min-width:140px; box-shadow:0 8px 30px rgba(0,0,0,0.6); z-index:100; flex-direction:column; gap:4px;">
-                    <div style="font-size:10px; font-weight:700; color:rgba(255,255,255,0.5); padding:4px 8px; text-transform:uppercase; letter-spacing:0.5px;">Quality</div>
-                    <button class="yt-quality-opt" data-quality="1080" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:7px 10px; background:rgba(255,255,255,0.04); border:none; border-radius:8px; color:#fff; font-size:12px; font-weight:600; cursor:pointer; text-align:left; transition:all 0.2s;">
-                      <span>1080p</span> <span style="font-size:10px; opacity:0.6;">HD</span>
-                    </button>
-                    <button class="yt-quality-opt" data-quality="720" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:7px 10px; background:rgba(255,255,255,0.04); border:none; border-radius:8px; color:#fff; font-size:12px; font-weight:600; cursor:pointer; text-align:left; transition:all 0.2s;">
-                      <span>720p</span> <span style="font-size:10px; opacity:0.6;">HD</span>
-                    </button>
-                    <button class="yt-quality-opt" data-quality="480" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:7px 10px; background:rgba(255,255,255,0.04); border:none; border-radius:8px; color:#fff; font-size:12px; font-weight:600; cursor:pointer; text-align:left; transition:all 0.2s;">
-                      <span>480p</span>
-                    </button>
-                    <button class="yt-quality-opt" data-quality="360" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:7px 10px; background:rgba(255,255,255,0.04); border:none; border-radius:8px; color:#fff; font-size:12px; font-weight:600; cursor:pointer; text-align:left; transition:all 0.2s;">
-                      <span>360p</span>
-                    </button>
-                    <button class="yt-quality-opt" data-quality="best" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:7px 10px; background:rgba(0,173,181,0.25); border:none; border-radius:8px; color:#fff; font-size:12px; font-weight:700; cursor:pointer; text-align:left; transition:all 0.2s;">
-                      <span>Auto</span> <span style="font-size:10px; color:var(--accent);">Best</span>
-                    </button>
-                  </div>
-                </div>
-                <!-- YouTube Specific Download Action -->
-                <div style="position:relative; display:inline-block;">
-                  <button id="btn-player-yt-download" class="ctrl-btn" title="Download YouTube Media" style="display:none; color:#ff4b4b;">
-                    <i class="fab fa-youtube" style="font-size:18px;"></i>
-                  </button>
-                  <div id="player-yt-download-menu" style="display:none; position:absolute; bottom:42px; right:0; background:rgba(18,20,32,0.95); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:8px; min-width:180px; box-shadow:0 8px 30px rgba(0,0,0,0.6); z-index:100; flex-direction:column; gap:4px;">
-                    <div style="font-size:10px; font-weight:700; color:rgba(255,255,255,0.5); padding:4px 8px; text-transform:uppercase; letter-spacing:0.5px;">Download Options</div>
-                    <button id="btn-yt-dl-video" style="display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; background:rgba(255,255,255,0.04); border:none; border-radius:8px; color:#fff; font-size:12px; font-weight:600; cursor:pointer; text-align:left; transition:all 0.2s;" onmouseover="this.style.background='rgba(0,173,181,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">
-                      <i class="fas fa-video" style="color:var(--accent);"></i> Video (Social Folder)
-                    </button>
-                    <button id="btn-yt-dl-audio" style="display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; background:rgba(255,255,255,0.04); border:none; border-radius:8px; color:#fff; font-size:12px; font-weight:600; cursor:pointer; text-align:left; transition:all 0.2s;" onmouseover="this.style.background='rgba(0,173,181,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">
-                      <i class="fas fa-music" style="color:#a855f7;"></i> Audio MP3 (Downloads)
-                    </button>
-                  </div>
-                </div>
-                <button id="btn-player-subdl" class="ctrl-btn" title="Search SubDL Subtitles">
-                  <img src="imgs/subdl.png" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; opacity: 0.8; transition: all 0.2s ease; border-radius: 5px;" onmouseover="this.style.opacity='1'; this.style.transform='scale(1.1)';" onmouseout="this.style.opacity='0.8'; this.style.transform='none';">
-                </button>
-                <button id="btn-transcode-audio" class="ctrl-btn" title="Fix Audio Format (AC3/DTS)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 9.36l-2.43 2.43a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4l2.43-2.43a6 6 0 0 1 9.36-7.94l-3.77 3.77a1 1 0 0 0 .98 1.4z"/></svg></button>
-                <button id="btn-subtitle" class="ctrl-btn subtitle-off" title="Toggle Subtitles"><svg
-                    viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round">
-                    <rect x="2" y="5" width="20" height="14" rx="2" />
-                    <line x1="5" y1="11" x2="11" y2="11" />
-                    <line x1="13" y1="11" x2="19" y2="11" />
-                    <line x1="5" y1="15" x2="8" y2="15" />
-                    <line x1="10" y1="15" x2="19" y2="15" />
-                  </svg></button>
-                <button id="btn-fullscreen" class="ctrl-btn" title="Fullscreen"><svg id="icon-expand"
-                    viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round">
-                    <polyline points="15 3 21 3 21 9" />
-                    <polyline points="9 21 3 21 3 15" />
-                    <line x1="21" y1="3" x2="14" y2="10" />
-                    <line x1="3" y1="21" x2="10" y2="14" />
-                  </svg><svg id="icon-shrink" viewBox="0 0 24 24" width="20" height="20" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none">
-                    <polyline points="4 14 10 14 10 20" />
-                    <polyline points="20 10 14 10 14 4" />
-                    <line x1="10" y1="14" x2="3" y2="21" />
-                    <line x1="21" y1="3" x2="14" y2="10" />
-                  </svg></button>
-              </div>
+              <span id="time-current" class="time-label">00:00</span>
+              <div class="controls-row-spacer"></div>
+              <span id="time-duration" class="time-label">00:00</span>
+              <input type="range" id="volume-bar" class="volume-bar-bottom" value="100" min="0" max="100" step="1" title="Volume (↑/↓)">
+              <button id="btn-fullscreen" class="bottom-ctrl-btn" title="Fullscreen (F)"><svg id="icon-expand"
+                  viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg><svg id="icon-shrink" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none">
+                  <polyline points="4 14 10 14 10 20" />
+                  <polyline points="20 10 14 10 14 4" />
+                  <line x1="10" y1="14" x2="3" y2="21" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                </svg></button>
             </div>
           </div>
           <div id="player-loading" class="player-loading" style="display:none">
@@ -3486,7 +3611,7 @@
           <div id="player-error-overlay" class="player-error-modern" style="display: none;">
             <i class="fas fa-exclamation-circle error-icon-premium"></i>
             <div id="player-error-msg" class="error-msg-premium">
-              حدث خطأ في الاتصال. يرجى التحقق من الإنترنت أو المحاولة مرة أخرى.</div>
+              Connection error. Please check your internet or try again.</div>
             <div class="error-btn-group">
               <button class="error-btn-premium retry" onclick="location.reload()">Retry</button>
               <button id="player-error-vlc" class="error-btn-premium vlc"
@@ -4143,6 +4268,10 @@
           <i class="fas fa-paint-brush"></i>
           <span class="btn-label">Edit Banner</span>
         </button>
+        <button id="btn-adjust-banner-pos" class="profile-float-btn" title="Banner Position">
+          <i class="fas fa-arrows-alt-v"></i>
+          <span class="btn-label">Banner Position</span>
+        </button>
         <button id="btn-toggle-edit-profiles" class="profile-float-btn" title="Edit Profiles">
           <i class="fas fa-user-edit"></i>
           <span class="btn-label">Edit Profiles</span>
@@ -4162,19 +4291,6 @@
 
       <input type="text" id="profile-name-input" placeholder="What's your name?"
         style="width: 100%; background: var(--bg-surface-2); border: 2px solid var(--border); border-radius: 12px; padding: 15px; font-size: 1rem; color: #fff; margin-bottom: 20px; outline: none; transition: border-color 0.3s;">
-
-      <!-- Age Rating Selection -->
-      <div style="width: 100%; display: flex; flex-direction: column; gap: 8px; margin-bottom: 25px;">
-        <label for="profile-age-input" style="color: var(--text-secondary); font-size: 0.9rem; align-self: flex-start;">Age Restriction:</label>
-        <select id="profile-age-input"
-          style="width: 100%; background: var(--bg-surface-2); border: 2px solid var(--border); border-radius: 12px; padding: 15px; font-size: 1rem; color: #fff; outline: none; transition: border-color 0.3s; cursor: pointer;">
-          <option value="18">All Content (18+ / Adult)</option>
-          <option value="16">16+ (Teens & Older)</option>
-          <option value="13">13+ (PG-13 / Teens)</option>
-          <option value="7">7+ (Kids & Older)</option>
-          <option value="0">All Ages (0+ / Family Friendly)</option>
-        </select>
-      </div>
 
       <div class="modal-actions" style="display: flex; gap: 12px; width: 100%;">
         <button id="profile-cancel" class="btn-secondary"
@@ -4261,55 +4377,168 @@
 
 
   <!-- Logout Confirmation Modal -->
-  <div id="modal-account-logout" class="modal-overlay"
-    style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(12px); z-index: 1000000; align-items: center; justify-content: center;">
-    <div class="onboarding-card"
-      style="max-width: 480px; background: var(--bg-surface-1); border: 1px solid rgba(255,255,255,0.1); border-radius: 28px; padding: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); text-align: center;">
-      <h2 style="margin-bottom: 12px; font-size: 1.6rem; color: #fff;">Confirm Logout</h2>
-      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 25px; line-height: 1.6; text-align: center;">
+  <div id="modal-account-logout" class="modal-overlay" style="display:none; background: rgba(5, 5, 8, 0.88); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px); position: fixed; inset: 0; z-index: 99990; align-items: center; justify-content: center;">
+    <!-- Splash Geometric Background Lines -->
+    <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+        <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+      </svg>
+    </div>
+
+    <div class="modal" style="width: 480px; max-width: 92vw; position: relative; z-index: 2; background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 36px; padding: 44px 38px; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.85); text-align: center;">
+      <div style="margin-bottom: 22px; display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 20px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15);">
+        <i class="fas fa-sign-out-alt" style="font-size: 26px; color: #ffffff;"></i>
+      </div>
+      <h2 style="margin: 0 0 10px; font-size: 1.6rem; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Confirm Logout</h2>
+      <p style="color: rgba(255, 255, 255, 0.65); font-size: 0.95rem; margin-bottom: 28px; line-height: 1.5; text-align: center;">
         Are you sure you want to log out? This will unlink this device from your account, allowing you to register another device under your account limit.
       </p>
-      <div class="dl-form">
-        <!-- Hidden input to prevent JS errors elsewhere -->
-        <input type="hidden" id="logout-otp-code" value="000000">
-        
-        <div style="display: flex; gap: 12px; margin-top: 30px;">
-          <button id="logout-cancel-btn" class="btn-outline"
-            style="flex: 1; padding: 12px; border-radius: 12px;">Cancel</button>
-          <button id="logout-confirm-btn" class="btn-primary"
-            style="flex: 1; padding: 12px; border-radius: 12px; background: #e63946; border-color: #e63946;">Confirm Logout</button>
-        </div>
+
+      <input type="hidden" id="logout-otp-code" value="000000">
+
+      <div class="modal-actions" style="display: flex; gap: 14px; justify-content: center;">
+        <button id="logout-cancel-btn" class="btn-outline" style="flex: 1; padding: 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); background: transparent; font-weight: 700; font-size: 0.95rem; cursor: pointer;">Cancel</button>
+        <button id="logout-confirm-btn" class="btn-primary" style="flex: 1; padding: 14px; border-radius: 16px; background: #ffffff !important; color: #000000 !important; border: none; font-weight: 800; font-size: 0.95rem; cursor: pointer; box-shadow: 0 4px 20px rgba(255,255,255,0.3);">Confirm Logout</button>
       </div>
     </div>
   </div>
 
   <!-- Password Reset OTP Modal -->
-  <div id="modal-password-reset-otp" class="modal-overlay"
-    style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(12px); z-index: 1000000; align-items: center; justify-content: center;">
-    <div class="onboarding-card"
-      style="max-width: 450px; background: var(--bg-surface-1); border: 1px solid rgba(255,255,255,0.1); border-radius: 28px; padding: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); text-align: center;">
-      <h2 style="margin-bottom: 12px; font-size: 1.6rem; color: #fff;">Reset Password</h2>
-      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 25px; line-height: 1.6;">
-        Enter the verification code sent to your email and set your new password.
-      </p>
-      <div class="dl-form">
-        <div class="dl-field" style="margin-bottom: 15px;">
+  <div id="modal-password-reset-otp" class="modal-overlay" style="display: none; background: rgba(5, 5, 8, 0.88); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px); position: fixed; inset: 0; z-index: 99990; align-items: center; justify-content: center;">
+    <!-- Splash Geometric Background Lines -->
+    <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+        <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+      </svg>
+    </div>
+
+    <div class="modal" style="width: 480px; max-width: 92vw; position: relative; z-index: 2; background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 36px; padding: 44px 38px; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.85); text-align: center;">
+      <div style="margin-bottom: 22px; display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 20px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15);">
+        <i class="fas fa-key" style="font-size: 26px; color: #ffffff;"></i>
+      </div>
+      <h2 style="margin: 0 0 10px; font-size: 1.6rem; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Reset Password</h2>
+      <p style="color: rgba(255, 255, 255, 0.65); font-size: 0.95rem; margin-bottom: 28px; line-height: 1.5;">Enter the verification code sent to your email and set your new password.</p>
+      
+      <div class="dl-form" style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="dl-field">
           <input type="text" id="reset-otp-code" maxlength="8"
-            style="width: 100%; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: #fff; padding: 12px; border-radius: 12px; outline: none; text-align: center; font-size: 1.2rem; letter-spacing: 4px;"
+            style="width: 100%; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); color: #ffffff; padding: 14px; border-radius: 16px; outline: none; text-align: center; font-size: 1.2rem; letter-spacing: 4px; box-sizing: border-box;"
             placeholder="Verification Code">
         </div>
         <div class="dl-field">
           <input type="password" id="reset-new-password"
-            style="width: 100%; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: #fff; padding: 12px; border-radius: 12px; outline: none; text-align: center;"
+            style="width: 100%; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); color: #ffffff; padding: 14px; border-radius: 16px; outline: none; text-align: center; font-size: 0.95rem; box-sizing: border-box;"
             placeholder="New Password (min 6 chars)">
         </div>
-        <div style="display: flex; gap: 12px; margin-top: 30px;">
+        <div class="modal-actions" style="display: flex; gap: 14px; justify-content: center; margin-top: 14px;">
           <button id="reset-otp-cancel-btn" class="btn-outline"
-            style="flex: 1; padding: 12px; border-radius: 12px;">Cancel</button>
+            style="flex: 1; padding: 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); background: transparent; font-weight: 700; font-size: 0.95rem; cursor: pointer;">Cancel</button>
           <button id="reset-otp-confirm-btn" class="btn-primary"
-            style="flex: 1; padding: 12px; border-radius: 12px;">Reset Password</button>
+            style="flex: 1; padding: 14px; border-radius: 16px; background: #ffffff !important; color: #000000 !important; border: none; font-weight: 800; font-size: 0.95rem; cursor: pointer; box-shadow: 0 4px 20px rgba(255,255,255,0.3);">Reset Password</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Quick Mobile Login via QR Code Modal (PC side) -->
+  <div id="modal-qr-pc-login" class="modal-overlay" style="display: none; background: rgba(5, 5, 8, 0.88); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px); position: fixed; inset: 0; z-index: 99990; align-items: center; justify-content: center;">
+    <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+      </svg>
+    </div>
+
+    <div class="modal" style="width: 460px; max-width: 92vw; position: relative; z-index: 2; background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 36px; padding: 36px 32px; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.85); text-align: center;">
+      <div style="margin-bottom: 16px; display: inline-flex; align-items: center; justify-content: center; width: 58px; height: 58px; border-radius: 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15);">
+        <i class="fas fa-qrcode" style="font-size: 26px; color: #ffffff;"></i>
+      </div>
+      <h2 style="margin: 0 0 8px; font-size: 1.5rem; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Fast Mobile Login</h2>
+      <p style="color: rgba(255, 255, 255, 0.65); font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5;">
+        Scan the QR code with your mobile camera from the login screen, or enter the 6-digit code.
+      </p>
+
+      <div id="qr-modal-content" style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
+        <div id="qr-code-img-wrap" style="position: relative; width: 230px; height: 230px; border-radius: 20px; background: #ffffff; padding: 10px; display: flex; align-items: center; justify-content: center; box-shadow: 0 16px 40px rgba(0,0,0,0.6);">
+          <img id="qr-code-img" src="" alt="QR Code" style="width: 100%; height: 100%; object-fit: contain; display: block;" />
+        </div>
+
+        <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 16px; padding: 12px 24px; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; box-sizing: border-box;">
+          <span style="font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Direct Login Code (Short Code)</span>
+          <span id="qr-short-code-display" style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #ffffff; font-family: monospace;">------</span>
+        </div>
+
+        <div id="qr-timer-status" style="font-size: 12px; color: rgba(255,255,255,0.6); display: flex; align-items: center; gap: 8px;">
+          <i class="fa-regular fa-clock"></i>
+          <span>Code expires in: <b id="qr-timer-countdown">05:00</b></span>
+        </div>
+
+        <div id="qr-status-badge" style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.7);">
+          <span class="auth-spinner" style="width: 12px; height: 12px; border-width: 2px;"></span>
+          <span id="qr-status-badge-text">Waiting for mobile QR scan...</span>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; gap: 14px; justify-content: center; margin-top: 20px;">
+        <button id="qr-modal-close-btn" class="btn-outline"
+          style="width: 100%; padding: 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); background: transparent; font-weight: 700; font-size: 0.95rem; cursor: pointer;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Scanner / Code Entry Modal (Mobile side) -->
+  <div id="modal-qr-mobile-scanner" class="modal-overlay" style="display: none; background: rgba(5, 5, 8, 0.92); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px); position: fixed; inset: 0; z-index: 100000; align-items: center; justify-content: center; padding: 16px;">
+    <div class="modal" style="width: 440px; max-width: 95vw; background: rgba(20, 20, 28, 0.95); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 32px; padding: 28px 24px; box-shadow: 0 30px 80px rgba(0,0,0,0.9); text-align: center; color: #fff; position: relative;">
+      
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 42px; height: 42px; border-radius: 12px; background: rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: center;">
+            <i class="fas fa-qrcode" style="font-size: 20px; color: #fff;"></i>
+          </div>
+          <div style="text-align: right;">
+            <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0;">Fast Login</h3>
+            <span style="font-size: 0.78rem; color: rgba(255, 255, 255, 0.6);">Scan code or enter PIN</span>
+          </div>
+        </div>
+        <button id="qr-scanner-close-x" style="background: transparent; border: none; color: rgba(255,255,255,0.7); font-size: 22px; cursor: pointer; padding: 6px;">&times;</button>
+      </div>
+
+      <!-- Mode Switch Tabs -->
+      <div style="display: flex; background: rgba(255,255,255,0.06); border-radius: 14px; padding: 4px; margin-bottom: 18px; gap: 4px;">
+        <button id="tab-scanner-camera" class="btn" style="flex: 1; padding: 8px; border-radius: 10px; font-size: 12px; font-weight: 700; background: #fff; color: #000; border: none; cursor: pointer;">
+          <i class="fas fa-camera" style="margin-left: 5px;"></i> Camera (Scan)
+        </button>
+        <button id="tab-scanner-code" class="btn" style="flex: 1; padding: 8px; border-radius: 10px; font-size: 12px; font-weight: 700; background: transparent; color: #fff; border: none; cursor: pointer;">
+          <i class="fas fa-keyboard" style="margin-left: 5px;"></i> Enter Code (6 digits)
+        </button>
+      </div>
+
+      <!-- View 1: Camera Scanner -->
+      <div id="qr-view-camera" style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
+        <div style="position: relative; width: 260px; height: 260px; border-radius: 24px; overflow: hidden; background: #000; border: 2px solid rgba(255,255,255,0.2); box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
+          <video id="qr-video" playsinline muted style="width: 100%; height: 100%; object-fit: cover;"></video>
+          <canvas id="qr-canvas" style="display: none;"></canvas>
+          <div style="position: absolute; inset: 24px; border: 2px dashed rgba(255,255,255,0.7); border-radius: 16px; pointer-events: none;"></div>
+        </div>
+        <p id="qr-camera-msg" style="font-size: 12px; color: rgba(255,255,255,0.7); margin: 0; line-height: 1.4;">
+          Point your phone camera at the QR code shown in your PC account settings
+        </p>
+      </div>
+
+      <!-- View 2: 6-Digit Short Code Entry -->
+      <div id="qr-view-code" style="display: none; flex-direction: column; align-items: center; gap: 16px; padding: 12px 0;">
+        <p style="font-size: 13px; color: rgba(255,255,255,0.75); margin: 0; line-height: 1.5;">
+          Enter the 6-digit code shown on the PC screen:
+        </p>
+        <input type="text" id="qr-input-manual-code" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="••••••"
+          style="width: 220px; font-size: 30px; letter-spacing: 10px; text-align: center; font-family: monospace; font-weight: 800; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.25); color: #fff; outline: none;" />
+        <button id="qr-submit-manual-code" class="btn-primary" style="width: 100%; padding: 12px; border-radius: 14px; background: #ffffff; color: #000000; font-weight: 800; font-size: 14px; border: none; cursor: pointer; box-shadow: 0 4px 20px rgba(255,255,255,0.3);">
+          Confirm and Log in
+        </button>
+      </div>
+
+      <div id="qr-scanner-status" style="margin-top: 14px; font-size: 12px; min-height: 18px; color: #ef4444;"></div>
     </div>
   </div>
 
@@ -4331,7 +4560,7 @@
         
         <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 30px;">
           <button id="email-change-check-link-btn" class="btn-primary"
-            style="width: 100%; padding: 12px; border-radius: 12px; background: #3b82f6; border-color: #3b82f6;">I've Clicked the Link / التحقق من التفعيل</button>
+            style="width: 100%; padding: 12px; border-radius: 12px; background: #3b82f6; border-color: #3b82f6;">I've Clicked the Link / Check Verification</button>
           
           <div style="display: flex; gap: 12px;">
             <button id="email-change-otp-cancel-btn" class="btn-outline"
@@ -4611,7 +4840,18 @@
     </div>
   </div>
 
-  <!-- Update Notification View (Premium Glassmorphism) -->
+  <!-- Gooey Morphing SVG Filter Definition -->
+  <svg style="display:none; position:absolute; width:0; height:0;">
+    <defs>
+      <filter id="gooey-toast-filter">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
+        <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -8" result="gooey" />
+        <feComposite in="SourceGraphic" in2="gooey" operator="atop" />
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Update Notification View (Premium Gooey Morphing Glassmorphism) -->
   <div id="update-toast" class="update-toast">
     <div class="update-toast-inner">
       <div id="update-toast-icon" class="update-toast-icon">
@@ -4682,8 +4922,8 @@
     </div>
   </div>
 
-  <!-- Premium Mobile Bottom Dock -->
-  <nav id="mobile-dock">
+  <!-- Premium Mobile Bottom Dock (Hidden - replaced by 3-bars hamburger drawer) -->
+  <nav id="mobile-dock" style="display: none !important;">
     <button class="nav-btn active" data-view="discover">
       <i class="fas fa-compass"></i>
       <span>Discover</span>
@@ -4706,8 +4946,8 @@
     </button>
   </nav>
 
-  <!-- Floating Search Button for Mobile -->
-  <button id="floating-search-btn" class="floating-search-btn" title="Quick Search">
+  <!-- Floating Search Button for Mobile (Hidden) -->
+  <button id="floating-search-btn" class="floating-search-btn" title="Quick Search" style="display: none !important;">
     <i class="fas fa-search"></i>
   </button>
 
@@ -4726,7 +4966,7 @@
   <script>
     (function () {
       const _splashStartTime = Date.now();
-      const MIN_SPLASH_TIME = 2400; // Minimum 2.4s to display signature & geometric background animations
+      const MIN_SPLASH_TIME = 1800; // Minimum 1.8s delay to allow full UI & background modules to stabilize
 
       window.hideSplash = () => {
         const elapsed = Date.now() - _splashStartTime;
@@ -4734,7 +4974,7 @@
         setTimeout(() => {
           if (!document.body.classList.contains('app-ready')) {
             document.body.classList.add('app-ready');
-            console.log('[HTML] Splash screen hidden after animation window.');
+            console.log('[HTML] Splash screen hidden after animation & stabilization window.');
           }
         }, remaining);
       };
@@ -4853,6 +5093,7 @@
 
   <!-- UI Modules -->
   <script src="js/capabilities.js"></script>
+  <script src="js/jsqr.min.js"></script>
   <script src="modules/auth.js"></script>
   <script src="modules/ass-subtitles.js"></script>
   <script src="modules/disclaimer.js"></script>
@@ -4868,60 +5109,98 @@
   <script src="modules/settings.js"></script>
   
   <!-- YouTube Addon Settings & Account Modal -->
-  <div id="youtube-settings-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(12px); z-index:9990; align-items:center; justify-content:center; padding:20px;">
-    <div style="background:rgba(20,22,34,0.96); border:1px solid rgba(255,255,255,0.1); border-radius:20px; width:100%; max-width:480px; padding:24px; box-shadow:0 20px 60px rgba(0,0,0,0.8); display:flex; flex-direction:column; gap:20px; color:#fff; font-family:var(--font);">
+  <div id="youtube-settings-modal" class="modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(5, 5, 8, 0.88); backdrop-filter:blur(35px); -webkit-backdrop-filter:blur(35px); z-index:99990; align-items:center; justify-content:center; padding:20px;">
+    <!-- Splash Geometric Background Lines -->
+    <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+        <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+      </svg>
+    </div>
+
+    <div style="background:rgba(255, 255, 255, 0.03); backdrop-filter:blur(40px); -webkit-backdrop-filter:blur(40px); border:1px solid rgba(255, 255, 255, 0.1); border-radius:36px; width:100%; max-width:500px; padding:38px 34px; box-shadow:0 40px 100px rgba(0,0,0,0.85); display:flex; flex-direction:column; gap:22px; position:relative; z-index:2; color:#fff; font-family:var(--font);">
       <div style="display:flex; align-items:center; justify-content:space-between;">
-        <div style="display:flex; align-items:center; gap:12px;">
-          <div style="width:40px; height:40px; border-radius:10px; background:#ff0000; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 14px rgba(255,0,0,0.4);">
-            <i class="fab fa-youtube" style="font-size:22px; color:#fff;"></i>
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="width:52px; height:52px; border-radius:18px; background:rgba(255, 255, 255, 0.06); border:1px solid rgba(255, 255, 255, 0.15); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <i class="fab fa-youtube" style="font-size:22px; color:#ffffff;"></i>
           </div>
           <div>
-            <h3 style="font-size:1.15rem; font-weight:800; margin:0;">YouTube Settings</h3>
-            <span style="font-size:0.75rem; color:var(--text-muted);">Account & Recommendation Preferences</span>
+            <h3 style="font-size:1.4rem; font-weight:800; margin:0; color:#ffffff; letter-spacing:-0.4px;">YouTube Settings</h3>
+            <span style="font-size:0.82rem; color:rgba(255, 255, 255, 0.55); display:block; margin-top:2px;">Account & Recommendation Preferences</span>
           </div>
         </div>
-        <button id="btn-close-yt-settings" style="background:transparent; border:none; color:rgba(255,255,255,0.6); font-size:18px; cursor:pointer; padding:6px;">
+        <button id="btn-close-yt-settings" style="background:rgba(255, 255, 255, 0.06); border:1px solid rgba(255, 255, 255, 0.15); color:rgba(255, 255, 255, 0.7); width:36px; height:36px; border-radius:50%; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.12)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.06)'; this.style.color='rgba(255,255,255,0.7)';">
           <i class="fas fa-times"></i>
         </button>
       </div>
 
       <!-- Account Card -->
-      <div id="yt-account-card" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px; display:flex; align-items:center; justify-content:space-between;">
-        <div style="display:flex; align-items:center; gap:12px;">
-          <img id="yt-account-avatar" src="https://lh3.googleusercontent.com/a/default-user=s96-c" style="width:44px; height:44px; border-radius:50%; object-fit:cover; border:2px solid var(--accent);">
-          <div>
-            <div id="yt-account-name" style="font-weight:700; font-size:0.95rem;">Not Signed In</div>
-            <div id="yt-account-email" style="font-size:0.8rem; color:var(--text-muted);">Sign in to get personalized feeds & sync watch history</div>
+      <div id="yt-account-card" style="background:rgba(255, 255, 255, 0.04); border:1px solid rgba(255, 255, 255, 0.12); border-radius:20px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; gap:14px; box-shadow:0 4px 20px rgba(0, 0, 0, 0.25);">
+        <div style="display:flex; align-items:center; gap:14px; min-width:0; flex:1;">
+          <img id="yt-account-avatar" src="https://lh3.googleusercontent.com/a/default-user=s96-c" style="width:46px; height:46px; border-radius:50%; object-fit:cover; border:2px solid rgba(255, 255, 255, 0.25); flex-shrink:0; box-shadow:0 4px 14px rgba(0,0,0,0.4);">
+          <div style="min-width:0; flex:1;">
+            <div id="yt-account-name" style="font-weight:800; font-size:0.98rem; color:#ffffff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:-0.2px;">Not Signed In</div>
+            <div id="yt-account-email" style="font-size:0.8rem; color:rgba(255, 255, 255, 0.55); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">Sign in with any Google account to sync feeds & history</div>
+            <div id="yt-account-status" style="font-size:0.76rem; color:#22c55e; font-weight:700; margin-top:4px; display:none;"><i class="fas fa-check-circle"></i> Connected via Google Account</div>
           </div>
         </div>
-        <button id="btn-yt-auth-action" class="btn-primary" style="padding:8px 16px; border-radius:10px; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; gap:6px;">
-          <i class="fab fa-google"></i> <span id="yt-auth-btn-label">Sign In</span>
-        </button>
+        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          <button id="btn-yt-switch-action" style="display:none; padding:10px 16px; border-radius:14px; font-weight:700; font-size:0.84rem; cursor:pointer; background:rgba(255, 255, 255, 0.06); color:#ffffff; border:1px solid rgba(255, 255, 255, 0.18); transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.12)'" onmouseout="this.style.background='rgba(255,255,255,0.06)'">
+            <i class="fas fa-sync-alt"></i> Switch
+          </button>
+          <button id="btn-yt-auth-action" style="padding:10px 18px; border-radius:14px; font-weight:800; font-size:0.86rem; cursor:pointer; display:flex; align-items:center; gap:8px; background:#ffffff !important; color:#000000 !important; border:none; box-shadow:0 4px 20px rgba(255, 255, 255, 0.3); transition:all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            <i class="fab fa-google"></i> <span id="yt-auth-btn-label">Sign In</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="yt-alt-auth-wrap" style="display:flex; justify-content:space-between; align-items:center; margin-top:-6px; padding:0 4px;">
+        <a href="#" id="link-yt-meem-sync" style="display:none; font-size:0.8rem; color:rgba(255, 255, 255, 0.6); text-decoration:none; transition:color 0.2s;" onmouseover="this.style.color='#ffffff'" onmouseout="this.style.color='rgba(255, 255, 255, 0.6)'">
+          <i class="fas fa-link" style="margin-right:5px;"></i> Use MEEM Account
+        </a>
+        <a href="#" id="link-yt-device-auth" style="font-size:0.8rem; color:rgba(255, 255, 255, 0.6); text-decoration:none; transition:color 0.2s; margin-left:auto; display:inline-flex; align-items:center; gap:6px;" onmouseover="this.style.color='#ffffff'" onmouseout="this.style.color='rgba(255, 255, 255, 0.6)'">
+          <i class="fas fa-tv"></i> Authorize via TV Code (google.com/device)
+        </a>
       </div>
 
       <!-- Actions List -->
       <div style="display:flex; flex-direction:column; gap:10px;">
-        <button id="btn-open-yt-history" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:12px 16px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:12px; color:#fff; font-weight:600; font-size:0.9rem; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <i class="fas fa-history" style="color:var(--accent);"></i> Watch History
+        <button id="btn-open-yt-history" style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:14px 18px; background:rgba(255, 255, 255, 0.04); border:1px solid rgba(255, 255, 255, 0.12); border-radius:18px; color:#ffffff; font-weight:700; font-size:0.92rem; cursor:pointer; transition:all 0.2s; box-shadow:0 4px 16px rgba(0, 0, 0, 0.2);" onmouseover="this.style.background='rgba(255, 255, 255, 0.08)'; this.style.borderColor='rgba(255, 255, 255, 0.22)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.04)'; this.style.borderColor='rgba(255, 255, 255, 0.12)';">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:36px; height:36px; border-radius:12px; background:rgba(255, 255, 255, 0.06); border:1px solid rgba(255, 255, 255, 0.12); display:flex; align-items:center; justify-content:center;">
+              <i class="fas fa-history" style="color:#ffffff; font-size:15px;"></i>
+            </div>
+            <span>Watch History</span>
           </div>
-          <i class="fas fa-chevron-right" style="font-size:12px; opacity:0.5;"></i>
+          <i class="fas fa-chevron-right" style="font-size:13px; color:rgba(255, 255, 255, 0.4);"></i>
         </button>
       </div>
     </div>
   </div>
 
   <!-- YouTube Watch History Modal -->
-  <div id="youtube-history-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(12px); z-index:9992; align-items:center; justify-content:center; padding:20px;">
-    <div style="background:rgba(20,22,34,0.96); border:1px solid rgba(255,255,255,0.1); border-radius:20px; width:100%; max-width:640px; height:80vh; padding:24px; box-shadow:0 20px 60px rgba(0,0,0,0.8); display:flex; flex-direction:column; gap:16px; color:#fff; font-family:var(--font);">
+  <div id="youtube-history-modal" class="modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(5, 5, 8, 0.88); backdrop-filter:blur(35px); -webkit-backdrop-filter:blur(35px); z-index:99992; align-items:center; justify-content:center; padding:20px;">
+    <!-- Splash Geometric Background Lines -->
+    <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+        <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+      </svg>
+    </div>
+    <div style="background:rgba(255, 255, 255, 0.03); backdrop-filter:blur(40px); -webkit-backdrop-filter:blur(40px); border:1px solid rgba(255, 255, 255, 0.1); border-radius:36px; width:100%; max-width:640px; height:80vh; padding:34px 30px; box-shadow:0 40px 100px rgba(0,0,0,0.85); display:flex; flex-direction:column; gap:20px; color:#fff; font-family:var(--font); position:relative; z-index:2;">
       <div style="display:flex; align-items:center; justify-content:space-between;">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <i class="fas fa-history" style="color:var(--accent); font-size:20px;"></i>
-          <h3 style="font-size:1.15rem; font-weight:800; margin:0;">YouTube Watch History</h3>
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="width:48px; height:48px; border-radius:16px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); display:flex; align-items:center; justify-content:center;">
+            <i class="fas fa-history" style="color:#ffffff; font-size:20px;"></i>
+          </div>
+          <div>
+            <h3 style="font-size:1.35rem; font-weight:800; margin:0; color:#fff; letter-spacing:-0.4px;">YouTube Watch History</h3>
+            <span style="font-size:0.8rem; color:rgba(255,255,255,0.55);">Recently watched videos</span>
+          </div>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
-          <button id="btn-clear-yt-history" style="background:rgba(239,68,68,0.15); border:none; color:#ef4444; font-weight:700; font-size:0.8rem; padding:6px 12px; border-radius:8px; cursor:pointer;">Clear All</button>
-          <button id="btn-close-yt-history" style="background:transparent; border:none; color:rgba(255,255,255,0.6); font-size:18px; cursor:pointer;"><i class="fas fa-times"></i></button>
+          <button id="btn-clear-yt-history" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ef4444; font-weight:700; font-size:0.82rem; padding:8px 16px; border-radius:12px; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(239,68,68,0.25)'" onmouseout="this.style.background='rgba(239,68,68,0.15)'">Clear All</button>
+          <button id="btn-close-yt-history" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.8); width:36px; height:36px; border-radius:50%; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.12)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.06)'; this.style.color='rgba(255,255,255,0.8)';"><i class="fas fa-times"></i></button>
         </div>
       </div>
       <div id="yt-history-list" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding-right:4px;"></div>
@@ -4946,6 +5225,130 @@
       <span id="yt-dl-widget-eta">00:00 remaining</span>
     </div>
     <div id="yt-dl-widget-error" style="display:none; font-size:0.75rem; color:#ef4444; background:rgba(239,68,68,0.1); padding:6px 10px; border-radius:6px;"></div>
+  </div>
+
+  <!-- Subscription Plans Modal (MEEM VIP) -->
+  <div id="modal-subscription-plans" class="modal-overlay" style="display:none; position:fixed; inset:0; z-index:99990; background:rgba(5, 5, 8, 0.88); backdrop-filter:blur(35px); -webkit-backdrop-filter:blur(35px); align-items:center; justify-content:center; padding:20px;">
+    <!-- Splash Geometric Background Lines -->
+    <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+        <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+      </svg>
+    </div>
+
+    <div class="modal" style="width:840px; max-width:92vw; max-height:88vh; overflow-y:auto; position:relative; z-index:2; background:transparent; border:none; box-shadow:none; text-align:center; color:#ffffff; display:flex; flex-direction:column; gap:24px; padding:10px;">
+      <button id="btn-close-sub-modal" style="position:absolute; top:24px; right:24px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#fff; width:36px; height:36px; border-radius:50%; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s;"><i class="fas fa-times"></i></button>
+
+      <div style="text-align:center;">
+        <div style="display:inline-flex; align-items:center; gap:8px; background:rgba(255,255,255,0.08); color:#ffffff; padding:6px 16px; border-radius:20px; font-size:13px; font-weight:700; border:1px solid rgba(255,255,255,0.2); margin-bottom:12px;">
+          <i class="fas fa-crown" style="color:#ffffff;"></i> <span id="sub-modal-badge-text">MEEM VIP Membership</span>
+        </div>
+        <h2 id="sub-modal-title" style="font-size:26px; font-weight:800; margin:0 0 8px 0; color:#ffffff; letter-spacing:-0.5px;">Unlock Premium Unlimited Streaming</h2>
+        <p id="sub-modal-desc" style="color:rgba(255,255,255,0.65); font-size:14px; margin:0 auto; max-width:550px; line-height:1.5;">Choose your subscription plan to enjoy high-quality streaming, unlimited offline downloads, and multi-profile support.</p>
+      </div>
+
+      <!-- Gumroad License Key Activation Card -->
+      <div style="background: rgba(255, 255, 255, 0.04); border: 1.5px solid rgba(255, 255, 255, 0.2); border-radius: 20px; padding: 22px 26px; text-align: left; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); backdrop-filter: blur(20px);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 42px; height: 42px; border-radius: 12px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 18px; flex-shrink: 0;">
+              <i class="fas fa-key"></i>
+            </div>
+            <div>
+              <div style="font-weight: 800; font-size: 15px; color: #ffffff; display: flex; align-items: center; gap: 8px;">
+                <span>Activate with Gumroad License Key</span>
+                <span style="font-size: 10px; background: #ffffff; color: #000000; font-weight: 800; padding: 2px 9px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Instant VIP</span>
+              </div>
+              <div style="font-size: 12px; color: rgba(255, 255, 255, 0.65);">Already purchased on Gumroad? Enter your license key from your receipt to unlock VIP immediately.</div>
+            </div>
+          </div>
+          <div id="gumroad-active-badge" style="display: none; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.3); color: #ffffff; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700;">
+            <i class="fas fa-check-circle"></i> Active VIP
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; align-items: stretch; margin-top: 14px;">
+          <div style="position: relative; flex: 1;">
+            <input type="text" id="input-gumroad-license" placeholder="Paste License Key (e.g. 8A5B2C1D-EF34-4A89-91B7-1234567890AB)" spellcheck="false" autocomplete="off" style="width: 100%; height: 46px; background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px; padding: 0 16px; color: #ffffff; font-family: monospace; font-size: 13.5px; letter-spacing: 0.5px; outline: none; transition: border-color 0.2s, box-shadow 0.2s;" onfocus="this.style.borderColor='#ffffff'; this.style.boxShadow='0 0 15px rgba(255,255,255,0.25)';" onblur="this.style.borderColor='rgba(255,255,255,0.2)'; this.style.boxShadow='none';">
+          </div>
+          <button id="btn-activate-gumroad-license" style="height: 46px; padding: 0 24px; background: #ffffff; color: #000000; border: none; border-radius: 12px; font-weight: 800; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; white-space: nowrap; transition: transform 0.15s, opacity 0.2s, box-shadow 0.2s; box-shadow: 0 4px 20px rgba(255, 255, 255, 0.25);" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 6px 24px rgba(255,255,255,0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 20px rgba(255,255,255,0.25)';">
+            <i class="fas fa-bolt"></i>
+            <span>Activate VIP</span>
+          </button>
+        </div>
+
+        <div id="gumroad-license-feedback" style="display: none; font-size: 12px; margin-top: 10px; padding: 8px 12px; border-radius: 8px;"></div>
+      </div>
+
+      <!-- Pricing Cards Showcase (Real Gumroad Tiers) -->
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:16px; margin-top:2px;">
+        
+        <!-- Tier 1: Monthly -->
+        <div class="sub-plan-card" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.16); border-radius:22px; padding:22px 20px; display:flex; flex-direction:column; text-align:center; transition:transform 0.2s, border-color 0.2s;" onmouseover="this.style.borderColor='rgba(255,255,255,0.35)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.borderColor='rgba(255,255,255,0.16)'; this.style.transform='translateY(0)';">
+          <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:rgba(255,255,255,0.6); margin-bottom:6px;">Monthly Plan</div>
+          <div style="font-size:32px; font-weight:900; color:#ffffff; margin-bottom:2px; display:flex; align-items:baseline; justify-content:center; gap:4px;">
+            <span>$5.07</span>
+            <span style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.6);">/ mo</span>
+          </div>
+          <div style="font-size:12.5px; font-weight:700; color:rgba(255,255,255,0.85); margin-bottom:12px;">≈ 19.00 SAR / mo</div>
+          <p style="font-size:11.5px; color:rgba(255,255,255,0.5); margin:0 0 16px 0; line-height:1.4;">Auto-renews monthly on Gumroad — Cancel anytime</p>
+          <ul style="list-style:none; padding:0; margin:0; font-size:12.5px; color:rgba(255,255,255,0.85); text-align:left; display:flex; flex-direction:column; gap:9px;">
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Unlimited Offline Downloads</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Multiple Profiles per Account</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Shared Friend Watchlists</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Cross-Device Resume (PC & Mobile)</li>
+          </ul>
+        </div>
+
+        <!-- Tier 2: 6 Months (Biannually) -->
+        <div class="sub-plan-card" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.18); border-radius:22px; padding:22px 20px; display:flex; flex-direction:column; text-align:center; transition:transform 0.2s, border-color 0.2s;" onmouseover="this.style.borderColor='rgba(255,255,255,0.35)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.borderColor='rgba(255,255,255,0.18)'; this.style.transform='translateY(0)';">
+          <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:rgba(255,255,255,0.6); margin-bottom:6px;">6 Months</div>
+          <div style="font-size:32px; font-weight:900; color:#ffffff; margin-bottom:2px; display:flex; align-items:baseline; justify-content:center; gap:4px;">
+            <span>$30.42</span>
+            <span style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.6);">/ 6 mos</span>
+          </div>
+          <div style="font-size:12.5px; font-weight:700; color:rgba(255,255,255,0.85); margin-bottom:12px;">≈ 114.00 SAR / 6 mos</div>
+          <p style="font-size:11.5px; color:rgba(255,255,255,0.5); margin:0 0 16px 0; line-height:1.4;">Billed biannually ($5.07 / mo) on Gumroad</p>
+          <ul style="list-style:none; padding:0; margin:0; font-size:12.5px; color:rgba(255,255,255,0.85); text-align:left; display:flex; flex-direction:column; gap:9px;">
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> All VIP Benefits Included</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> 6 Months Uninterrupted Access</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Instant License Key via Email</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Priority Download & Stream Speed</li>
+          </ul>
+        </div>
+
+        <!-- Tier 3: 1 Year (Yearly - Best Value) -->
+        <div class="sub-plan-card popular" style="background:rgba(255,255,255,0.08); border:1.5px solid rgba(255,255,255,0.5); border-radius:22px; padding:22px 20px; display:flex; flex-direction:column; text-align:center; position:relative; box-shadow:0 12px 40px rgba(0,0,0,0.6); transition:transform 0.2s, border-color 0.2s;" onmouseover="this.style.borderColor='rgba(255,255,255,0.8)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.borderColor='rgba(255,255,255,0.5)'; this.style.transform='translateY(0)';">
+          <div style="position:absolute; top:-11px; left:50%; transform:translateX(-50%); background:#ffffff; color:#000000; font-size:10px; font-weight:900; padding:2.5px 12px; border-radius:12px; text-transform:uppercase; letter-spacing:0.8px;">Best Value</div>
+          <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#ffffff; margin-bottom:6px;">1 Year Plan</div>
+          <div style="font-size:32px; font-weight:900; color:#ffffff; margin-bottom:2px; display:flex; align-items:baseline; justify-content:center; gap:4px;">
+            <span>$60.84</span>
+            <span style="font-size:14px; font-weight:600; color:rgba(255,255,255,0.6);">/ yr</span>
+          </div>
+          <div style="font-size:12.5px; font-weight:700; color:rgba(255,255,255,0.9); margin-bottom:12px;">≈ 228.00 SAR / yr</div>
+          <p style="font-size:11.5px; color:rgba(255,255,255,0.5); margin:0 0 16px 0; line-height:1.4;">Billed annually ($5.07 / mo) on Gumroad</p>
+          <ul style="list-style:none; padding:0; margin:0; font-size:12.5px; color:rgba(255,255,255,0.9); text-align:left; display:flex; flex-direction:column; gap:9px;">
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Full 365 Days Premium VIP</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Priority Download & Stream Speed</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> All Future Features & Updates</li>
+            <li><i class="fas fa-check-circle" style="color:#ffffff; margin-right:8px;"></i> Instant License Key Delivery</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <!-- Single Primary Call-To-Action Button to Gumroad Product -->
+      <div style="margin-top:6px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <button class="btn-buy-sub" data-url="https://3mromotawa.gumroad.com/l/MEEMVIP" style="width:100%; max-width:480px; height:52px; background:#ffffff; color:#000000; border:none; border-radius:16px; font-weight:800; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; box-shadow:0 8px 30px rgba(255, 255, 255, 0.35); transition:transform 0.18s, box-shadow 0.18s;" onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 10px 38px rgba(255, 255, 255, 0.5)';" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 8px 30px rgba(255, 255, 255, 0.35)';">
+          <i class="fas fa-crown" style="font-size:16px; color:#000000;"></i>
+          <span>Subscribe on Gumroad (Choose Your Plan)</span>
+          <i class="fas fa-arrow-right" style="font-size:13px; color:#000000;"></i>
+        </button>
+        <span style="font-size:11.5px; color:rgba(255,255,255,0.5);">Opens our official Gumroad checkout in your browser</span>
+      </div>
+
+    </div>
   </div>
 
   <script src="renderer.js"></script>

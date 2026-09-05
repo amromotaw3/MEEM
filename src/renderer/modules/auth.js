@@ -147,121 +147,414 @@
   }
 
   function isMobileClient() {
-    return !!(window.Capacitor || (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile()));
+    return !!(
+      window.Capacitor ||
+      (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile()) ||
+      /android|iphone|ipad|ipod/i.test(navigator.userAgent || '')
+    );
   }
 
-  function getOAuthRedirectUrl() {
-    return 'https://meem-watch.vercel.app/auth/callback?source=mobile';
+  function getOAuthRedirectUrl(relayId = null) {
+    const currentOrigin = (window.location.origin && window.location.origin !== 'null') ? window.location.origin : '';
+    const baseUrl = 'https://meem-watch.vercel.app/auth/callback';
+    const params = new URLSearchParams();
+    params.set('source', isMobileClient() ? 'mobile' : 'app');
+    if (relayId) {
+      params.set('relay_id', relayId);
+    }
+    if (currentOrigin && /^https?:\/\/(?!localhost|127\.0\.0\.1)/i.test(currentOrigin)) {
+      params.set('origin', currentOrigin);
+    }
+    return `${baseUrl}?${params.toString()}`;
   }
+
 
   async function startOAuthLogin(provider, msgEl) {
+    oauthCompletionLocked = false;
+    oauthDeepLinkInFlight = false;
+
     const client = getSupabaseRendererClient();
-    const redirectUrl = getOAuthRedirectUrl();
+    let relayId = null;
+    if (isMobileClient()) {
+      try {
+        const { data: rData, error: rErr } = await client.rpc('create_mobile_auth_relay');
+        if (!rErr && rData) {
+          relayId = typeof rData === 'object' ? rData.relay_id : rData;
+          console.log('[AUTH] Mobile auth relay created:', relayId);
+        }
+      } catch (e) {
+        console.warn('[AUTH] create_mobile_auth_relay error:', e);
+      }
+    }
+
+    const redirectUrl = getOAuthRedirectUrl(relayId);
     const { data, error } = await client.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: redirectUrl,
-        skipBrowserRedirect: true
+        skipBrowserRedirect: true,
+        queryParams: {
+          prompt: 'select_account'
+        }
       }
     });
     if (error) throw error;
     if (!data?.url) throw new Error('Could not start OAuth login');
 
     sessionStorage.setItem('mv_oauth_pending', '1');
-    oauthCompletionLocked = false;
 
-    if (isMobileClient()) {
-      setAuthMessage(msgEl, provider === 'google'
-        ? 'Opening Chrome to sign in with Google… You will return to MediaVault automatically.'
-        : 'Opening browser for Discord… You will return to MediaVault automatically.', true);
-    } else {
-      // Show waiting message with a fallback manual input area
-      const providerName = provider === 'google' ? 'Google' : 'Discord';
-      msgEl.innerHTML = `
-        <div style="margin-top: 10px; text-align: center;">
-          <div class="spinner" style="display:inline-block; margin-bottom: 8px;"></div>
-          <div>Waiting for ${providerName} login...</div>
-          <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 12px; margin-bottom: 8px; line-height: 1.4;">
-            If the app didn't open automatically after logging in, copy the final URL from your browser address bar and paste it below:
-          </div>
-          <div style="display: flex; gap: 6px; justify-content: center; align-items: center;">
-            <input type="text" id="manual-oauth-url" placeholder="Paste callback URL here (mediavault://... or localhost:3000...)" style="
-              flex: 1;
-              background: rgba(255,255,255,0.06);
-              border: 1px solid rgba(255,255,255,0.15);
-              border-radius: 6px;
-              padding: 6px 10px;
-              font-size: 11px;
-              color: #fff;
-              outline: none;
-            " />
-            <button id="manual-oauth-btn" class="btn" style="
-              padding: 6px 12px;
-              font-size: 11px;
-              background: #5865F2;
-              border: none;
-              border-radius: 6px;
-              color: white;
-              cursor: pointer;
-            ">Submit</button>
-          </div>
+    const providerName = provider === 'google' ? 'Google' : 'Discord';
+    msgEl.innerHTML = `
+      <div style="margin-top: 10px; text-align: center;">
+        <div class="spinner" style="display:inline-block; margin-bottom: 8px;"></div>
+        <div style="font-weight: 600; color: #fff;">Waiting for login via ${providerName}...</div>
+        <div style="font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 6px; margin-bottom: 10px; line-height: 1.5;">
+          Please complete login in your browser. When returning to the app, the session will be detected automatically, or click below:
         </div>
-      `;
+        <div style="display: flex; gap: 8px; justify-content: center; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+          <button type="button" id="manual-check-session-btn" class="btn" style="
+            padding: 7px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+          ">🔄 Check login status (or clipboard)</button>
+        </div>
+        <div style="display: flex; gap: 6px; justify-content: center; align-items: center;">
+          <input type="text" id="manual-oauth-url" placeholder="Paste the link here if not redirected automatically..." style="
+            flex: 1;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 11px;
+            color: #fff;
+            outline: none;
+            direction: ltr;
+          " />
+          <button type="button" id="manual-oauth-btn" class="btn" style="
+            padding: 6px 14px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #5865F2;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+          ">Confirm</button>
+        </div>
+      </div>
+    `;
 
-      // Attach event listener for the manual login fallback
-      const submitBtn = msgEl.querySelector('#manual-oauth-btn');
-      const inputEl = msgEl.querySelector('#manual-oauth-url');
-      if (submitBtn && inputEl) {
-        submitBtn.onclick = async () => {
-          const rawVal = inputEl.value.trim();
-          if (!rawVal) return;
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'Verifying...';
-          // Convert localhost:3000 links to mediavault:// protocol if needed
-          let formattedUrl = rawVal;
-          if (rawVal.includes('localhost:3000') || rawVal.includes('127.0.0.1:3000')) {
-            const hashIndex = rawVal.indexOf('#');
-            const searchIndex = rawVal.indexOf('?');
-            const paramStart = hashIndex !== -1 ? hashIndex : searchIndex;
-            if (paramStart !== -1) {
-              formattedUrl = 'mediavault://callback' + rawVal.substring(paramStart);
-            }
-          }
-          try {
-            const handled = await handleOAuthDeepLink(formattedUrl);
-            if (!handled) {
-              showToast('❌ Invalid token or callback URL.');
-              submitBtn.disabled = false;
-              submitBtn.textContent = 'Submit';
-            }
-          } catch (err) {
-            showToast('❌ Verification failed: ' + err.message);
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Submit';
-          }
-        };
+    // --- Session checker (called from multiple event sources & periodic check) ---
+    let checkInProgress = false;
+    let pollInterval = null;
+    let relayPollInterval = null;
+    let appResumeHandle = null;
+    let appStateHandle = null;
+
+    const cleanupListeners = () => {
+      window.removeEventListener('focus', onWindowFocus);
+      window.removeEventListener('mediavault-oauth-browser-closed', onBrowserClosed);
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
       }
+      if (relayPollInterval) {
+        clearInterval(relayPollInterval);
+        relayPollInterval = null;
+      }
+      if (appResumeHandle) {
+        try { appResumeHandle.remove(); } catch (_) {}
+        appResumeHandle = null;
+      }
+      if (appStateHandle) {
+        try { appStateHandle.remove(); } catch (_) {}
+        appStateHandle = null;
+      }
+    };
+
+    // Mobile auth relay polling
+    if (relayId) {
+      relayPollInterval = setInterval(async () => {
+        if (oauthCompletionLocked) {
+          if (relayPollInterval) clearInterval(relayPollInterval);
+          relayPollInterval = null;
+          return;
+        }
+        try {
+          const { data: relayStatus, error: relayErr } = await client.rpc('get_mobile_auth_relay', { p_relay_id: relayId });
+          if (!relayErr && relayStatus) {
+            const statusObj = typeof relayStatus === 'object' ? relayStatus : null;
+            if (statusObj && statusObj.status === 'completed') {
+              console.log('[AUTH] Relay completed successfully!', statusObj);
+              cleanupListeners();
+              try {
+                if (window.Capacitor?.Plugins?.Browser?.close) {
+                  await window.Capacitor.Plugins.Browser.close();
+                }
+              } catch (_) {}
+
+              if (statusObj.access_token && statusObj.access_token.startsWith('code:')) {
+                const authCode = statusObj.access_token.substring(5);
+                const { data: exData, error: exErr } = await client.auth.exchangeCodeForSession(authCode);
+                if (!exErr && exData?.session) {
+                  await completeOAuthLogin(exData.session.user, exData.session);
+                  return;
+                }
+              } else if (statusObj.access_token) {
+                const { data: setRes, error: setErr } = await client.auth.setSession({
+                  access_token: statusObj.access_token,
+                  refresh_token: statusObj.refresh_token || ''
+                });
+                if (!setErr && setRes?.session) {
+                  await completeOAuthLogin(setRes.session.user, setRes.session);
+                  return;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[AUTH] Relay poll error:', e);
+        }
+      }, 1000);
+    }
+
+    const checkActiveSession = async () => {
+      if (checkInProgress || oauthCompletionLocked) return;
+      checkInProgress = true;
+      try {
+        // 1. Check if Supabase client already has active session
+        const { data: sessData } = await client.auth.getSession();
+        const user = sessData?.session?.user;
+        const accessToken = sessData?.session?.access_token;
+        if (user && user.id && user.email && accessToken) {
+          console.log('[AUTH] Verified active authenticated session from client:', user.email);
+          cleanupListeners();
+          await completeOAuthLogin(user, sessData.session);
+          return;
+        }
+
+        // 2. Check Capacitor App.getLaunchUrl()
+        const App = window.Capacitor?.Plugins?.App;
+        if (App && typeof App.getLaunchUrl === 'function') {
+          try {
+            const launchData = await App.getLaunchUrl();
+            if (launchData && launchData.url && isAuthCallbackUrl(launchData.url)) {
+              console.log('[AUTH] Detected callback in App.getLaunchUrl:', launchData.url);
+              cleanupListeners();
+              const handled = await handleOAuthDeepLink(launchData.url);
+              if (handled) return;
+            }
+          } catch (e) {
+            console.warn('[AUTH] App.getLaunchUrl check error:', e);
+          }
+        }
+
+        // 3. Check clipboard for auth callback URL or token
+        let clipText = '';
+        try {
+          if (window.Capacitor?.Plugins?.Clipboard?.read) {
+            const res = await window.Capacitor.Plugins.Clipboard.read();
+            clipText = (res && res.value) ? String(res.value).trim() : '';
+          } else if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+            clipText = (await navigator.clipboard.readText()).trim();
+          }
+        } catch (_) {}
+
+        if (clipText && isAuthCallbackUrl(clipText)) {
+          console.log('[AUTH] Detected auth callback/token in clipboard:', clipText.slice(0, 30) + '...');
+          if (typeof showToast === 'function') {
+            showToast('✓ Login token detected, logging in...');
+          }
+          cleanupListeners();
+          const handled = await handleOAuthDeepLink(clipText);
+          if (handled) return;
+        }
+      } catch (e) {
+        console.warn('[AUTH] Active session check skipped/failed:', e.message || e);
+      } finally {
+        checkInProgress = false;
+      }
+    };
+
+    // Fires when user returns to app window (desktop/web/mobile focus)
+    const onWindowFocus = () => {
+      console.log('[AUTH] Window focused — checking for active session / clipboard...');
+      checkActiveSession();
+      setTimeout(checkActiveSession, 800);
+    };
+
+    // Fires when Capacitor Browser plugin closes (Android — from bridge.js browserFinished)
+    const onBrowserClosed = () => {
+      console.log('[AUTH] Received mediavault-oauth-browser-closed — checking session & clipboard...');
+      setTimeout(checkActiveSession, 200);
+      setTimeout(checkActiveSession, 800);
+      setTimeout(checkActiveSession, 2000);
+    };
+
+    window.addEventListener('focus', onWindowFocus);
+    window.addEventListener('mediavault-oauth-browser-closed', onBrowserClosed);
+
+    // Capacitor App resume listener
+    const App = window.Capacitor?.Plugins?.App;
+    if (App && typeof App.addListener === 'function') {
+      try {
+        App.addListener('resume', () => {
+          console.log('[AUTH] App resumed — checking session...');
+          setTimeout(checkActiveSession, 200);
+          setTimeout(checkActiveSession, 1000);
+        }).then(h => { appResumeHandle = h; }).catch(() => {});
+
+        App.addListener('appStateChange', (state) => {
+          if (state && state.isActive) {
+            console.log('[AUTH] App became active — checking session...');
+            setTimeout(checkActiveSession, 200);
+            setTimeout(checkActiveSession, 1000);
+          }
+        }).then(h => { appStateHandle = h; }).catch(() => {});
+      } catch (_) {}
+    }
+
+    // Periodic check while waiting (runs every 2s for 60s max)
+    let pollCount = 0;
+    pollInterval = setInterval(() => {
+      pollCount++;
+      if (pollCount > 30 || oauthCompletionLocked) {
+        if (pollInterval) clearInterval(pollInterval);
+        pollInterval = null;
+        return;
+      }
+      checkActiveSession();
+    }, 2000);
+
+    const manualCheckBtn = msgEl.querySelector('#manual-check-session-btn');
+    if (manualCheckBtn) {
+      manualCheckBtn.onclick = async () => {
+        manualCheckBtn.disabled = true;
+        manualCheckBtn.textContent = 'جاري التحقق...';
+        await checkActiveSession();
+        // If still on this screen, attempt to read clipboard and fill the input
+        try {
+          let text = '';
+          if (navigator.clipboard?.readText) text = await navigator.clipboard.readText();
+          else if (window.Capacitor?.Plugins?.Clipboard?.read) {
+            const r = await window.Capacitor.Plugins.Clipboard.read();
+            text = r?.value || '';
+          }
+          if (text && isAuthCallbackUrl(text)) {
+            const input = msgEl.querySelector('#manual-oauth-url');
+            if (input) input.value = text.trim();
+            await handleOAuthDeepLink(text.trim());
+          }
+        } catch (_) {}
+        setTimeout(() => {
+          if (manualCheckBtn) {
+            manualCheckBtn.disabled = false;
+            manualCheckBtn.textContent = '🔄 Check login status (or clipboard)';
+          }
+        }, 1500);
+      };
+    }
+
+    // Attach event listener for the manual login fallback
+    const submitBtn = msgEl.querySelector('#manual-oauth-btn');
+    const inputEl = msgEl.querySelector('#manual-oauth-url');
+    if (submitBtn && inputEl) {
+      submitBtn.onclick = async () => {
+        const rawVal = inputEl.value.trim();
+        if (!rawVal) return;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'جاري الConfirm...';
+        try {
+          cleanupListeners();
+          const handled = await handleOAuthDeepLink(rawVal);
+          if (!handled) {
+            showToast('❌ Invalid link or token.');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Confirm';
+          }
+        } catch (err) {
+          showToast('❌ Verification failed: ' + err.message);
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Confirm';
+        }
+      };
     }
 
     await window.api.cloudOAuthLogin(data.url);
   }
 
+
   function isAuthCallbackUrl(urlStr) {
     if (!urlStr || typeof urlStr !== 'string') return false;
-    return urlStr.includes('mediavault://callback') ||
-      urlStr.includes('mediavault://auth') ||
-      urlStr.includes('com.mediavault.app://callback') ||
-      (urlStr.includes('/auth/callback') && (urlStr.includes('code=') || urlStr.includes('access_token=')));
+    const clean = urlStr.trim();
+    return clean.includes('meem://') ||
+      clean.includes('mediavault://') ||
+      clean.includes('intent://') ||
+      clean.includes('/auth/callback') ||
+      clean.includes('code=') ||
+      clean.includes('access_token=') ||
+      /^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/.test(clean) ||
+      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(clean);
   }
 
   function parseAuthCallbackParams(urlStr) {
-    if (urlStr.includes('#')) {
-      return new URLSearchParams(urlStr.split('#')[1]);
+    if (!urlStr || typeof urlStr !== 'string') return new URLSearchParams();
+    const map = new Map();
+    const cleanStr = urlStr.trim();
+
+    function addParams(str) {
+      if (!str) return;
+      try {
+        const searchParams = new URLSearchParams(str);
+        for (const [k, v] of searchParams.entries()) {
+          if (v && !map.has(k)) map.set(k, v);
+        }
+      } catch (e) {}
     }
-    if (urlStr.includes('?')) {
-      return new URLSearchParams(urlStr.split('?').slice(1).join('?'));
+
+    if (cleanStr.includes('#')) {
+      addParams(cleanStr.split('#')[1]);
     }
-    return new URLSearchParams();
+    if (cleanStr.includes('?')) {
+      const q = cleanStr.split('?')[1]?.split('#')[0];
+      addParams(q);
+    }
+
+    const tokenRegexes = [
+      { key: 'access_token', regex: /access_token=([^&#\s]+)/i },
+      { key: 'refresh_token', regex: /refresh_token=([^&#\s]+)/i },
+      { key: 'code', regex: /(?:^|[?&#])code=([^&#\s]+)/i },
+      { key: 'error', regex: /error=([^&#\s]+)/i },
+      { key: 'error_description', regex: /error_description=([^&#\s]+)/i }
+    ];
+
+    for (const item of tokenRegexes) {
+      if (!map.has(item.key)) {
+        const m = cleanStr.match(item.regex);
+        if (m && m[1]) map.set(item.key, decodeURIComponent(m[1]));
+      }
+    }
+
+    // Direct token fallback if user pasted a raw JWT or code string
+    if (!map.has('access_token') && !map.has('code')) {
+      if (/^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/.test(cleanStr)) {
+        map.set('access_token', cleanStr);
+      } else if (/^[a-zA-Z0-9_-]{16,}$/.test(cleanStr)) {
+        map.set('code', cleanStr);
+      }
+    }
+
+    const params = new URLSearchParams();
+    for (const [k, v] of map.entries()) {
+      params.set(k, v);
+    }
+    return params;
   }
 
   async function closeOAuthBrowser() {
@@ -297,6 +590,10 @@
   }
 
   async function completeOAuthLogin(user, session) {
+    if (!user || !user.id || !user.email) {
+      console.warn('[AUTH] completeOAuthLogin called without valid user/email');
+      return;
+    }
     if (oauthCompletionLocked) return;
     oauthCompletionLocked = true;
 
@@ -312,20 +609,28 @@
       });
 
       if (syncResult && syncResult.success) {
-        const onlineData = await window.api.loadData().catch(() => null);
-        if (onlineData && onlineData.authenticated) {
-          appData = { ...appData, ...onlineData };
-        } else {
-          appData.user = syncResult.user || user;
-          appData.profiles = normalizeProfiles(syncResult.profiles || []);
+        appData.authenticated = true;
+        appData.user = syncResult.user || user;
+        if (syncResult.profiles && syncResult.profiles.length > 0) {
+          appData.profiles = normalizeProfiles(syncResult.profiles);
         }
+        persist();
+
+        // Immediately transition to profile picker so UI doesn't hang
+        await proceedAfterAuthenticatedLogin();
+
+        // Background loadData sync to populate extended profile data without blocking UI
+        window.api.loadData().then(onlineData => {
+          if (onlineData && onlineData.authenticated && onlineData.profiles && onlineData.profiles.length > 0) {
+            appData = { ...appData, ...onlineData, profiles: normalizeProfiles(onlineData.profiles) };
+            renderProfilePicker();
+          }
+        }).catch(err => console.warn('[AUTH] Background loadData error in OAuth:', err));
       } else {
         console.warn('[AUTH] OAuth sync session failed:', syncResult?.error);
-        appData.user = user;
-        appData.profiles = [];
+        oauthCompletionLocked = false;
+        throw new Error(syncResult?.error || 'Failed to sync user session');
       }
-
-      await proceedAfterAuthenticatedLogin();
     } catch (err) {
       oauthCompletionLocked = false;
       throw err;
@@ -339,7 +644,7 @@
     if (oauthDeepLinkInFlight) return true;
 
     oauthDeepLinkInFlight = true;
-    // Redact auth secrets — the callback URL carries access_token / refresh_token / provider_token.
+    setTimeout(() => { oauthDeepLinkInFlight = false; }, 8000);
     console.log('[AUTH] Processing OAuth callback:', String(urlStr).replace(/((?:access|refresh|provider|provider_refresh)_token|code|id_token)=[^&#\s]+/gi, '$1=***'));
 
     try {
@@ -363,19 +668,47 @@
       }
 
       const client = getSupabaseRendererClient();
-      let sessionData;
+      let user = null;
+      let session = null;
 
       if (code) {
-        const { data, error } = await client.auth.exchangeCodeForSession(code);
-        if (error) throw error;
-        sessionData = data;
-      } else {
-        const { data, error } = await client.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken || ''
-        });
-        if (error) throw error;
-        sessionData = data;
+        try {
+          const { data, error } = await client.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+          user = data?.user;
+          session = data?.session;
+        } catch (codeErr) {
+          console.warn('[AUTH] exchangeCodeForSession failed:', codeErr.message);
+        }
+      }
+
+      if (!user && accessToken) {
+        try {
+          const { data, error } = await client.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken || ''
+          });
+          if (!error && data?.user) {
+            user = data.user;
+            session = data.session;
+          }
+        } catch (sessErr) {
+          console.warn('[AUTH] setSession warning:', sessErr.message);
+        }
+
+        if (!user) {
+          try {
+            const { data, error } = await client.auth.getUser(accessToken);
+            if (data?.user) {
+              user = data.user;
+              session = { access_token: accessToken, refresh_token: refreshToken || '' };
+            } else if (error) {
+              console.warn('[AUTH] getUser with accessToken failed:', error.message);
+            }
+          } catch (getErr) {
+            console.warn('[AUTH] getUser exception:', getErr.message);
+          }
+        }
       }
 
       if (type === 'recovery') {
@@ -384,10 +717,9 @@
         return true;
       }
 
-      const user = sessionData?.user;
       if (!user?.id) throw new Error('OAuth completed but no user was returned');
 
-      await completeOAuthLogin(user, sessionData?.session);
+      await completeOAuthLogin(user, session);
       sessionStorage.removeItem('mv_oauth_pending');
       if (typeof showToast === 'function') showToast('Successfully logged in!');
       return true;
@@ -401,6 +733,17 @@
     } finally {
       oauthDeepLinkInFlight = false;
     }
+  }
+
+  function autoCheckLocationForOAuth() {
+    try {
+      const href = window.location.href || '';
+      const hash = window.location.hash || '';
+      if (isAuthCallbackUrl(href) || hash.includes('access_token=') || href.includes('access_token=') || href.includes('code=')) {
+        console.log('[AUTH] Auto-detected OAuth tokens in window location');
+        handleOAuthDeepLink(href);
+      }
+    } catch (e) { console.error('[AUTH] autoCheckLocationForOAuth error:', e); }
   }
 
   function registerOAuthDeepLinkHandlers() {
@@ -425,6 +768,11 @@
         window.handleAppDeepLink(url);
       }
     });
+
+    // Auto-check location on boot and hash changes for webview/web callbacks
+    autoCheckLocationForOAuth();
+    window.addEventListener('hashchange', autoCheckLocationForOAuth);
+    window.addEventListener('popstate', autoCheckLocationForOAuth);
   }
 
   registerOAuthDeepLinkHandlers();
@@ -607,20 +955,32 @@
   let authMode = 'login';
 
   function formatAuthMessage(respOrErr) {
-    if (!respOrErr) return 'Something went wrong';
+    if (!respOrErr) return 'An unexpected error occurred';
     let msg = '';
     if (typeof respOrErr === 'string') msg = respOrErr;
     else if (respOrErr.message) msg = respOrErr.message;
     else if (respOrErr.error) {
       msg = typeof respOrErr.error === 'string' ? respOrErr.error : (respOrErr.error.message || JSON.stringify(respOrErr.error));
     } else {
-      msg = 'Request failed';
+      msg = 'Operation failed';
+    }
+    if (/invalid login credentials|invalid email or password|user_not_found/i.test(msg)) {
+      return 'Incorrect email or password.';
+    }
+    if (/user already registered|already exists|email_exists/i.test(msg)) {
+      return 'This email is already registered. Please log in.';
+    }
+    if (/password should be at least|weak password/i.test(msg)) {
+      return 'Password must be at least 6 characters.';
+    }
+    if (/email rate limit exceeded|too many requests|rate limit/i.test(msg)) {
+      return 'Too many attempts. Please wait a moment and try again.';
     }
     if (/failed to fetch|networkerror|network request failed/i.test(msg)) {
-      return 'Could not reach the server. Check your internet connection and try again.';
+      return 'Could not connect to server. Please check your internet connection.';
     }
     if (/access blocked|disallowed_useragent|403|embedded browser/i.test(msg)) {
-      return 'Google sign-in must open in Chrome. Please try again — do not use an in-app browser.';
+      return 'Login requires Chrome browser. Please try again.';
     }
     return msg;
   }
@@ -707,6 +1067,7 @@
         <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
           <button id="oauth-google" class="auth-oauth btn google-btn"><svg aria-hidden="true" style="width:18px;height:18px;margin-right:6px;vertical-align:middle;" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24c0-1.55-.15-3.24-.47-4.78H24v9.03h12.72c-.55 2.87-2.22 5.3-4.72 6.96l7.33 5.68C43.6 36.42 46.5 30.73 46.5 24z"/><path fill="#FBBC05" d="M10.54 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.33-5.68c-2.11 1.42-4.8 2.3-8.56 2.3-6.26 0-11.57-4.22-13.46-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Continue with Google</button>
           <button id="oauth-discord" class="auth-oauth btn discord-btn"><i class="fab fa-discord" aria-hidden="true" style="margin-left:4px;"></i> Continue with Discord</button>
+          <button id="auth-qr-login-btn" class="auth-oauth btn" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; font-weight: 600;"><i class="fas fa-qrcode" aria-hidden="true" style="margin-right:8px; font-size:16px;"></i> Scan QR / Fast Code Login</button>
         </div>
       </div>
     `;
@@ -718,6 +1079,14 @@
     const tabs = overlay.querySelectorAll('.auth-tab');
     const submitBtn = overlay.querySelector('#auth-submit');
     const passwordInput = overlay.querySelector('#auth-password');
+
+    // QR Login button handler
+    const qrBtn = overlay.querySelector('#auth-qr-login-btn');
+    if (qrBtn) {
+      qrBtn.onclick = () => {
+        openMobileQrScannerModal();
+      };
+    }
 
     // OAuth button handler (Discord)
     const oauthBtn = overlay.querySelector('#oauth-discord');
@@ -797,6 +1166,152 @@
     if (window.hideSplash) window.hideSplash();
   }
 
+  function showEmailVerificationScreen(email) {
+    const overlay = document.getElementById('auth-overlay');
+    if (!overlay) return;
+    const card = overlay.querySelector('.auth-card');
+    if (!card) return;
+
+    if (!card.dataset.originalHtml) {
+      card.dataset.originalHtml = card.innerHTML;
+    }
+
+    card.innerHTML = `
+      <div class="auth-brand" style="margin-bottom: 20px;">
+        <div style="width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 20px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); display: flex; align-items: center; justify-content: center;">
+          <i class="fas fa-shield-halved" style="font-size: 28px; color: #ffffff;"></i>
+        </div>
+        <h2 class="auth-title">Confirm Email Address</h2>
+        <p class="auth-subtitle" style="line-height: 1.6;">
+          We sent a 6-digit verification code to your email:<br>
+          <span style="color: #ffffff; font-weight: 700; direction: ltr; display: inline-block; margin-top: 4px;">${email}</span>
+        </p>
+      </div>
+
+      <form id="auth-otp-form" style="display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%;">
+        <div class="auth-field" style="width: 100%; display: flex; justify-content: center;">
+          <input id="auth-otp-input" class="auth-input" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="••••••" autofocus
+            style="width: 220px; text-align: center; font-size: 28px; letter-spacing: 10px; font-family: monospace; font-weight: 900; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.25); color: #fff;" required>
+        </div>
+        <button type="submit" id="auth-otp-submit" class="auth-submit" style="width: 100%;">Verify and Log in</button>
+      </form>
+
+      <div id="auth-otp-msg" class="auth-msg" role="alert" style="margin-top: 12px;"></div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 16px; font-size: 12px; padding: 0 4px;">
+        <button type="button" id="auth-otp-resend" style="background: transparent; border: none; color: rgba(255,255,255,0.75); cursor: pointer; text-decoration: underline; font-size: 12px;">Resend Code</button>
+        <button type="button" id="auth-otp-back" style="background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; font-size: 12px;">Back to Login</button>
+      </div>
+    `;
+
+    const otpInput = card.querySelector('#auth-otp-input');
+    const otpForm = card.querySelector('#auth-otp-form');
+    const otpSubmit = card.querySelector('#auth-otp-submit');
+    const otpMsg = card.querySelector('#auth-otp-msg');
+    const resendBtn = card.querySelector('#auth-otp-resend');
+    const backBtn = card.querySelector('#auth-otp-back');
+    const checkLinkBtn = card.querySelector('#auth-otp-check-link');
+    if (checkLinkBtn) {
+      checkLinkBtn.onclick = async () => {
+        setAuthMessage(otpMsg, 'Checking link verification...', true);
+        checkLinkBtn.disabled = true;
+        await handleAuthLogin();
+        checkLinkBtn.disabled = false;
+      };
+    }
+
+    if (otpInput) otpInput.focus();
+
+    otpInput.oninput = () => {
+      otpInput.value = otpInput.value.replace(/[^0-9]/g, '');
+      if (otpInput.value.length === 6) {
+        otpForm.requestSubmit();
+      }
+    };
+
+    otpForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const token = otpInput.value.trim();
+      if (!token || token.length < 6) {
+        setAuthMessage(otpMsg, 'Please enter the 6-digit verification code');
+        return;
+      }
+      clearAuthMessage(otpMsg);
+      otpSubmit.disabled = true;
+      otpSubmit.innerHTML = '<span class="auth-spinner"></span> Verifying...';
+      try {
+        let res;
+        if (window.api && typeof window.api.cloudVerifyOtp === 'function') {
+          res = await window.api.cloudVerifyOtp(email, token);
+        } else {
+          res = await window.api.invoke('cloud-verify-otp', { email, token });
+        }
+
+        if (!res || res.error) {
+          throw new Error(res?.message || res?.error || 'Verification code is incorrect or expired');
+        }
+
+        console.log('[AUTH] OTP verified successfully!', res);
+        appData.authenticated = true;
+        appData.user = res.user;
+        appData.profiles = normalizeProfiles(res.profiles || []);
+        persist();
+
+        await proceedAfterAuthenticatedLogin();
+        if (typeof showToast === 'function') {
+          showToast('✓ Account verified and logged in successfully!');
+        }
+      } catch (err) {
+        console.error('[AUTH] OTP verification error:', err);
+        setAuthMessage(otpMsg, err.message || 'Verification code is incorrect or expired');
+        otpSubmit.disabled = false;
+        otpSubmit.textContent = 'Verify and Log in';
+      }
+    };
+
+    let resendCooldown = 0;
+    let cooldownTimer = null;
+    resendBtn.onclick = async () => {
+      if (resendCooldown > 0) return;
+      try {
+        clearAuthMessage(otpMsg);
+        const client = getSupabaseRendererClient();
+        const { error } = await client.auth.resend({
+          type: 'signup',
+          email: email
+        });
+        if (error) throw error;
+        setAuthMessage(otpMsg, 'Verification code resent successfully!', true);
+        resendCooldown = 60;
+        resendBtn.disabled = true;
+        resendBtn.style.opacity = '0.5';
+        resendBtn.textContent = `Resend in ${resendCooldown}s`;
+        cooldownTimer = setInterval(() => {
+          resendCooldown--;
+          if (resendCooldown <= 0) {
+            clearInterval(cooldownTimer);
+            resendBtn.disabled = false;
+            resendBtn.style.opacity = '1';
+            resendBtn.textContent = 'Resend Code';
+          } else {
+            resendBtn.textContent = `Resend in ${resendCooldown}s`;
+          }
+        }, 1000);
+      } catch (err) {
+        console.error('[AUTH] Resend OTP failed:', err);
+        setAuthMessage(otpMsg, 'Failed to resend: ' + (err.message || 'try again later'));
+      }
+    };
+
+    backBtn.onclick = () => {
+      if (cooldownTimer) clearInterval(cooldownTimer);
+      if (card.dataset.originalHtml) {
+        overlay.remove();
+        showAuthOverlay();
+      }
+    };
+  }
+
   async function handleAuthLogin() {
     const overlay = document.getElementById('auth-overlay');
     const email = overlay.querySelector('#auth-email').value.trim();
@@ -813,31 +1328,31 @@
       if (window.api && typeof window.api.cloudLogin === 'function') {
         result = await window.api.cloudLogin(email, password);
       } else {
-        const backend = (window.MEEM_BACKEND_URL || window.MEDIAVAULT_BACKEND_URL || 'https://meem-watch.vercel.app').replace(/\/$/, '');
-        const response = await fetch(`${backend}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, hardware_id: hwId })
-        });
-        result = await response.json();
-        if (!response.ok && !result.error) {
-          throw new Error(`Login failed (HTTP ${response.status})`);
-        }
+        result = await window.api.invoke('cloud-login', { email, password });
       }
 
-      if (result.error) {
-        // The RPCs return the underlying cause in `details` (SQLERRM). Surface it to
-        // the console for debugging while keeping the user-facing message clean.
-        console.error('[AUTH] Login failed:', result.error, result.details ? '| details: ' + result.details : '');
-        const loginErr = new Error(result.error);
-        if (result.details) loginErr.details = result.details;
+      if (!result || result.error) {
+        if (result?.error === 'EMAIL_NOT_CONFIRMED') {
+          showEmailVerificationScreen(email);
+          return;
+        }
+        const rawErr = result?.message || result?.error || 'Incorrect email or password';
+        console.error('[AUTH] Login failed:', rawErr, result?.details ? '| details: ' + result.details : '');
+        let userMsg = rawErr;
+        if (rawErr.includes('Invalid email or password') || rawErr.includes('INVALID_CREDENTIALS')) {
+          userMsg = 'Incorrect email or password';
+        } else if (rawErr.includes('timed out')) {
+          userMsg = 'Server connection timed out, please try again';
+        }
+        const loginErr = new Error(userMsg);
+        if (result?.details) loginErr.details = result.details;
         throw loginErr;
       }
       
       console.log('[AUTH] API login success. User ID:', result.user?.id);
       
       if (!result.user || !result.user.id) {
-        throw new Error('Invalid response: no user data returned');
+        throw new Error('Invalid user data');
       }
       
       // Store session in main process
@@ -854,41 +1369,37 @@
       
       console.log('[AUTH] Sync result:', syncResult);
       
+      appData.authenticated = true;
       if (syncResult && syncResult.success) {
-        console.log('[AUTH] Sync session success. Fetching full profiles from main process...');
-        const onlineData = await window.api.loadData().catch(() => null);
-        if (onlineData && onlineData.authenticated) {
-          appData = { ...appData, ...onlineData };
-        } else {
-          appData.user = syncResult.user || result.user;
-          appData.profiles = normalizeProfiles(syncResult.profiles || []);
-        }
+        appData.user = syncResult.user || result.user;
+        const validProfiles = (syncResult.profiles && syncResult.profiles.length > 0) ? syncResult.profiles : (result.profiles || []);
+        appData.profiles = normalizeProfiles(validProfiles);
       } else {
         console.warn('[AUTH] Email login sync session failed:', syncResult?.error);
         appData.user = result.user;
-        appData.profiles = [];
+        appData.profiles = normalizeProfiles(result.profiles || []);
       }
-
-      appData.authenticated = true;
       ensureDefaultAddons();
-
       persist();
-      if (overlay) overlay.remove();
-      
-      if (checkSubscriptionStatus()) return;
-      startPeriodicSessionCheck();
 
-      document.getElementById('profile-picker').style.display = 'flex';
-      document.getElementById('profile-picker').classList.add('modal-active');
-      try { document.body.classList.add('modal-open'); } catch (e) { }
-      renderProfilePicker();
-      if (appData.profiles.length === 0) {
-        console.log('[AUTH] No profiles found. Opening create profile modal...');
-        window.openProfileModal();
-      }
+      // Proceed immediately to profile picker so UI doesn't hang spinning
+      await proceedAfterAuthenticatedLogin();
+
+      // Background loadData sync to populate extended profile data without blocking UI
+      window.api.loadData().then(onlineData => {
+        if (onlineData && onlineData.authenticated && onlineData.profiles && onlineData.profiles.length > 0) {
+          appData = { ...appData, ...onlineData, profiles: normalizeProfiles(onlineData.profiles) };
+          renderProfilePicker();
+        }
+      }).catch(err => console.warn('[AUTH] Background loadData error in login:', err));
     } catch (e) {
       console.error('[AUTH] Login error', e);
-      const errorMsg = formatAuthMessage(e);
+      let errorMsg = e.message || 'Login failed';
+      if (errorMsg.includes('Invalid email or password') || errorMsg.includes('INVALID_CREDENTIALS')) {
+        errorMsg = 'Incorrect email or password';
+      } else if (errorMsg.includes('timed out')) {
+        errorMsg = 'Server connection timed out, please try again';
+      }
       setAuthMessage(msgEl, errorMsg);
       // Ensure overlay stays visible for user to see error and retry
       if (overlay) {
@@ -910,36 +1421,29 @@
     if (password.length < 6) { setAuthMessage(msgEl, 'Password must be at least 6 characters'); return; }
     setAuthSubmitLoading(overlay, true);
     try {
-      // Register through the SAME backend that login uses: handle_register ->
-      // public.users_accounts with a bcrypt password_hash. Previously this used
-      // client.auth.signUp(), which created the account in auth.users ONLY, so the
-      // subsequent login (handle_secure_login, which checks users_accounts) failed
-      // with "Invalid email or password" — the user could never sign in after
-      // creating an account (notably on Android). cloudRegister keeps both the
-      // register and login paths consistent on Windows and Android.
       console.log('[AUTH] Attempting registration via cloudRegister...');
 
       let result;
       if (window.api && typeof window.api.cloudRegister === 'function') {
-        result = await window.api.cloudRegister(email, password);
+        result = await window.api.cloudRegister(email, password, username);
       } else {
-        const backend = (window.MEEM_BACKEND_URL || window.MEDIAVAULT_BACKEND_URL || 'https://meem-watch.vercel.app').replace(/\/$/, '');
-        const response = await fetch(`${backend}/api/auth/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, username })
-        });
-        result = await response.json();
-        if (!response.ok && !result.error) {
-          throw new Error(`Registration failed (HTTP ${response.status})`);
-        }
+        result = await window.api.invoke('cloud-register', { email, password, username });
       }
 
       if (result && result.error) {
         console.error('[AUTH] Registration failed:', result.error, result.details ? '| details: ' + result.details : '');
-        const regErr = new Error(result.error);
+        let errMsg = result.error;
+        if (errMsg.includes('already exists') || errMsg.includes('already registered')) {
+          errMsg = 'An account already exists with this email address';
+        }
+        const regErr = new Error(errMsg);
         if (result.details) regErr.details = result.details;
         throw regErr;
+      }
+
+      if (result && result.needsConfirmation) {
+        showEmailVerificationScreen(email);
+        return;
       }
 
       console.log('[AUTH] Registration success. Auto-logging in...');
@@ -1216,15 +1720,17 @@
 
 
   // PROFILE PICKER & LOCK CODE
-  function applyProfilePickerBackdrop(url) {
+  function applyProfilePickerBackdrop(url, customPos) {
     const picker = document.getElementById('profile-picker');
     if (!picker) return;
     if (url) {
-      const imgUrl = window.localImg(url);
+      const activeProf = (appData.profiles && appData.activeProfileId) ? appData.profiles.find(p => p.id === appData.activeProfileId) : (appData.profiles ? appData.profiles[0] : null);
+      const pos = customPos || (activeProf && activeProf.bannerPosition) || appData.profileBannerPosition || 'center top';
+      const imgUrl = window.localImg ? window.localImg(url) : url;
       const bg = `linear-gradient(to bottom, rgba(5,5,8,0.35) 0%, rgba(5,5,8,0.75) 60%, rgba(5,5,8,0.97) 100%), url('${imgUrl}')`;
       picker.style.setProperty('background-image', bg, 'important');
       picker.style.setProperty('background-size', 'cover', 'important');
-      picker.style.setProperty('background-position', 'center top', 'important');
+      picker.style.setProperty('background-position', pos, 'important');
       picker.style.setProperty('background-repeat', 'no-repeat', 'important');
       picker.style.setProperty('background-color', '#050508', 'important');
     } else {
@@ -1235,6 +1741,7 @@
       picker.style.removeProperty('background-color');
     }
   }
+  window.applyProfilePickerBackdrop = applyProfilePickerBackdrop;
 
 
   function renderProfilePicker() {
@@ -1261,7 +1768,9 @@
     }
 
     const unifiedBanner = appData.globalBanner || (activeProf && activeProf.banner) || null;
-    applyProfilePickerBackdrop(unifiedBanner);
+    const activeProfForPos = (appData.profiles && appData.activeProfileId) ? appData.profiles.find(p => p.id === appData.activeProfileId) : (appData.profiles ? appData.profiles[0] : null);
+    const pos = (activeProfForPos && activeProfForPos.bannerPosition) || appData.profileBannerPosition || 'center top';
+    applyProfilePickerBackdrop(unifiedBanner, pos);
     if (picker) picker.style.transition = 'background 0.5s ease';
 
     appData.profiles.forEach(p => {
@@ -1297,7 +1806,6 @@
         </div>
         <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
           <span class="profile-name" style="color:#fff; font-size:1.1rem; font-weight:600; text-shadow:0 2px 5px rgba(0,0,0,0.8);">${escapeHTML(p.name)}</span>
-          <div class="profile-age-badge" style="font-size:11px; color:rgba(255,255,255,0.7); background:rgba(0,0,0,0.5); padding:3px 10px; border-radius:12px; font-weight:600; display: ${window.isEditingProfiles ? 'none' : 'block'};">Max Age: ${p.max_age_rating || 18}</div>
         </div>
       `;
 
@@ -1477,7 +1985,8 @@
         await scanLibrary();
 
         renderLibrary();
-        renderSidebar();
+        if (typeof renderSidebar === 'function') renderSidebar();
+        else if (typeof window.renderSidebar === 'function') window.renderSidebar();
         renderDownloadHistory();
         renderSocial();
         
@@ -1720,6 +2229,13 @@
     });
   }
   function openProfileModal(id = null) {
+    if (!id && appData.profiles && appData.profiles.length >= 1) {
+      if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+        showToast('👑 Creating multiple profiles is available exclusively for MEEM VIP members!');
+        if (typeof window.openSubscriptionModal === 'function') window.openSubscriptionModal('Multiple Profiles');
+        return;
+      }
+    }
     editingProfileId = id;
     const profile = id ? appData.profiles.find(p => p.id === id) : null;
 
@@ -1730,11 +2246,6 @@
     if (modalTitle) modalTitle.textContent = id ? 'Edit Profile' : 'Create Profile';
     if (confirmBtn) confirmBtn.textContent = id ? 'Save Changes' : 'Create';
     if (nameInput) nameInput.value = profile ? profile.name : '';
-
-    const ageInput = document.getElementById('profile-age-input');
-    if (ageInput) {
-      ageInput.value = (profile && typeof profile.max_age_rating !== 'undefined') ? profile.max_age_rating : '18';
-    }
 
     selectedAvatar = profile ? profile.avatar : AVATARS[0];
 
@@ -1845,57 +2356,60 @@
 
       if (!pathOrDataUrl) return;
 
-      try {
-        if (window.supabase) {
-          showToast('Uploading avatar to cloud...', 'info');
-          const client = getSupabaseRendererClient();
-          
-          let blob;
-          if (pathOrDataUrl.startsWith('data:')) {
-            const res = await fetch(pathOrDataUrl);
-            blob = await res.blob();
-          } else {
-            const res = await fetch(window.localImg(pathOrDataUrl));
-            blob = await res.blob();
-          }
-
-          const fileName = `avatar_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
-          
-          const { data, error } = await client.storage.from('avatars').upload(fileName, blob, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType: blob.type || 'image/jpeg'
-          });
-          
-          if (error) {
-            console.error('Supabase upload error:', error);
-            showToast('Cloud upload failed, using local copy.');
-            setSelectedAvatar(pathOrDataUrl);
-          } else {
-            const { data: publicUrlData } = client.storage.from('avatars').getPublicUrl(fileName);
-            setSelectedAvatar(publicUrl);
-            const targetId = editingProfileId || (currentProfile ? currentProfile.id : null) || appData.activeProfileId;
-            const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : appData.profiles?.[0];
-            if (prof) {
-              prof.avatar = publicUrl;
-              if (currentProfile && currentProfile.id === prof.id) {
-                currentProfile.avatar = publicUrl;
-              }
+      showImageCropperModal(pathOrDataUrl, async (croppedDataUrl) => {
+        try {
+          if (window.supabase) {
+            showToast('Uploading avatar to cloud...', 'info');
+            const client = getSupabaseRendererClient();
+            
+            let blob;
+            if (croppedDataUrl.startsWith('data:')) {
+              const res = await fetch(croppedDataUrl);
+              blob = await res.blob();
+            } else {
+              const res = await fetch(window.localImg(croppedDataUrl));
+              blob = await res.blob();
             }
-            if (typeof renderProfileWidget === 'function') renderProfileWidget();
-            if (typeof renderProfilePicker === 'function') renderProfilePicker();
-            await persist(true);
-            showToast('Avatar uploaded successfully!');
+
+            const fileName = `avatar_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
+            
+            const { data, error } = await client.storage.from('avatars').upload(fileName, blob, {
+              cacheControl: '3600',
+              upsert: false,
+              contentType: blob.type || 'image/jpeg'
+            });
+            
+            if (error) {
+              console.error('Supabase upload error:', error);
+              showToast('Cloud upload failed, using local copy.');
+              setSelectedAvatar(croppedDataUrl);
+            } else {
+              const { data: publicUrlData } = client.storage.from('avatars').getPublicUrl(fileName);
+              const publicUrl = publicUrlData?.publicUrl || croppedDataUrl;
+              setSelectedAvatar(publicUrl);
+              const targetId = editingProfileId || (currentProfile ? currentProfile.id : null) || appData.activeProfileId;
+              const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : appData.profiles?.[0];
+              if (prof) {
+                prof.avatar = publicUrl;
+                if (currentProfile && currentProfile.id === prof.id) {
+                  currentProfile.avatar = publicUrl;
+                }
+              }
+              if (typeof renderProfileWidget === 'function') renderProfileWidget();
+              if (typeof renderProfilePicker === 'function') renderProfilePicker();
+              await persist(true);
+              showToast('Avatar uploaded & cropped successfully!');
+            }
+          } else {
+            setSelectedAvatar(croppedDataUrl);
+            showToast('Avatar saved & cropped locally!');
           }
-        } else {
-          setSelectedAvatar(pathOrDataUrl);
-          showToast('Avatar saved locally!');
+        } catch (err) {
+          console.error('[Avatar Upload Error]', err);
+          showToast('Failed to upload avatar.');
+          setSelectedAvatar(croppedDataUrl);
         }
-      } catch (err) {
-        console.error('[Avatar Upload Error]', err);
-        showToast('Failed to upload avatar.');
-        setSelectedAvatar(pathOrDataUrl);
-      }
+      });
     };
     
     const favBtn = document.createElement('button');
@@ -1918,11 +2432,18 @@
     const isCloud = appData.authenticated || appData.user;
 
     const activeProf = appData.profiles?.find(p => p.id === appData.activeProfileId) || currentProfile;
+    const currentBannerPos = activeProf?.bannerPosition || appData.profileBannerPosition || 'center top';
+    const bannerPosSelect = view.querySelector('#account-banner-pos-select');
+    if (bannerPosSelect) {
+      bannerPosSelect.value = currentBannerPos;
+    }
+
     const bannerUrl = activeProf?.banner || appData.globalBanner;
     const bannerContainer = view.querySelector('#account-banner-container');
     if (bannerContainer) {
       if (bannerUrl) {
         bannerContainer.style.backgroundImage = `url('${window.localImg(bannerUrl)}')`;
+        bannerContainer.style.backgroundPosition = currentBannerPos;
         bannerContainer.style.display = 'block';
       } else {
         bannerContainer.style.backgroundImage = '';
@@ -2030,32 +2551,47 @@
       };
     }
 
-    const btnUpdateAge = view.querySelector('#account-update-age-btn');
-    const selectAge = view.querySelector('#account-age-rating');
-    if (btnUpdateAge && selectAge) {
-      btnUpdateAge.onclick = async () => {
-        if (!currentProfile) return;
-        const newRating = parseInt(selectAge.value, 10);
-        
-        currentProfile.max_age_rating = newRating;
-        const profile = appData.profiles.find(p => p.id === currentProfile.id);
-        if (profile) {
-          profile.max_age_rating = newRating;
+    const btnUpdateBannerPos = view.querySelector('#account-update-banner-pos-btn');
+    if (btnUpdateBannerPos && bannerPosSelect) {
+      btnUpdateBannerPos.onclick = () => {
+        const newPos = bannerPosSelect.value;
+        const activeP = appData.profiles?.find(p => p.id === appData.activeProfileId) || currentProfile;
+        if (activeP) activeP.bannerPosition = newPos;
+        if (typeof currentProfile !== 'undefined' && currentProfile) currentProfile.bannerPosition = newPos;
+        appData.profileBannerPosition = newPos;
+        if (bannerContainer) {
+          bannerContainer.style.backgroundPosition = newPos;
         }
-        
+        if (typeof applyProfilePickerBackdrop === 'function') {
+          applyProfilePickerBackdrop(bannerUrl, newPos);
+        }
         persist();
-        showToast('Age rating restrictions updated successfully');
-        
-        // Force refresh all grids/views
-        if (typeof window.renderMovies === 'function') window.renderMovies();
-        if (typeof window.renderShows === 'function') window.renderShows();
-        if (typeof window.renderWatchlist === 'function') window.renderWatchlist();
-        if (typeof window.renderContinueWatchingDiscover === 'function') window.renderContinueWatchingDiscover();
-        
-        const discHero = document.getElementById('discover-hero');
-        if (discHero) {
-          const activeCat = document.querySelector('.discover-sidebar .nav-btn.active');
-          if (activeCat) activeCat.click();
+        showToast('Banner position saved successfully!');
+      };
+    }
+
+    const btnAdjustBannerDrag = view.querySelector('#btn-adjust-banner-pos-modal') || document.querySelector('#btn-adjust-banner-pos-modal');
+    if (btnAdjustBannerDrag) {
+      btnAdjustBannerDrag.onclick = () => {
+        if (typeof window.openBannerPositionModal === 'function') window.openBannerPositionModal();
+      };
+    }
+
+    const btnAccountAdjustBanner = view.querySelector('#account-btn-adjust-banner') || document.querySelector('#account-btn-adjust-banner');
+    if (btnAccountAdjustBanner) {
+      btnAccountAdjustBanner.onclick = () => {
+        if (typeof window.openBannerPositionModal === 'function') window.openBannerPositionModal();
+      };
+    }
+
+    const btnUpgradeVip = view.querySelector('#account-upgrade-vip-btn');
+    if (btnUpgradeVip) {
+      btnUpgradeVip.onclick = () => {
+        if (typeof window.openSubscriptionModal === 'function') {
+          window.openSubscriptionModal();
+        } else {
+          const modal = document.getElementById('modal-subscription-plans');
+          if (modal) modal.style.display = 'flex';
         }
       };
     }
@@ -2166,7 +2702,347 @@
         }
       };
     }
+
+    // Quick Mobile Login via QR Code
+    const btnQrLogin = view.querySelector('#account-qr-login-btn');
+    if (btnQrLogin) {
+      btnQrLogin.onclick = () => {
+        openPcQrLoginModal();
+      };
+    }
   }
+
+  let pcQrPollTimer = null;
+  let pcQrCountdownTimer = null;
+
+  async function openPcQrLoginModal() {
+    const modal = document.getElementById('modal-qr-pc-login');
+    if (!modal) return;
+
+    modal.style.display = 'flex';
+    const img = modal.querySelector('#qr-code-img');
+    const codeDisplay = modal.querySelector('#qr-short-code-display');
+    const timerDisplay = modal.querySelector('#qr-timer-countdown');
+    const badge = modal.querySelector('#qr-status-badge');
+    const closeBtn = modal.querySelector('#qr-modal-close-btn');
+
+    if (img) {
+      img.src = '';
+      img.style.display = 'none';
+    }
+    if (codeDisplay) codeDisplay.textContent = '------';
+    if (timerDisplay) timerDisplay.textContent = '05:00';
+    if (badge) badge.innerHTML = '<span class="auth-spinner" style="width: 12px; height: 12px; border-width: 2px;"></span> <span id="qr-status-badge-text">Creating login session...</span>';
+
+    if (pcQrPollTimer) clearInterval(pcQrPollTimer);
+    if (pcQrCountdownTimer) clearInterval(pcQrCountdownTimer);
+
+    const cleanup = () => {
+      if (pcQrPollTimer) clearInterval(pcQrPollTimer);
+      if (pcQrCountdownTimer) clearInterval(pcQrCountdownTimer);
+      pcQrPollTimer = null;
+      pcQrCountdownTimer = null;
+      modal.style.display = 'none';
+    };
+
+    if (closeBtn) closeBtn.onclick = cleanup;
+
+    try {
+      let res;
+      if (window.api && typeof window.api.cloudCreateQrSession === 'function') {
+        res = await window.api.cloudCreateQrSession();
+      } else {
+        res = await window.api.invoke('cloud-create-qr-session');
+      }
+
+      if (!res || res.error) {
+        throw new Error(res?.message || res?.error || 'Failed to create quick login session');
+      }
+
+      const { ticket_id, short_code, qrDataUrl } = res;
+      if (qrDataUrl && img) {
+        img.src = qrDataUrl;
+        img.style.display = 'block';
+      }
+      if (codeDisplay) codeDisplay.textContent = short_code || '------';
+      if (badge) badge.innerHTML = '<span class="auth-spinner" style="width: 12px; height: 12px; border-width: 2px;"></span> <span id="qr-status-badge-text">Waiting for mobile QR scan...</span>';
+
+      let remainingSeconds = 300;
+      pcQrCountdownTimer = setInterval(() => {
+        remainingSeconds--;
+        if (remainingSeconds <= 0) {
+          clearInterval(pcQrCountdownTimer);
+          clearInterval(pcQrPollTimer);
+          if (timerDisplay) timerDisplay.textContent = '00:00';
+          if (badge) badge.innerHTML = '<i class="fas fa-circle-xmark" style="color:#ef4444;font-size:14px;"></i> <span style="color:#ef4444;">Code expired, please close the window and try again</span>';
+          return;
+        }
+        const m = String(Math.floor(remainingSeconds / 60)).padStart(2, '0');
+        const s = String(remainingSeconds % 60).padStart(2, '0');
+        if (timerDisplay) timerDisplay.textContent = `${m}:${s}`;
+      }, 1000);
+
+      pcQrPollTimer = setInterval(async () => {
+        try {
+          let statusRes;
+          if (window.api && typeof window.api.cloudCheckQrStatus === 'function') {
+            statusRes = await window.api.cloudCheckQrStatus(ticket_id);
+          } else {
+            statusRes = await window.api.invoke('cloud-check-qr-status', { ticketId: ticket_id });
+          }
+
+          if (statusRes && statusRes.status === 'claimed') {
+            clearInterval(pcQrPollTimer);
+            clearInterval(pcQrCountdownTimer);
+            if (badge) badge.innerHTML = '<i class="fas fa-check-circle" style="color:#22c55e;font-size:16px;"></i> <span style="color:#22c55e;font-weight:700;">✓ Logged in on mobile successfully!</span>';
+            setTimeout(() => {
+              cleanup();
+              if (typeof showToast === 'function') showToast('✓ Mobile login successful!');
+            }, 2500);
+          } else if (statusRes && statusRes.status === 'expired') {
+            clearInterval(pcQrPollTimer);
+            clearInterval(pcQrCountdownTimer);
+            if (badge) badge.innerHTML = '<i class="fas fa-circle-xmark" style="color:#ef4444;font-size:14px;"></i> <span style="color:#ef4444;">Code expired</span>';
+          }
+        } catch (e) {
+          console.warn('[QR] Status check poll error:', e);
+        }
+      }, 2000);
+
+    } catch (err) {
+      console.error('[QR] Failed to start QR session:', err);
+      if (badge) badge.innerHTML = `<span style="color:#ef4444;">${err.message || 'Failed to create code'}</span>`;
+      if (typeof showToast === 'function') showToast('Failed to create QR code: ' + err.message);
+    }
+  }
+
+  async function openMobileQrScannerModal() {
+    const modal = document.getElementById('modal-qr-mobile-scanner');
+    if (!modal) return;
+
+    modal.style.display = 'flex';
+    const video = modal.querySelector('#qr-video');
+    const canvas = modal.querySelector('#qr-canvas');
+    const statusEl = modal.querySelector('#qr-scanner-status');
+    const closeX = modal.querySelector('#qr-scanner-close-x');
+    const tabCamera = modal.querySelector('#tab-scanner-camera');
+    const tabCode = modal.querySelector('#tab-scanner-code');
+    const viewCamera = modal.querySelector('#qr-view-camera');
+    const viewCode = modal.querySelector('#qr-view-code');
+    const inputCode = modal.querySelector('#qr-input-manual-code');
+    const submitCodeBtn = modal.querySelector('#qr-submit-manual-code');
+
+    let stream = null;
+    let scanning = false;
+    let animFrameId = null;
+
+    if (statusEl) statusEl.textContent = '';
+    if (inputCode) inputCode.value = '';
+
+    const stopCamera = () => {
+      scanning = false;
+      if (animFrameId) {
+        cancelAnimationFrame(animFrameId);
+        animFrameId = null;
+      }
+      if (stream) {
+        try {
+          stream.getTracks().forEach(t => t.stop());
+        } catch (_) {}
+        stream = null;
+      }
+      if (video) video.srcObject = null;
+    };
+
+    const closeModal = () => {
+      stopCamera();
+      modal.style.display = 'none';
+    };
+
+    if (closeX) closeX.onclick = closeModal;
+
+    const scanFrame = () => {
+      if (!scanning) return;
+      if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        if (window.jsQR) {
+          const code = window.jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'dontInvert'
+          });
+          if (code && code.data) {
+            scanning = false;
+            stopCamera();
+            handleQrPayload(code.data);
+            return;
+          }
+        }
+      }
+      animFrameId = requestAnimationFrame(scanFrame);
+    };
+
+    const startCamera = async () => {
+      stopCamera();
+      if (statusEl) statusEl.textContent = '';
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        await video.play();
+        scanning = true;
+        animFrameId = requestAnimationFrame(scanFrame);
+      } catch (err) {
+        console.warn('[QR] Camera error:', err);
+        if (statusEl) statusEl.textContent = 'Could not access camera. Please allow camera permissions or use the manual code option.';
+      }
+    };
+
+    if (tabCamera) {
+      tabCamera.onclick = () => {
+        tabCamera.style.background = '#fff';
+        tabCamera.style.color = '#000';
+        if (tabCode) {
+          tabCode.style.background = 'transparent';
+          tabCode.style.color = '#fff';
+        }
+        if (viewCamera) viewCamera.style.display = 'flex';
+        if (viewCode) viewCode.style.display = 'none';
+        startCamera();
+      };
+    }
+
+    if (tabCode) {
+      tabCode.onclick = () => {
+        stopCamera();
+        tabCode.style.background = '#fff';
+        tabCode.style.color = '#000';
+        if (tabCamera) {
+          tabCamera.style.background = 'transparent';
+          tabCamera.style.color = '#fff';
+        }
+        if (viewCamera) viewCamera.style.display = 'none';
+        if (viewCode) viewCode.style.display = 'flex';
+        if (statusEl) statusEl.textContent = '';
+        if (inputCode) inputCode.focus();
+      };
+    }
+
+    const handleQrPayload = (raw) => {
+      let ticketId = null;
+      let shortCode = null;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.ticket_id) ticketId = parsed.ticket_id;
+        if (parsed.short_code) shortCode = parsed.short_code;
+      } catch (_) {
+        const trimmed = String(raw).trim();
+        if (/^[a-f0-9-]{36}$/i.test(trimmed)) {
+          ticketId = trimmed;
+        } else if (/^\d{6}$/.test(trimmed)) {
+          shortCode = trimmed;
+        }
+      }
+      doClaim(ticketId, shortCode);
+    };
+
+    const doClaim = async (ticketId, shortCode) => {
+      if (statusEl) {
+        statusEl.style.color = '#fff';
+        statusEl.innerHTML = '<span class="auth-spinner"></span> Verifying session and logging in...';
+      }
+      try {
+        let res;
+        if (window.api && typeof window.api.claimQrSession === 'function') {
+          res = await window.api.claimQrSession(ticketId, shortCode);
+        } else {
+          res = await window.api.invoke('claim-qr-session', { ticketId, shortCode });
+        }
+
+        if (!res || res.error) {
+          throw new Error(res?.message || res?.error || 'QR code or short code is invalid or expired');
+        }
+
+        if (!res.refresh_token) {
+          throw new Error('Session token not received');
+        }
+
+        const client = getSupabaseRendererClient();
+        const { data: refreshData, error: refreshErr } = await client.auth.refreshSession({
+          refresh_token: res.refresh_token
+        });
+
+        const activeSession = refreshData?.session || { refresh_token: res.refresh_token };
+        const activeUser = refreshData?.user || res.user;
+
+        const syncResult = await window.api.invoke('cloud-sync-user-session', {
+          userId: activeUser.id,
+          email: activeUser.email,
+          username: activeUser.user_metadata?.username || activeUser.username || '',
+          session: {
+            access_token: activeSession.access_token,
+            refresh_token: activeSession.refresh_token
+          }
+        });
+
+        appData.authenticated = true;
+        appData.user = syncResult?.user || res.user;
+        appData.profiles = normalizeProfiles(syncResult?.profiles || res.profiles || []);
+        persist();
+
+        closeModal();
+        await proceedAfterAuthenticatedLogin();
+        if (typeof showToast === 'function') {
+          showToast('✓ Successfully logged in via QR Code!');
+        }
+      } catch (err) {
+        console.error('[AUTH] Claim QR failed:', err);
+        if (statusEl) {
+          statusEl.style.color = '#ef4444';
+          statusEl.textContent = err.message || 'Login failed';
+        }
+        if (viewCamera && viewCamera.style.display !== 'none') {
+          setTimeout(() => {
+            if (modal.style.display !== 'none' && viewCamera.style.display !== 'none') {
+              startCamera();
+            }
+          }, 3000);
+        }
+      }
+    };
+
+    if (submitCodeBtn) {
+      submitCodeBtn.onclick = () => {
+        const code = inputCode ? inputCode.value.trim() : '';
+        if (!code || code.length !== 6) {
+          if (statusEl) {
+            statusEl.style.color = '#ef4444';
+            statusEl.textContent = 'Please enter the 6-digit code';
+          }
+          return;
+        }
+        doClaim(null, code);
+      };
+    }
+
+    if (inputCode) {
+      inputCode.oninput = () => {
+        inputCode.value = inputCode.value.replace(/[^0-9]/g, '');
+        if (inputCode.value.length === 6 && submitCodeBtn) {
+          submitCodeBtn.click();
+        }
+      };
+    }
+
+    if (tabCamera) tabCamera.click();
+  }
+
+  window.openPcQrLoginModal = openPcQrLoginModal;
+  window.openMobileQrScannerModal = openMobileQrScannerModal;
 
   function createFavModal() {
     if (document.getElementById('fav-avatar-modal')) return;
@@ -3369,9 +4245,6 @@
         confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
         try {
-          const ageInput = document.getElementById('profile-age-input');
-          const maxAgeRating = parseInt(ageInput?.value || '18', 10);
-
           if (editingProfileId) {
             const profile = appData.profiles.find(p => p.id === editingProfileId);
             if (profile) {
@@ -3381,7 +4254,6 @@
               }
               profile.name = name;
               profile.avatar = selectedAvatar;
-              profile.max_age_rating = maxAgeRating;
               if (!profile.banner && appData.globalBanner) profile.banner = appData.globalBanner;
               if (profile.id === appData.activeProfileId) {
                 currentProfile = profile;
@@ -3394,7 +4266,6 @@
               id: newId,
               name: name,
               avatar: selectedAvatar,
-              max_age_rating: maxAgeRating,
               banner: appData.globalBanner || null,
               playback: {},
               watchlist: [],
@@ -3433,6 +4304,498 @@
           confirmBtn.textContent = originalText;
         }
       };
+    }
+  });
+
+  function isAccountVIP() {
+    const sub = appData.user?.subscription_expires_at || appData.subscription_expires_at || null;
+    if (!sub) return false;
+    const exp = new Date(sub).getTime();
+    return !isNaN(exp) && exp > Date.now();
+  }
+  window.isAccountVIP = isAccountVIP;
+
+  function openSubscriptionModal(featureName, customTitle, customDesc) {
+    const modal = document.getElementById('modal-subscription-plans');
+    if (modal) {
+      modal.style.display = 'flex';
+
+      const titleEl = document.getElementById('sub-modal-title');
+      const descEl = document.getElementById('sub-modal-desc');
+      const badgeTextEl = document.getElementById('sub-modal-badge-text');
+
+      if (customTitle) {
+        if (titleEl) titleEl.textContent = customTitle;
+      } else if (featureName) {
+        if (titleEl) titleEl.innerHTML = `Subscribe to VIP to unlock <span style="color: #ffffff; text-decoration: underline; text-underline-offset: 4px;">${featureName}</span>`;
+      } else {
+        if (titleEl) titleEl.textContent = 'Unlock Premium Unlimited Streaming';
+      }
+
+      if (customDesc) {
+        if (descEl) descEl.textContent = customDesc;
+      } else if (featureName) {
+        if (descEl) descEl.textContent = `This feature is exclusively available for MEEM VIP members. Choose your subscription plan below to unlock unlimited access.`;
+      } else {
+        if (descEl) descEl.textContent = 'Choose your subscription plan to enjoy high-quality streaming, unlimited offline downloads, and multi-profile support.';
+      }
+
+      if (badgeTextEl) {
+        badgeTextEl.textContent = featureName ? `VIP Feature: ${featureName}` : 'MEEM VIP Membership';
+      }
+
+      const licenseInput = document.getElementById('input-gumroad-license');
+      const feedback = document.getElementById('gumroad-license-feedback');
+      const activeBadge = document.getElementById('gumroad-active-badge');
+      const isVip = isAccountVIP();
+      const savedLicense = appData.user?.gumroad_license;
+
+      if (isVip) {
+        if (activeBadge) activeBadge.style.display = 'inline-flex';
+        if (savedLicense && licenseInput && !licenseInput.value) {
+          licenseInput.value = savedLicense.licenseKey || '';
+        }
+        if (feedback) {
+          feedback.style.display = 'block';
+          feedback.style.background = 'rgba(255, 255, 255, 0.06)';
+          feedback.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+          feedback.style.color = '#ffffff';
+          const subDate = appData.user?.subscription_expires_at || appData.subscription_expires_at;
+          const expText = subDate ? new Date(subDate).toLocaleDateString() : 'Active';
+          feedback.innerHTML = `<i class="fas fa-check-circle" style="color:#ffffff;"></i> MEEM VIP is active on this account (Expires: <strong>${expText}</strong>)`;
+        }
+      } else {
+        if (activeBadge) activeBadge.style.display = 'none';
+        if (feedback) feedback.style.display = 'none';
+      }
+    }
+  }
+  window.openSubscriptionModal = openSubscriptionModal;
+
+  function showImageCropperModal(imageSrc, onCropDone) {
+    let old = document.getElementById('modal-image-cropper');
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'modal-image-cropper';
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = `
+      display: flex; position: fixed; inset: 0; z-index: 1000010;
+      background: rgba(5, 5, 8, 0.92); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px);
+      align-items: center; justify-content: center; padding: 20px;
+    `;
+
+    overlay.innerHTML = `
+      <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+        <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none">
+          <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s ease-out forwards; opacity: 0.18;" />
+          <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s ease-out forwards; opacity: 0.18;" />
+        </svg>
+      </div>
+
+      <div class="modal" style="width: 460px; max-width: 92vw; position: relative; z-index: 2; background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 36px; padding: 36px 32px; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.85); text-align: center; color: #ffffff;">
+        <h3 style="font-size: 1.4rem; font-weight: 800; margin: 0 0 8px 0; color: #ffffff;">Crop Profile Picture</h3>
+        <p style="color: rgba(255,255,255,0.65); font-size: 13px; margin: 0 0 20px 0;">Drag image to align & use slider to zoom</p>
+
+        <!-- Crop Viewport -->
+        <div id="cropper-viewport" style="width: 240px; height: 240px; margin: 0 auto 20px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.4); overflow: hidden; position: relative; cursor: grab; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
+          <img id="cropper-img" src="${imageSrc}" style="position: absolute; top: 0; left: 0; transform-origin: center; pointer-events: none; user-select: none;">
+        </div>
+
+        <!-- Scale Controls -->
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 24px;">
+          <i class="fas fa-search-minus" style="color: rgba(255,255,255,0.5); font-size: 14px;"></i>
+          <input type="range" id="cropper-scale" min="1" max="3" step="0.05" value="1" style="width: 180px; accent-color: #ffffff; cursor: pointer;">
+          <i class="fas fa-search-plus" style="color: rgba(255,255,255,0.5); font-size: 14px;"></i>
+        </div>
+
+        <div class="modal-actions" style="display: flex; gap: 14px; justify-content: center;">
+          <button id="cropper-cancel" class="btn-outline" style="flex: 1; padding: 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); background: transparent; font-weight: 700; font-size: 0.95rem; cursor: pointer;">Cancel</button>
+          <button id="cropper-save" class="btn-primary" style="flex: 1; padding: 14px; border-radius: 16px; background: #ffffff !important; color: #000000 !important; border: none; font-weight: 800; font-size: 0.95rem; cursor: pointer; box-shadow: 0 4px 20px rgba(255,255,255,0.3);">Apply & Save</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const viewport = overlay.querySelector('#cropper-viewport');
+    const img = overlay.querySelector('#cropper-img');
+    const scaleSlider = overlay.querySelector('#cropper-scale');
+
+    let posX = 0, posY = 0;
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let currentScale = 1;
+
+    img.onload = () => {
+      const vw = 240, vh = 240;
+      const nw = img.naturalWidth || vw;
+      const nh = img.naturalHeight || vh;
+      const aspect = nw / nh;
+      if (aspect > 1) {
+        img.style.height = vh + 'px';
+        img.style.width = (vh * aspect) + 'px';
+      } else {
+        img.style.width = vw + 'px';
+        img.style.height = (vw / aspect) + 'px';
+      }
+      posX = (vw - parseFloat(img.style.width)) / 2;
+      posY = (vh - parseFloat(img.style.height)) / 2;
+      updateTransform();
+    };
+
+    function updateTransform() {
+      img.style.transform = `translate(${posX}px, ${posY}px) scale(${currentScale})`;
+    }
+
+    scaleSlider.oninput = (e) => {
+      currentScale = parseFloat(e.target.value);
+      updateTransform();
+    };
+
+    viewport.onmousedown = (e) => {
+      isDragging = true;
+      viewport.style.cursor = 'grabbing';
+      startX = e.clientX - posX;
+      startY = e.clientY - posY;
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    function onMouseMove(e) {
+      if (!isDragging) return;
+      posX = e.clientX - startX;
+      posY = e.clientY - startY;
+      updateTransform();
+    }
+
+    function onMouseUp() {
+      if (isDragging) {
+        isDragging = false;
+        viewport.style.cursor = 'grab';
+      }
+    }
+
+    overlay.querySelector('#cropper-cancel').onclick = () => {
+      cleanup();
+      overlay.remove();
+    };
+
+    overlay.querySelector('#cropper-save').onclick = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 300;
+      canvas.height = 300;
+      const ctx = canvas.getContext('2d');
+
+      const imgEl = new Image();
+      imgEl.crossOrigin = 'anonymous';
+      imgEl.onload = () => {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, 300, 300);
+
+        const renderScale = 300 / 240;
+        const drawX = posX * renderScale;
+        const drawY = posY * renderScale;
+        const drawW = parseFloat(img.style.width) * currentScale * renderScale;
+        const drawH = parseFloat(img.style.height) * currentScale * renderScale;
+
+        ctx.drawImage(imgEl, drawX, drawY, drawW, drawH);
+        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        cleanup();
+        overlay.remove();
+        if (typeof onCropDone === 'function') onCropDone(croppedDataUrl);
+      };
+      imgEl.src = img.src;
+    };
+
+    function cleanup() {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    }
+  }
+  window.showImageCropperModal = showImageCropperModal;
+
+  function openBannerPositionModal() {
+    let old = document.getElementById('modal-adjust-banner-position');
+    if (old) old.remove();
+
+    const activeProf = (typeof currentProfile !== 'undefined' && currentProfile) ? currentProfile : (appData.profiles?.[0] || null);
+    const currentBannerUrl = activeProf?.banner || appData.globalBanner || null;
+    const currentBannerPos = activeProf?.bannerPosition || appData.profileBannerPosition || 'center top';
+
+    if (!currentBannerUrl) {
+      showToast('Please upload or select a banner first.');
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'modal-adjust-banner-position';
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = `
+      display: flex; position: fixed; inset: 0; z-index: 1000010;
+      background: rgba(5, 5, 8, 0.92); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px);
+      align-items: center; justify-content: center; padding: 20px;
+    `;
+
+    overlay.innerHTML = `
+      <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+        <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none">
+          <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s ease-out forwards; opacity: 0.18;" />
+          <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s ease-out forwards; opacity: 0.18;" />
+        </svg>
+      </div>
+
+      <div class="modal" style="width: 640px; max-width: 94vw; position: relative; z-index: 2; background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 36px; padding: 36px 32px; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.85); text-align: center; color: #ffffff;">
+        <h3 style="font-size: 1.5rem; font-weight: 800; margin: 0 0 8px 0; color: #ffffff;">Adjust Banner Position</h3>
+        <p style="color: rgba(255,255,255,0.65); font-size: 13.5px; margin: 0 0 20px 0;">Drag vertically to position your banner or use quick presets</p>
+
+        <!-- Interactive Drag Banner Area -->
+        <div id="banner-drag-area" style="width: 100%; height: 220px; border-radius: 24px; border: 2px solid rgba(255,255,255,0.3); overflow: hidden; position: relative; cursor: grab; background-image: url('${window.localImg(currentBannerUrl)}'); background-size: cover; background-position: ${currentBannerPos}; box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
+          <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%); pointer-events: none;"></div>
+          <div id="banner-drag-label" style="position: absolute; bottom: 12px; left: 16px; background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; border: 1px solid rgba(255,255,255,0.2);">
+            Position: <span id="banner-pos-val">${currentBannerPos}</span>
+          </div>
+        </div>
+
+        <!-- Presets -->
+        <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 20px 0 24px 0;">
+          <button class="btn-preset-pos" data-pos="center top" style="padding: 8px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Top</button>
+          <button class="btn-preset-pos" data-pos="center center" style="padding: 8px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Center</button>
+          <button class="btn-preset-pos" data-pos="center bottom" style="padding: 8px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Bottom</button>
+          <button class="btn-preset-pos" data-pos="left center" style="padding: 8px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Left</button>
+          <button class="btn-preset-pos" data-pos="right center" style="padding: 8px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Right</button>
+        </div>
+
+        <div class="modal-actions" style="display: flex; gap: 14px; justify-content: center;">
+          <button id="banner-pos-cancel" class="btn-outline" style="flex: 1; padding: 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); background: transparent; font-weight: 700; font-size: 0.95rem; cursor: pointer;">Cancel</button>
+          <button id="banner-pos-save" class="btn-primary" style="flex: 1; padding: 14px; border-radius: 16px; background: #ffffff !important; color: #000000 !important; border: none; font-weight: 800; font-size: 0.95rem; cursor: pointer; box-shadow: 0 4px 20px rgba(255,255,255,0.3);">Save Position</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const dragArea = overlay.querySelector('#banner-drag-area');
+    const posValEl = overlay.querySelector('#banner-pos-val');
+
+    let isDragging = false;
+    let startY = 0;
+    let currentYPercent = 50;
+
+    if (currentBannerPos.includes('top')) currentYPercent = 0;
+    else if (currentBannerPos.includes('bottom')) currentYPercent = 100;
+    else if (currentBannerPos.includes('center')) currentYPercent = 50;
+
+    function applyPosition(pos) {
+      dragArea.style.backgroundPosition = pos;
+      posValEl.textContent = pos;
+    }
+
+    overlay.querySelectorAll('.btn-preset-pos').forEach(btn => {
+      btn.onclick = () => {
+        const p = btn.dataset.pos;
+        applyPosition(p);
+      };
+    });
+
+    dragArea.onmousedown = (e) => {
+      isDragging = true;
+      dragArea.style.cursor = 'grabbing';
+      startY = e.clientY;
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    function onMouseMove(e) {
+      if (!isDragging) return;
+      const deltaY = e.clientY - startY;
+      startY = e.clientY;
+      const rect = dragArea.getBoundingClientRect();
+      const pctChange = (deltaY / rect.height) * 100;
+      currentYPercent = Math.max(0, Math.min(100, currentYPercent + pctChange));
+      const posString = `center ${Math.round(currentYPercent)}%`;
+      applyPosition(posString);
+    }
+
+    function onMouseUp() {
+      if (isDragging) {
+        isDragging = false;
+        dragArea.style.cursor = 'grab';
+      }
+    }
+
+    overlay.querySelector('#banner-pos-cancel').onclick = () => {
+      cleanup();
+      overlay.remove();
+    };
+
+    overlay.querySelector('#banner-pos-save').onclick = async () => {
+      const finalPos = posValEl.textContent;
+      if (activeProf) activeProf.bannerPosition = finalPos;
+      if (typeof currentProfile !== 'undefined' && currentProfile) currentProfile.bannerPosition = finalPos;
+      appData.profileBannerPosition = finalPos;
+
+      const bannerContainer = document.querySelector('#account-banner-container');
+      if (bannerContainer) bannerContainer.style.backgroundPosition = finalPos;
+
+      const bannerPosSelect = document.querySelector('#account-banner-pos-select');
+      if (bannerPosSelect) bannerPosSelect.value = finalPos;
+
+      if (typeof applyProfilePickerBackdrop === 'function') {
+        applyProfilePickerBackdrop(currentBannerUrl, finalPos);
+      }
+      if (typeof renderAccount === 'function') renderAccount();
+      await persist(true);
+
+      showToast('Banner position saved!');
+      cleanup();
+      overlay.remove();
+    };
+
+    function cleanup() {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    }
+  }
+  window.openBannerPositionModal = openBannerPositionModal;
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && document.activeElement?.id === 'input-gumroad-license') {
+      const activateBtn = document.getElementById('btn-activate-gumroad-license');
+      if (activateBtn) activateBtn.click();
+    }
+  });
+
+  document.addEventListener('click', async (e) => {
+    const buyBtn = e.target.closest('.btn-buy-sub');
+    if (buyBtn) {
+      e.preventDefault();
+      const baseUrl = buyBtn.dataset.url;
+      if (!baseUrl || baseUrl === '#' || baseUrl.includes('lemonsqueezy.com')) {
+        const input = document.getElementById('input-gumroad-license');
+        if (input) {
+          input.focus();
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        if (typeof showToast === 'function') {
+          showToast('🔑 Please purchase your plan on Gumroad and paste your License Key above for instant VIP activation!');
+        }
+        return;
+      }
+
+      const userEmail = appData.user?.email || '';
+      let checkoutUrl = baseUrl;
+      if (userEmail) {
+        checkoutUrl += (checkoutUrl.includes('?') ? '&' : '?') + `email=${encodeURIComponent(userEmail)}`;
+      }
+
+      console.log('[Subscription] Opening Gumroad checkout:', checkoutUrl);
+      if (window.api && window.api.openExternal) {
+        window.api.openExternal(checkoutUrl);
+      } else {
+        window.open(checkoutUrl, '_blank');
+      }
+      return;
+    }
+
+    if (e.target.closest('#btn-activate-gumroad-license')) {
+      const btn = e.target.closest('#btn-activate-gumroad-license');
+      const input = document.getElementById('input-gumroad-license');
+      const feedback = document.getElementById('gumroad-license-feedback');
+      const licenseKey = input ? input.value.trim() : '';
+
+      if (!licenseKey) {
+        if (feedback) {
+          feedback.style.display = 'block';
+          feedback.style.background = 'rgba(255, 71, 87, 0.15)';
+          feedback.style.border = '1px solid rgba(255, 71, 87, 0.35)';
+          feedback.style.color = '#ff4757';
+          feedback.innerHTML = '<i class="fas fa-exclamation-circle"></i> Please enter your Gumroad License Key.';
+        }
+        if (typeof showToast === 'function') showToast('⚠️ Please enter a Gumroad License Key.');
+        if (input) input.focus();
+        return;
+      }
+
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verifying...';
+      btn.disabled = true;
+
+      if (feedback) {
+        feedback.style.display = 'block';
+        feedback.style.background = 'rgba(255, 255, 255, 0.05)';
+        feedback.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+        feedback.style.color = 'rgba(255, 255, 255, 0.8)';
+        feedback.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting to Gumroad servers to verify license...';
+      }
+
+      try {
+        const res = await window.api.invoke('gumroad-verify-license', licenseKey);
+
+        if (res && res.success && res.valid) {
+          if (!appData.user) appData.user = {};
+          appData.user.subscription_expires_at = res.expiresAt;
+          appData.subscription_expires_at = res.expiresAt;
+          appData.user.gumroad_license = res.licenseInfo;
+          persist();
+
+          if (feedback) {
+            feedback.style.display = 'block';
+            feedback.style.background = 'rgba(255, 255, 255, 0.08)';
+            feedback.style.border = '1px solid rgba(255, 255, 255, 0.25)';
+            feedback.style.color = '#ffffff';
+            const expDate = res.expiresAt ? new Date(res.expiresAt).toLocaleDateString() : 'Lifetime';
+            feedback.innerHTML = `<i class="fas fa-check-circle" style="color:#ffffff;"></i> License verified! MEEM VIP is active until <strong>${expDate}</strong>.`;
+          }
+
+          const badge = document.getElementById('gumroad-active-badge');
+          if (badge) badge.style.display = 'inline-flex';
+
+          if (typeof showToast === 'function') {
+            showToast(`👑 MEEM VIP Activated! Welcome, ${res.licenseInfo?.email || 'VIP Member'}!`);
+          }
+
+          if (typeof renderProfileWidget === 'function') renderProfileWidget();
+          if (typeof window.renderProfileWidget === 'function') window.renderProfileWidget();
+
+          setTimeout(() => {
+            const modal = document.getElementById('modal-subscription-plans');
+            if (modal) modal.style.display = 'none';
+          }, 1800);
+        } else {
+          const errMsg = res?.error || 'Verification failed. Please check the license key.';
+          if (feedback) {
+            feedback.style.display = 'block';
+            feedback.style.background = 'rgba(255, 255, 255, 0.06)';
+            feedback.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+            feedback.style.color = 'rgba(255, 255, 255, 0.9)';
+            feedback.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ffffff;"></i> ${errMsg}`;
+          }
+          if (typeof showToast === 'function') showToast(`❌ ${errMsg}`);
+        }
+      } catch (err) {
+        console.error('[Gumroad Verify Error]:', err);
+        const errMsg = err.message || 'Verification error';
+        if (feedback) {
+          feedback.style.display = 'block';
+          feedback.style.background = 'rgba(255, 255, 255, 0.06)';
+          feedback.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+          feedback.style.color = 'rgba(255, 255, 255, 0.9)';
+          feedback.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ffffff;"></i> ${errMsg}`;
+        }
+        if (typeof showToast === 'function') showToast(`❌ ${errMsg}`);
+      } finally {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    if (e.target.closest('#btn-close-sub-modal') || e.target.id === 'modal-subscription-plans') {
+      const modal = document.getElementById('modal-subscription-plans');
+      if (modal) modal.style.display = 'none';
     }
   });
 
