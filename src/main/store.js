@@ -55,6 +55,7 @@ let inMemorySession = null;
 // Cache the last known Supabase JWT so saveData can create authenticated clients even after restart
 let _cachedSupabaseSession = null;
 let _refreshPromise = null;
+let savePlaybackPositionFn = null;
 
 async function getAuthenticatedClient(session = null) {
   const isCredentialsUser = inMemorySession && inMemorySession.authenticated && !inMemorySession._supabaseSession;
@@ -163,16 +164,37 @@ async function getAuthenticatedClient(session = null) {
         global: { headers: { Authorization: `Bearer ${currentAccessToken}` } }
       });
     }
+
+    // Token refresh failed for an existing session — force logout the invalidated user
+    console.warn('[STORE] Supabase session token expired & refresh failed — triggering force logout.');
+    _cachedSupabaseSession = null;
+    try {
+      const local = readLocalAppData() || {};
+      if (local._supabaseSession || local.user) {
+        delete local._supabaseSession;
+        delete local.user;
+        writeLocalAppData(local);
+      }
+    } catch (e) {
+      console.warn('[STORE] Error clearing invalidated local session:', e.message);
+    }
+
+    try {
+      const { BrowserWindow } = require('electron');
+      if (BrowserWindow && typeof BrowserWindow.getAllWindows === 'function') {
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('force-logout');
+          }
+        });
+      }
+    } catch (logoutErr) {}
   }
 
-  // Fallback: use service_role key when no Supabase JWT is available.
-  // This is safe because:
-  //  1. The service_role key is only accessible in the Electron main process (never exposed to renderer).
-  //  2. The hardware-ID device session already authenticated the user before this function is called.
-  const { getSupabaseServiceRoleKey, getSupabaseUrl, getSupabaseAnonKey } = require('../shared/supabaseEnv');
+  // If no active Supabase JWT session exists, check for service role or return unauthenticated
+  const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
   const serviceRoleKey = getSupabaseServiceRoleKey();
   if (serviceRoleKey) {
-    console.log('[STORE] No Supabase JWT found — using service_role client for main-process DB access.');
     const { createClient } = require('@supabase/supabase-js');
     return createClient(getSupabaseUrl(), serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false }
@@ -193,14 +215,19 @@ async function fetchNormalizedProfileData(client, profileId) {
     throw wlError;
   }
 
-  // 2. Fetch playback_history
-  const { data: playbackData, error: pbError } = await client
-    .from('playback_history')
-    .select('*')
-    .eq('profile_id', profileId);
-  if (pbError) {
-    console.error('[STORE] load playback error:', pbError.message);
-    throw pbError;
+  // 2. Fetch playback_history (VIP only)
+  const isVipUser = isSessionVIP(inMemorySession);
+  let playbackData = [];
+  if (isVipUser) {
+    const { data: pData, error: pbError } = await client
+      .from('playback_history')
+      .select('*')
+      .eq('profile_id', profileId);
+    if (pbError) {
+      console.warn('[STORE] load playback warning:', pbError.message);
+    } else if (pData) {
+      playbackData = pData;
+    }
   }
 
   // 3. Fetch locked_items
@@ -275,15 +302,20 @@ async function fetchNormalizedProfileData(client, profileId) {
     overview: row.overview || null
   }));
 
-  const playback = {};
-  (playbackData || []).forEach(row => {
-    playback[row.media_id] = {
-      time: row.progress ? Number(row.progress) : 0,
-      duration: row.duration ? Number(row.duration) : 0,
-      lastWatched: row.last_watched_at ? new Date(row.last_watched_at).getTime() : Date.now(),
-      watched: row.watched || false
-    };
-  });
+  let playback = {};
+  if (isVipUser) {
+    (playbackData || []).forEach(row => {
+      playback[row.media_id] = {
+        time: row.progress ? Number(row.progress) : 0,
+        duration: row.duration ? Number(row.duration) : 0,
+        lastWatched: row.last_watched_at ? new Date(row.last_watched_at).getTime() : Date.now(),
+        watched: row.watched || false
+      };
+    });
+  } else {
+    const existingProf = inMemorySession?.profiles?.find(p => p.id === profileId);
+    playback = existingProf?.playback || {};
+  }
 
   const lockedItems = (lockedData || []).map(row => row.item_path);
 
@@ -499,6 +531,20 @@ if (app && typeof app.on === 'function') {
  */
 function getInMemorySession() {
   return inMemorySession || readLocalAppData();
+}
+
+/**
+ * Checks if a session has an active MEEM VIP subscription.
+ *
+ * @param {Object} [session] Optional session object; defaults to getInMemorySession().
+ * @returns {boolean} True if active VIP, false otherwise.
+ */
+function isSessionVIP(session) {
+  const s = session || getInMemorySession();
+  const sub = s?.user?.subscription_expires_at || s?.subscription_expires_at || null;
+  if (!sub) return false;
+  const exp = new Date(sub).getTime();
+  return !isNaN(exp) && exp > Date.now();
 }
 
 /**
@@ -869,42 +915,46 @@ async function saveData(data, session = null) {
             }
           }
 
-          // 3. Sync playback_history
-          const localPlayback = profile.playback || {};
-          const { data: dbPlayback, error: pbFetchError } = await client
-            .from('playback_history')
-            .select('media_id')
-            .eq('profile_id', profile.id);
-          if (pbFetchError) throw pbFetchError;
-
-          const dbPlaybackIds = new Set((dbPlayback || []).map(x => x.media_id));
-          const localPlaybackIds = new Set(Object.keys(localPlayback));
-
-          const toDeletePb = [...dbPlaybackIds].filter(id => !localPlaybackIds.has(id));
-          if (toDeletePb.length > 0) {
-            const { error: delPbError } = await client
+          // 3. Sync playback_history (VIP only)
+          if (isSessionVIP(inMemorySession)) {
+            const localPlayback = profile.playback || {};
+            const { data: dbPlayback, error: pbFetchError } = await client
               .from('playback_history')
-              .delete()
-              .eq('profile_id', profile.id)
-              .in('media_id', toDeletePb);
-            if (delPbError) throw delPbError;
-          }
+              .select('media_id')
+              .eq('profile_id', profile.id);
+            if (pbFetchError) throw pbFetchError;
 
-          const localPlaybackEntries = Object.entries(localPlayback);
-          if (localPlaybackEntries.length > 0) {
-            const playbackRows = localPlaybackEntries.map(([mediaId, entry]) => ({
-              profile_id: profile.id,
-              media_id: mediaId,
-              progress: entry.time ? Number(entry.time) : 0,
-              duration: entry.duration ? Number(entry.duration) : 0,
-              last_watched_at: entry.lastWatched ? new Date(entry.lastWatched).toISOString() : new Date().toISOString(),
-              watched: entry.watched ? true : false
-            }));
+            const dbPlaybackIds = new Set((dbPlayback || []).map(x => x.media_id));
+            const localPlaybackIds = new Set(Object.keys(localPlayback));
 
-            const { error: upsertPbError } = await client
-              .from('playback_history')
-              .upsert(playbackRows, { onConflict: 'profile_id,media_id' });
-            if (upsertPbError) throw upsertPbError;
+            const toDeletePb = [...dbPlaybackIds].filter(id => !localPlaybackIds.has(id));
+            if (toDeletePb.length > 0) {
+              const { error: delPbError } = await client
+                .from('playback_history')
+                .delete()
+                .eq('profile_id', profile.id)
+                .in('media_id', toDeletePb);
+              if (delPbError) throw delPbError;
+            }
+
+            const localPlaybackEntries = Object.entries(localPlayback);
+            if (localPlaybackEntries.length > 0) {
+              const playbackRows = localPlaybackEntries.map(([mediaId, entry]) => ({
+                profile_id: profile.id,
+                media_id: mediaId,
+                progress: entry.time ? Number(entry.time) : 0,
+                duration: entry.duration ? Number(entry.duration) : 0,
+                last_watched_at: entry.lastWatched ? new Date(entry.lastWatched).toISOString() : new Date().toISOString(),
+                watched: entry.watched ? true : false
+              }));
+
+              const { error: upsertPbError } = await client
+                .from('playback_history')
+                .upsert(playbackRows, { onConflict: 'profile_id,media_id' });
+              if (upsertPbError) throw upsertPbError;
+            }
+          } else {
+            console.log('[STORE] Free user: skipping playback_history sync to cloud for profile:', profile.id);
           }
 
           // 4. Sync locked_items
@@ -1216,27 +1266,28 @@ function initStoreIpc(ipcMain) {
   });
 
   // Playback position - direct sync to cloud playback_history table
-  ipcMain.handle('save-playback-position', async (e, { profileId, key, entry, localOnly, forceImmediate }) => {
+  async function savePlaybackPositionInternal({ profileId, key, entry, localOnly, forceImmediate }) {
     try {
-      console.log('[STORE] Saving playback to local cache:', { profileId, key, time: entry?.time, localOnly, forceImmediate });
+      console.log('[STORE] Saving playback to local cache & Supabase:', { profileId, key, time: entry?.time, localOnly, forceImmediate });
 
       // 1. Update in-memory session (local cache) so it is written to appData.json
       if (inMemorySession && Array.isArray(inMemorySession.profiles)) {
-        const profile = inMemorySession.profiles.find(p => p.id === profileId);
+        const profile = inMemorySession.profiles.find(p => p.id === profileId) || inMemorySession.profiles[0];
         if (profile) {
           profile.playback = profile.playback || {};
           profile.playback[key] = entry;
           writeLocalAppData(inMemorySession, forceImmediate || false);
 
-          // 2. Sync directly to Supabase playback_history table immediately if not localOnly
-          if (!localOnly && inMemorySession.authenticated && inMemorySession.user) {
+          // 2. Sync directly to Supabase playback_history table immediately ONLY if user is VIP and not localOnly
+          const isVip = isSessionVIP(inMemorySession);
+          if (!localOnly && isVip) {
             try {
               let client;
               try {
                 client = await getAuthenticatedClient();
-              } catch (_) { /* will use hardware RPC fallback */ }
+              } catch (_) { /* fallback */ }
 
-              if (client) {
+              if (client && inMemorySession.authenticated && inMemorySession.user) {
                 client.from('playback_history').upsert({
                   profile_id: profile.id,
                   media_id: key,
@@ -1246,27 +1297,14 @@ function initStoreIpc(ipcMain) {
                   watched: entry?.watched ? true : false
                 }, { onConflict: 'profile_id,media_id' }).then(res => {
                   if (res.error) console.error('[STORE] save-playback upsert failed:', res.error.message);
-                  else console.log('[STORE] save-playback upsert success');
+                  else console.log('[STORE] save-playback upsert success to Supabase');
                 }).catch(err => console.error('[STORE] save-playback upsert error:', err.message));
-              } else {
-                // Hardware-ID RPC fallback
-                const hwId = getHardwareId();
-                const { getClient } = require('../shared/supabaseClient');
-                getClient().rpc('upsert_playback_by_hardware', {
-                  p_hardware_id: hwId,
-                  p_profile_id: profile.id,
-                  p_media_id: key,
-                  p_progress: entry?.time ? Number(entry.time) : 0,
-                  p_duration: entry?.duration ? Number(entry.duration) : 0,
-                  p_watched: entry?.watched ? true : false
-                }).then(res => {
-                  if (res.error) console.error('[STORE] save-playback hardware RPC failed:', res.error.message);
-                  else console.log('[STORE] save-playback hardware RPC success');
-                }).catch(err => console.error('[STORE] save-playback hardware RPC error:', err.message));
               }
             } catch (syncErr) {
               console.error('[STORE] save-playback client initialization failed:', syncErr.message);
             }
+          } else if (!isVip) {
+            // Free accounts: playback position is saved strictly locally to appdata.json. No Supabase sync.
           }
         }
       }
@@ -1284,62 +1322,83 @@ function initStoreIpc(ipcMain) {
 
       return true;
     } catch (err) {
-      console.error('[STORE] save-playback-position failed:', err.message || err);
+      console.error('[STORE] savePlaybackPositionInternal failed:', err.message || err);
       return false;
     }
+  }
+
+  savePlaybackPositionFn = savePlaybackPositionInternal;
+
+  ipcMain.handle('save-playback-position', async (e, params) => {
+    return savePlaybackPositionInternal(params);
   });
 
   ipcMain.handle('get-playback-position', async (e, { profileId, key }) => {
     try {
-      const client = await getAuthenticatedClient();
-      const { data, error } = await client
-        .from('playback_history')
-        .select('*')
-        .eq('profile_id', profileId)
-        .eq('media_id', key)
-        .maybeSingle();
-      if (error) throw error;
-      if (data) {
-        return { time: Number(data.progress), lastWatched: new Date(data.last_watched_at).getTime() };
+      const session = getInMemorySession();
+      const isVip = isSessionVIP(session);
+      if (isVip) {
+        try {
+          const client = await getAuthenticatedClient();
+          if (client) {
+            const { data, error } = await client
+              .from('playback_history')
+              .select('*')
+              .eq('profile_id', profileId)
+              .eq('media_id', key)
+              .maybeSingle();
+            if (!error && data) {
+              return { time: Number(data.progress), lastWatched: new Date(data.last_watched_at).getTime() };
+            }
+          }
+        } catch (_) {}
       }
+      // Local fallback for free accounts or when offline
+      const profile = session?.profiles?.find(p => p.id === profileId);
+      const entry = profile?.playback?.[key];
+      if (entry) return entry;
       return null;
     } catch (err) {
-      console.error('[STORE] get-playback-position supabase fetch failed:', err.message || err);
+      console.error('[STORE] get-playback-position failed:', err.message || err);
       return null;
     }
   });
 
   ipcMain.handle('get-profile-playback', async (e, profileId) => {
     try {
-      let client;
-      try {
-        client = await getAuthenticatedClient();
-      } catch (_) { /* will use hardware fallback below */ }
+      const session = getInMemorySession();
+      const isVip = isSessionVIP(session);
+      if (isVip) {
+        let client;
+        try {
+          client = await getAuthenticatedClient();
+        } catch (_) { /* will use local fallback below */ }
 
-      if (client) {
-        const { data, error } = await client
-          .from('playback_history')
-          .select('*')
-          .eq('profile_id', profileId);
-        if (error) throw error;
-        
-        const playbackObj = {};
-        for (const row of (data || [])) {
-          playbackObj[row.media_id] = {
-            time: Number(row.progress),
-            lastWatched: new Date(row.last_watched_at).getTime(),
-            watched: row.watched || false
-          };
+        if (client) {
+          const { data, error } = await client
+            .from('playback_history')
+            .select('*')
+            .eq('profile_id', profileId);
+          if (!error && data) {
+            const playbackObj = {};
+            for (const row of (data || [])) {
+              playbackObj[row.media_id] = {
+                time: Number(row.progress),
+                duration: Number(row.duration || 0),
+                lastWatched: new Date(row.last_watched_at).getTime(),
+                watched: row.watched || false
+              };
+            }
+            return playbackObj;
+          }
         }
-        return playbackObj;
       }
 
-      // Fallback: use hardware-ID authenticated RPC
-      const hwId = getHardwareId();
-      const relData = await fetchNormalizedProfileDataByHardware(hwId, profileId);
-      return relData ? (relData.playback || {}) : {};
+      // Local playback for free users or offline
+      const profile = session?.profiles?.find(p => p.id === profileId);
+      return profile?.playback || {};
     } catch (err) {
-      console.error('[STORE] get-profile-playback supabase fetch failed:', err.message || err);
+      console.error('[STORE] get-profile-playback failed:', err.message || err);
       return {};
     }
   });
@@ -1347,14 +1406,32 @@ function initStoreIpc(ipcMain) {
   ipcMain.handle('clear-profile-playback', async (e, profileId) => {
     try {
       if (!profileId) return { error: 'No profileId provided' };
-      const client = await getAuthenticatedClient();
-      const { error } = await client
-        .from('playback_history')
-        .delete()
-        .eq('profile_id', profileId);
-      if (error) {
-        console.error('[STORE] clear-profile-playback supabase delete failed:', error.message);
-        return { error: error.message };
+
+      // 1. Clear local cache and disk immediately
+      if (inMemorySession && Array.isArray(inMemorySession.profiles)) {
+        const prof = inMemorySession.profiles.find(p => p.id === profileId);
+        if (prof) {
+          prof.playback = {};
+          writeLocalAppData(inMemorySession);
+        }
+      }
+
+      // 2. Clear from Supabase cloud
+      let client = await getAuthenticatedClient();
+      if (!client) {
+        const { getClient } = require('../shared/supabaseClient');
+        client = getClient();
+      }
+
+      if (client) {
+        const { error } = await client
+          .from('playback_history')
+          .delete()
+          .eq('profile_id', profileId);
+        if (error) {
+          console.error('[STORE] clear-profile-playback supabase delete failed:', error.message);
+          return { error: error.message };
+        }
       }
       console.log('[STORE] clear-profile-playback success for profile:', profileId);
       return { success: true };
@@ -1389,6 +1466,13 @@ function initStoreIpc(ipcMain) {
   // Profile-specific Cloud mutations (CRUD)
   ipcMain.handle('cloud-create-profile', async (e, profileData) => {
     try {
+      const session = getInMemorySession();
+      const isVip = isSessionVIP(session);
+      const existingProfiles = (session && Array.isArray(session.profiles)) ? session.profiles : [];
+      if (existingProfiles.length >= 1 && !isVip) {
+        console.warn('[STORE] Blocked cloud-create-profile: Multi-profile requires active MEEM VIP.');
+        return { error: 'VIP_REQUIRED: Multiple profiles require an active MEEM VIP subscription.' };
+      }
       if (profileData && profileData.id) mainRealtimeProfileCache.delete(profileData.id);
       const res = await supabaseRpc('create_profile', { ...profileData });
       return res;
@@ -1445,6 +1529,96 @@ function initStoreIpc(ipcMain) {
       return res;
     } catch (err) {
       return { error: formatAuthError(err) };
+    }
+  });
+
+  ipcMain.handle('cloud-verify-otp', async (e, { email, token }) => {
+    try {
+      const hwId = getHardwareId();
+      const { verifyOtpUser } = require('../shared/cloudAuth');
+      const res = await verifyOtpUser(email, token, hwId);
+      if (res && res.success) {
+        try {
+          const session = res.session || { access_token: res.access_token };
+          await saveData({ authenticated: true, user: res.user, profiles: res.profiles || [], activeProfileId: res.profiles?.[0]?.id || null }, session);
+        } catch (e) {
+          console.warn('[STORE] Post-verify local+cloud save failed:', e.message || e);
+        }
+      }
+      return res;
+    } catch (err) {
+      return { error: formatAuthError(err) };
+    }
+  });
+
+  ipcMain.handle('cloud-create-qr-session', async (e) => {
+    try {
+      const client = await getAuthenticatedClient();
+      const local = readLocalAppData() || {};
+      const session = _cachedSupabaseSession || local._supabaseSession;
+      const refreshToken = session?.refresh_token;
+      const userId = local.user?.id || session?.user?.id;
+      if (!refreshToken) {
+        return { error: 'No active session found to generate QR code' };
+      }
+      const accessToken = session?.access_token;
+      const targetClient = client || require('../shared/supabaseClient').getClient();
+      const { data, error } = await targetClient.rpc('create_qr_session', {
+        p_refresh_token: refreshToken,
+        p_user_id: userId || null,
+        p_access_token: accessToken || null
+      });
+      if (error) throw error;
+      if (data && data.error) return data;
+
+      const QRCode = require('qrcode');
+      const payload = JSON.stringify({
+        meem_qr: true,
+        ticket_id: data.ticket_id,
+        short_code: data.short_code
+      });
+      const qrDataUrl = await QRCode.toDataURL(payload, {
+        width: 320,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      });
+
+      return { ...data, qrDataUrl };
+    } catch (err) {
+      console.error('[STORE] cloud-create-qr-session error:', err);
+      return { error: err.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('cloud-check-qr-status', async (e, { ticketId }) => {
+    try {
+      const { getClient } = require('../shared/supabaseClient');
+      const client = getClient();
+      const { data, error } = await client.rpc('check_qr_session_status', { p_ticket_id: ticketId });
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      return { error: err.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('claim-qr-session', async (e, { ticketId, shortCode }) => {
+    try {
+      const { getClient } = require('../shared/supabaseClient');
+      const client = getClient();
+      const hwId = getHardwareId();
+      const { data, error } = await client.rpc('claim_qr_session', {
+        p_ticket_id: ticketId || null,
+        p_short_code: shortCode || null,
+        p_hardware_id: hwId
+      });
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      return { error: err.message || String(err) };
     }
   });
 
@@ -1769,6 +1943,10 @@ function initStoreIpc(ipcMain) {
   ipcMain.handle('cloud-invite-collaborator', async (e, { listId, targetUserId }) => {
     try {
       const session = getInMemorySession();
+      if (!isSessionVIP(session)) {
+        console.warn('[STORE] Blocked cloud-invite-collaborator: Shared watchlists require active MEEM VIP.');
+        return { success: false, error: 'VIP_REQUIRED: Inviting collaborators and sharing watchlists requires an active MEEM VIP subscription.' };
+      }
       const callerUserId = session?.user?.id || session?.user?.user_id;
       if (!callerUserId) {
         throw new Error('User not authenticated');
@@ -1845,7 +2023,7 @@ function initStoreIpc(ipcMain) {
       } catch (e) {}
 
       if (!allowsInvites) {
-        return { success: false, blocked: true, message: 'الشخص دا قافل الدعوات !' };
+        return { success: false, blocked: true, message: 'This user has disabled invitations.' };
       }
       
       // 3. Perform insert with status = 'pending' so get_pending_invitations can find it
@@ -2676,5 +2854,6 @@ function initStoreIpc(ipcMain) {
 module.exports = {
   USER_DATA, DATA_DIR, DATA_FILE, BANNERS_DIR, TEMP_DIR,
   ensureDir, loadData, saveData, saveDataSync, initStoreIpc,
-  getHardwareId, readLocalAppData, writeLocalAppData, getInMemorySession
+  getHardwareId, readLocalAppData, writeLocalAppData, getInMemorySession, isSessionVIP,
+  savePlaybackPositionInternal: (params) => savePlaybackPositionFn ? savePlaybackPositionFn(params) : null
 };

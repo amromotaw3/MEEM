@@ -1,4 +1,4 @@
-﻿/* global appData, currentProfile, persist, showToast, isEditingProfiles, isTransitioningAway, checkSubscriptionStatus */
+/* global appData, currentProfile, persist, showToast, isEditingProfiles, isTransitioningAway, checkSubscriptionStatus */
 /* global AVATARS, DEFAULT_AVATAR_SVG, hardwareIdCache, authFlowCompleted, _supabaseRendererClient, editingProfileId */
 /* global ensureDefaultAddons, selectProfile, openProfileModal, scanLibrary, renderLibrary, renderSidebar, renderDownloadHistory */
 /* global renderSocial, switchView, renderContinueWatchingDiscover, initStremioAddonsUI, initSubdlUI, initTraktUI, syncTraktWatchlistToLocal, syncTraktContinueWatching */
@@ -177,13 +177,17 @@
     let relayId = null;
     if (isMobileClient()) {
       try {
-        const { data: rData, error: rErr } = await client.rpc('create_mobile_auth_relay');
+        const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000));
+        const { data: rData, error: rErr } = await Promise.race([
+          client.rpc('create_mobile_auth_relay'),
+          timeoutPromise
+        ]);
         if (!rErr && rData) {
           relayId = typeof rData === 'object' ? rData.relay_id : rData;
           console.log('[AUTH] Mobile auth relay created:', relayId);
         }
       } catch (e) {
-        console.warn('[AUTH] create_mobile_auth_relay error:', e);
+        console.warn('[AUTH] create_mobile_auth_relay error/timeout:', e);
       }
     }
 
@@ -201,7 +205,19 @@
     if (error) throw error;
     if (!data?.url) throw new Error('Could not start OAuth login');
 
+    const authUrl = data.url;
     sessionStorage.setItem('mv_oauth_pending', '1');
+
+    // Trigger browser open IMMEDIATELY so user gets instant response
+    try {
+      if (window.api && typeof window.api.cloudOAuthLogin === 'function') {
+        window.api.cloudOAuthLogin(authUrl).catch(err => console.warn('[AUTH] cloudOAuthLogin err:', err));
+      } else {
+        window.open(authUrl, '_blank');
+      }
+    } catch (openErr) {
+      console.error('[AUTH] Failed to open OAuth URL:', openErr);
+    }
 
     const providerName = provider === 'google' ? 'Google' : 'Discord';
     msgEl.innerHTML = `
@@ -222,7 +238,7 @@
             color: white;
             cursor: pointer;
             transition: all 0.2s;
-          ">ðŸ”„ Check login status (or clipboard)</button>
+          ">🔄 Check login status (or clipboard)</button>
         </div>
         <div style="display: flex; gap: 6px; justify-content: center; align-items: center;">
           <input type="text" id="manual-oauth-url" placeholder="Paste the link here if not redirected automatically..." style="
@@ -384,14 +400,14 @@
 
     // Fires when user returns to app window (desktop/web/mobile focus)
     const onWindowFocus = () => {
-      console.log('[AUTH] Window focused â€” checking for active session / clipboard...');
+      console.log('[AUTH] Window focused — checking for active session / clipboard...');
       checkActiveSession();
       setTimeout(checkActiveSession, 800);
     };
 
-    // Fires when Capacitor Browser plugin closes (Android â€” from bridge.js browserFinished)
+    // Fires when Capacitor Browser plugin closes (Android — from bridge.js browserFinished)
     const onBrowserClosed = () => {
-      console.log('[AUTH] Received mediavault-oauth-browser-closed â€” checking session & clipboard...');
+      console.log('[AUTH] Received mediavault-oauth-browser-closed — checking session & clipboard...');
       setTimeout(checkActiveSession, 200);
       setTimeout(checkActiveSession, 800);
       setTimeout(checkActiveSession, 2000);
@@ -405,14 +421,14 @@
     if (App && typeof App.addListener === 'function') {
       try {
         App.addListener('resume', () => {
-          console.log('[AUTH] App resumed â€” checking session...');
+          console.log('[AUTH] App resumed — checking session...');
           setTimeout(checkActiveSession, 200);
           setTimeout(checkActiveSession, 1000);
         }).then(h => { appResumeHandle = h; }).catch(() => {});
 
         App.addListener('appStateChange', (state) => {
           if (state && state.isActive) {
-            console.log('[AUTH] App became active â€” checking session...');
+            console.log('[AUTH] App became active — checking session...');
             setTimeout(checkActiveSession, 200);
             setTimeout(checkActiveSession, 1000);
           }
@@ -436,7 +452,7 @@
     if (manualCheckBtn) {
       manualCheckBtn.onclick = async () => {
         manualCheckBtn.disabled = true;
-        manualCheckBtn.textContent = 'Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù‚Ù‚...';
+        manualCheckBtn.textContent = 'Checking...';
         await checkActiveSession();
         // If still on this screen, attempt to read clipboard and fill the input
         try {
@@ -455,7 +471,7 @@
         setTimeout(() => {
           if (manualCheckBtn) {
             manualCheckBtn.disabled = false;
-            manualCheckBtn.textContent = 'ðŸ”„ Check login status (or clipboard)';
+            manualCheckBtn.textContent = '🔄 Check login status (or clipboard)';
           }
         }, 1500);
       };
@@ -469,24 +485,22 @@
         const rawVal = inputEl.value.trim();
         if (!rawVal) return;
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Ø¬Ø§Ø±ÙŠ Ø§Ù„Confirm...';
+        submitBtn.textContent = 'Verifying...';
         try {
           cleanupListeners();
           const handled = await handleOAuthDeepLink(rawVal);
           if (!handled) {
-            showToast('âŒ Invalid link or token.');
+            showToast('❌ Invalid link or token.');
             submitBtn.disabled = false;
             submitBtn.textContent = 'Confirm';
           }
         } catch (err) {
-          showToast('âŒ Verification failed: ' + err.message);
+          showToast('❌ Verification failed: ' + err.message);
           submitBtn.disabled = false;
           submitBtn.textContent = 'Confirm';
         }
       };
     }
-
-    await window.api.cloudOAuthLogin(data.url);
   }
 
 
@@ -1007,7 +1021,7 @@
     btn.disabled = loading;
     if (loading) {
       btn.dataset.prevLabel = btn.textContent;
-      btn.innerHTML = '<span class="auth-spinner"></span>Please waitâ€¦';
+      btn.innerHTML = '<span class="auth-spinner"></span>Please wait...';
     } else {
       btn.textContent = btn.dataset.prevLabel || (authMode === 'register' ? 'Create account' : 'Sign in');
     }
@@ -1046,7 +1060,7 @@
             <label class="auth-label" for="auth-email">Email</label>
             <div class="auth-input-wrap">
               <i class="fa-regular fa-envelope" aria-hidden="true"></i>
-              <input id="auth-email" class="auth-input" type="email" autocomplete="email" placeholder="you@example.com" required>
+              <input id="auth-email" class="auth-input" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@example.com" required>
             </div>
           </div>
           <div class="auth-field">
@@ -1057,7 +1071,7 @@
 
             <div class="auth-input-wrap">
               <i class="fa-solid fa-lock" aria-hidden="true"></i>
-              <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required>
+              <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="••••••••" required>
             </div>
           </div>
           <button type="submit" id="auth-submit" class="auth-submit">Sign in</button>
@@ -1190,7 +1204,7 @@
 
       <form id="auth-otp-form" style="display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%;">
         <div class="auth-field" style="width: 100%; display: flex; justify-content: center;">
-          <input id="auth-otp-input" class="auth-input" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢" autofocus
+          <input id="auth-otp-input" class="auth-input" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="••••••••" autofocus
             style="width: 220px; text-align: center; font-size: 28px; letter-spacing: 10px; font-family: monospace; font-weight: 900; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.25); color: #fff;" required>
         </div>
         <button type="submit" id="auth-otp-submit" class="auth-submit" style="width: 100%;">Verify and Log in</button>
@@ -1314,7 +1328,7 @@
 
   async function handleAuthLogin() {
     const overlay = document.getElementById('auth-overlay');
-    const email = overlay.querySelector('#auth-email').value.trim();
+    const email = overlay.querySelector('#auth-email').value.trim().toLowerCase();
     const password = overlay.querySelector('#auth-password').value;
     const msgEl = overlay.querySelector('#auth-msg');
     clearAuthMessage(msgEl);
@@ -1339,7 +1353,7 @@
         const rawErr = result?.message || result?.error || 'Incorrect email or password';
         console.error('[AUTH] Login failed:', rawErr, result?.details ? '| details: ' + result.details : '');
         let userMsg = rawErr;
-        if (rawErr.includes('Invalid email or password') || rawErr.includes('INVALID_CREDENTIALS')) {
+        if (rawErr.includes('Invalid email or password') || rawErr.includes('INVALID_CREDENTIALS') || rawErr.includes('Invalid login credentials')) {
           userMsg = 'Incorrect email or password';
         } else if (rawErr.includes('timed out')) {
           userMsg = 'Server connection timed out, please try again';
@@ -1395,7 +1409,7 @@
     } catch (e) {
       console.error('[AUTH] Login error', e);
       let errorMsg = e.message || 'Login failed';
-      if (errorMsg.includes('Invalid email or password') || errorMsg.includes('INVALID_CREDENTIALS')) {
+      if (errorMsg.includes('Invalid email or password') || errorMsg.includes('INVALID_CREDENTIALS') || errorMsg.includes('Invalid login credentials')) {
         errorMsg = 'Incorrect email or password';
       } else if (errorMsg.includes('timed out')) {
         errorMsg = 'Server connection timed out, please try again';
@@ -1412,7 +1426,7 @@
 
   async function handleAuthRegister() {
     const overlay = document.getElementById('auth-overlay');
-    const email = overlay.querySelector('#auth-email').value.trim();
+    const email = overlay.querySelector('#auth-email').value.trim().toLowerCase();
     const password = overlay.querySelector('#auth-password').value;
     const username = overlay.querySelector('#auth-username')?.value.trim() || '';
     const msgEl = overlay.querySelector('#auth-msg');
@@ -1447,7 +1461,7 @@
       }
 
       console.log('[AUTH] Registration success. Auto-logging in...');
-      setAuthMessage(msgEl, 'Account created â€” signing you inâ€¦', true);
+      setAuthMessage(msgEl, 'Account created — signing you in...', true);
       authMode = 'login';
       await handleAuthLogin();
     } catch (e) {
@@ -3599,7 +3613,7 @@
       if (cast && cast.length) {
         return cast.filter(c => c.profile_path || c.image).map(c => ({
           src: c.profile_path || c.image,
-          label: (c.character || c.name) + (c.role ? ` â€¢ ${c.role}` : ''),
+          label: (c.character || c.name) + (c.role ? ` • ${c.role}` : ''),
           type: 'avatar'
         }));
       }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MediaVault Bridge v4.0
  * Handles real API fetching, robust data persistence, and
  * INTERNAL VIDEO PLAYER for Android/Mobile.
@@ -37,11 +37,11 @@
 
     if (isElectron) return;
 
-    // Supabase configuration â€” set by supabase-public.js or preload (Electron)
+    // Supabase configuration — set by supabase-public.js or preload (Electron)
     const SUPABASE_URL = window.SUPABASE_URL || window.MEDIAVAULT_SUPABASE_URL || window.NEXT_PUBLIC_SUPABASE_URL || 'https://vvjnkgdrhyxilnderjdy.supabase.co';
     const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || window.MEDIAVAULT_SUPABASE_ANON_KEY || window.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2am5rZ2RyaHl4aWxuZGVyamR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMTM2ODEsImV4cCI6MjA5NDg4OTY4MX0.Rb1OLJGXDToYZz-8h_gy2UNx_ou0P6BwGXc1ExFWSCU';
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      console.warn('[Bridge] Supabase config missing â€” load js/supabase-public.js or set env in .env');
+      console.warn('[Bridge] Supabase config missing — load js/supabase-public.js or set env in .env');
     } else {
       console.log('[Bridge] Supabase configured:', SUPABASE_URL.replace(/^https?:\/\//, '').split('/')[0]);
     }
@@ -356,7 +356,7 @@
     }
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    //  PLAY MEDIA SERVICE â€” Internal Player via Local HTTP Server
+    //  PLAY MEDIA SERVICE — Internal Player via Local HTTP Server
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  All "Play" actions on mobile go through this service.
     //  Phase 3: Local HTTP Server serves files at http://localhost
@@ -471,7 +471,7 @@
         },
 
         /**
-         * Universal entry point â€” routes to Internal Player via Local HTTP Server.
+         * Universal entry point — routes to Internal Player via Local HTTP Server.
          *
          * For local files: resolves path â†’ serves via localhost â†’ returns streamable URL
          * For HTTP streams: passes URL directly (no server needed)
@@ -567,11 +567,11 @@
     let cloudSession = null;
 
     // Cross-platform storage helpers. Persistence layers, in order:
-    //   1. @capacitor/preferences (native, survives restart) â€” best on Android
-    //   2. localStorage â€” also survives restart in the Capacitor Android WebView and
+    //   1. @capacitor/preferences (native, survives restart) — best on Android
+    //   2. localStorage — also survives restart in the Capacitor Android WebView and
     //      in the browser, so the app stays logged in even before the native plugin is
     //      installed via `npx cap sync`
-    //   3. in-memory Map â€” last resort, keeps values stable within the session
+    //   3. in-memory Map — last resort, keeps values stable within the session
     const _memoryStore = new Map();
     // Prefer @capacitor/preferences (Capacitor 4+), fall back to the legacy
     // @capacitor/storage plugin name if present.
@@ -715,7 +715,7 @@
         return false;
     }
 
-    // Get Android device hardware ID â€” persistent across app restarts.
+    // Get Android device hardware ID — persistent across app restarts.
     // Cached in-memory so it stays IDENTICAL for every call within a session even if
     // the persistent store is unavailable. Without this, a missing storage/Device
     // plugin produced a brand-new random ID on each call, registering a new device
@@ -840,7 +840,7 @@
         storageRemove: storageRemove,
         storageClear: storageClear,
 
-        // Persistence â€” Stored via Capacitor Storage on mobile
+        // Persistence — Stored via Capacitor Storage on mobile
         loadData: async () => {
             try {
                 const storedRaw = await storageGet(STORAGE_KEY);
@@ -924,7 +924,7 @@
                         (sessionRow.user.is_banned === true || sessionRow.user.is_banned === 'true');
 
                     if (isBanned) {
-                        // Account is banned â€” block regardless of any local session.
+                        // Account is banned — block regardless of any local session.
                         console.warn('[Bridge] User is banned:', sessionRow.user.email);
                         await storageSet('mediavault_device_banned', 'true');
                         const cleared = {
@@ -938,7 +938,7 @@
 
                     // Not banned: device_session only said "no" because this device isn't
                     // bound yet (typical for Google/Discord OAuth users). If a VALID
-                    // Supabase Auth session exists, the user IS logged in â€” bind the device
+                    // Supabase Auth session exists, the user IS logged in — bind the device
                     // and continue instead of destroying the session. This is the login-loop fix.
                     let supaUser = null;
                     try {
@@ -950,7 +950,7 @@
                     } catch (e) { /* no valid Supabase session */ }
 
                     if (supaUser && supaUser.id) {
-                        console.log('[Bridge] device_session=false but valid Supabase session present â€” recovering instead of wiping.');
+                        console.log('[Bridge] device_session=false but valid Supabase session present — recovering instead of wiping.');
 
                         // Best-effort: bind this device so device_session works next launch.
                         try {
@@ -989,7 +989,7 @@
                             console.warn('[Bridge] device_session unauthenticated, but preserving valid local session.');
                             return { ...localData, hardwareId: hwId };
                         }
-                        console.warn('[Bridge] No valid session â€” clearing local auth state.');
+                        console.warn('[Bridge] No valid session — clearing local auth state.');
                         const cleared = {
                             ...(localData || {}),
                             authenticated: false, user: null, profiles: [], activeProfileId: null
@@ -1251,7 +1251,7 @@
                                         if (delListsError) throw delListsError;
                                     }
 
-                                    // NOTE: Auto-leave on sync REMOVED â€” caused race condition deleting
+                                    // NOTE: Auto-leave on sync REMOVED — caused race condition deleting
                                     // newly-accepted invitations. Leave via explicit user action only.
 
                                     for (const localList of localLists) {
@@ -1483,7 +1483,7 @@
                 return result;
             }
 
-            return result || { error: lastError || 'Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ Ø£Ùˆ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ØºÙŠØ± ØµØ­ÙŠØ­Ø©' };
+            return result || { error: lastError || 'Invalid email or password' };
         },
 
         cloudRegister: async (email, password, username = '') => {
@@ -1629,23 +1629,44 @@
                 }));
 
                 if (!rpcRes || rpcRes.error) {
-                    return { error: rpcRes?.message || rpcRes?.error || 'ÙØ´Ù„ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ø±Ù…Ø² QR' };
+                    return { error: rpcRes?.message || rpcRes?.error || 'Failed to sign in with QR code' };
                 }
 
                 const refreshToken = rpcRes.refresh_token;
-                if (!refreshToken) {
-                    return { error: 'No refresh token received from QR claim' };
-                }
+                const accessToken = rpcRes.access_token;
+                let session = null;
+                let user = rpcRes.user;
 
                 const client = getSupabaseClient();
-                const { data: sessionData, error: refreshError } = await client.auth.refreshSession({
-                    refresh_token: refreshToken
-                });
-
-                if (refreshError) throw refreshError;
-
-                const session = sessionData.session;
-                const user = sessionData.user || rpcRes.user;
+                if (client) {
+                    if (accessToken) {
+                        try {
+                            const { data: sData, error: sErr } = await client.auth.setSession({
+                                access_token: accessToken,
+                                refresh_token: refreshToken || ''
+                            });
+                            if (!sErr && sData?.session) {
+                                session = sData.session;
+                                user = sData.user || user;
+                            }
+                        } catch (sEx) {
+                            console.warn('[Bridge] setSession in claimQrSession failed:', sEx.message);
+                        }
+                    }
+                    if (!session && refreshToken) {
+                        try {
+                            const { data: sessionData, error: refreshError } = await client.auth.refreshSession({
+                                refresh_token: refreshToken
+                            });
+                            if (!refreshError && sessionData?.session) {
+                                session = sessionData.session;
+                                user = sessionData.user || user;
+                            }
+                        } catch (rEx) {
+                            console.warn('[Bridge] refreshSession in claimQrSession failed:', rEx.message);
+                        }
+                    }
+                }
 
                 const result = {
                     success: true,
@@ -1802,11 +1823,8 @@
                     let browserFinishedHandle = null;
                     try {
                         browserFinishedHandle = await Browser.addListener('browserFinished', () => {
-                            console.log('[Bridge] OAuth Browser closed â€” checking for active session...');
-                            // Dispatch a synthetic event that auth.js is already listening for.
+                            console.log('[Bridge] OAuth Browser closed — checking for active session...');
                             window.dispatchEvent(new CustomEvent('mediavault-oauth-browser-closed'));
-                            // Also force a getLaunchUrl check â€” the deep link may have been
-                            // delivered as a launch intent instead of appUrlOpen.
                             const App = window.Capacitor?.Plugins?.App;
                             if (App) {
                                 [0, 400, 900, 1800].forEach(delay => {
@@ -1826,8 +1844,12 @@
                         console.warn('[Bridge] Could not attach browserFinished listener:', e.message);
                     }
 
-                    await Browser.open({ url, toolbarColor: '#050508' });
-                    return true;
+                    try {
+                        await Browser.open({ url, toolbarColor: '#050508' });
+                        return true;
+                    } catch (openErr) {
+                        console.warn('[Bridge] Browser.open rejected, falling back to system intent/window.open:', openErr);
+                    }
                 }
 
                 // Fallback: Force external browser open on Android WebView
@@ -1838,9 +1860,16 @@
                     a.rel = 'noopener noreferrer';
                     document.body.appendChild(a);
                     a.click();
-                    document.body.removeChild(a);
+                    setTimeout(() => a.remove(), 100);
+                    return true;
                 } catch (e) {
-                    window.open(url, '_system') || (window.location.href = url);
+                    try {
+                        window.open(url, '_system');
+                        return true;
+                    } catch (_) {
+                        window.location.href = url;
+                        return true;
+                    }
                 }
             } else {
                 window.open(url, '_blank');
@@ -2075,7 +2104,7 @@
                         if (!allFilesCheck.granted) {
                             console.log('[Bridge] Requesting All Files Access via system settings...');
                             await LocalServer.requestAllFilesAccess();
-                            // The user is taken to Settings â€” we return true but they need to grant it
+                            // The user is taken to Settings — we return true but they need to grant it
                             return true;
                         }
                     } catch (e) {
@@ -2089,7 +2118,7 @@
             }
         },
 
-        // TMDB functions removed â€” use Cinemeta/Kitsu APIs instead
+        // TMDB functions removed — use Cinemeta/Kitsu APIs instead
 
         cinemetaSearch: async (query) => {
             try {
@@ -2276,7 +2305,7 @@
             const results = [];
             const stremioType = type === 'movie' ? 'movie' : 'series';
             
-            // Default Providers â€” Anime Alt (Kitsu) removed; all streams go through standard IMDb-based IDs.
+            // Default Providers — Anime Alt (Kitsu) removed; all streams go through standard IMDb-based IDs.
             const providers = [
                 { name: 'Torrentio', url: 'https://torrentio.strem.fun', icon: 'fas fa-bolt' },
                 { name: 'KnightCrawler', url: 'https://main.knightcrawler.elfhosted.com', icon: 'fas fa-dragon' }
@@ -2292,9 +2321,9 @@
 
             const promises = providers.map(async (p) => {
                 try {
-                    // Guard: skip if imdbId is missing â€” prevents "null:1:5.json" URLs
+                    // Guard: skip if imdbId is missing — prevents "null:1:5.json" URLs
                     if (!imdbId || imdbId === 'null' || imdbId === 'undefined') {
-                        console.warn(`[Bridge] ${p.name}: skipping â€” no valid IMDb ID for "${title}"`);
+                        console.warn(`[Bridge] ${p.name}: skipping — no valid IMDb ID for "${title}"`);
                         return;
                     }
 
@@ -2507,7 +2536,7 @@
                 detail: { id, name: fileName, percent: 0, status: 'downloading', statusText: 'Starting...' }
             }));
 
-            // Use the outer isAndroid (window.Capacitor presence) â€” window.Capacitor.platform
+            // Use the outer isAndroid (window.Capacitor presence) — window.Capacitor.platform
             // is not a reliable property in Capacitor v5+; getPlatform() is the correct API.
             const onAndroid = isAndroid && window.Capacitor.Plugins.Filesystem;
 
@@ -2533,7 +2562,7 @@
                 // Ensure destination folder exists before downloading
                 try {
                     await fs.mkdir({ path: SAVE_SUBDIR, directory: SAVE_DIR, recursive: true });
-                } catch (e) { /* already exists â€” safe to ignore */ }
+                } catch (e) { /* already exists — safe to ignore */ }
 
                 // Register progress listener BEFORE starting the download.
                 // @capacitor/filesystem v5+ emits { url, bytes, contentLength } per chunk.
@@ -2907,7 +2936,7 @@
                         // Fallback for anime: use Kitsu ID format
                         stremioId = `kitsu:${tmdbId}:${episode || 1}`;
                     } else {
-                        console.warn(`[Bridge-Mobile] ${name}: skipping â€” no valid IMDb ID for "${title}"`);
+                        console.warn(`[Bridge-Mobile] ${name}: skipping — no valid IMDb ID for "${title}"`);
                         return;
                     }
 
@@ -3416,7 +3445,7 @@
         },
 
         /**
-         * playNative â€” Internal Player Handoff
+         * playNative — Internal Player Handoff
          * On mobile, ALL play actions route through PlayMediaService
          * which will serve local files via localhost and play in
          * the built-in HTML5 Internal Player.
@@ -3429,7 +3458,7 @@
         },
 
         /**
-         * playMedia â€” The canonical API for ALL mobile playback.
+         * playMedia — The canonical API for ALL mobile playback.
          * Routes to the Internal Player via PlayMediaService.
          */
         playExternal: async (url, meta = {}) => {
