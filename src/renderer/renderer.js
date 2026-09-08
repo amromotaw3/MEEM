@@ -104,7 +104,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Helper: Convert a local file path to a protocol URL that works with webSecurity=true
   // Returns the original value if it's already a URL (http/https/data:)
-  const APP_VERSION = '3.9.1'; // Sync with package.json
+  const APP_VERSION = '3.10.0'; // Sync with package.json
   function getSafeId(itemId) {
     try {
       const utf8Bytes = new TextEncoder().encode(String(itemId));
@@ -4390,7 +4390,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     addons: $('#view-addons'),
     'anime-schedule': $('#view-anime-schedule'),
     'custom-list-detail': $('#view-custom-list-detail'),
-    iptv: $('#view-iptv')
+    iptv: $('#view-iptv'),
+    'bug-report': $('#view-bug-report')
   };
 
   // Set Home as the default landing page
@@ -13905,7 +13906,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
     }
     if (name === 'discover') discoverStack = []; // Reset sub-navigation when going to main list
-    if (['library', 'movies', 'shows', 'social', 'music', 'radio', 'iptv', 'addons', 'watchlist', 'settings', 'account', 'discover', 'downloads', 'discover-detail', 'show-detail', 'subtitles', 'sync', 'player', 'music-player', 'profiles', 'hub', 'search', 'custom-list-detail', 'anime-schedule'].includes(name)) {
+    if (['library', 'movies', 'shows', 'social', 'music', 'radio', 'iptv', 'addons', 'watchlist', 'settings', 'account', 'discover', 'downloads', 'discover-detail', 'show-detail', 'subtitles', 'sync', 'player', 'music-player', 'profiles', 'hub', 'search', 'custom-list-detail', 'anime-schedule', 'bug-report'].includes(name)) {
       if (name === 'custom-list-detail') {
         if (activeCustomListId && (currentView === 'discover-detail' || currentView === 'player' || currentView === 'music-player')) {
           renderCustomListDetail(activeCustomListId);
@@ -13915,6 +13916,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (!name.includes('detail')) appData.lastView = name;
       persist();
       window.scrollTo(0, 0); // Smart scroll: Reset scroll to top when changing views
+      if (name === 'bug-report') {
+        if (typeof checkAndApplyAdminState === 'function') checkAndApplyAdminState();
+      }
       if (name === 'radio') {
         if (typeof initRadioView === 'function') initRadioView();
       }
@@ -17688,7 +17692,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Finalize UI with current version
   try {
-    const ver = APP_VERSION || '3.9.1';
+    const ver = APP_VERSION || '3.10.0';
     if ($('#app-version-label')) $('#app-version-label').textContent = `MEEM v${ver}`;
     if ($('#settings-app-version')) $('#settings-app-version').textContent = `v${ver}`;
   } catch (e) { }
