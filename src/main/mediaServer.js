@@ -79,6 +79,32 @@ function startPersistentServer(onStarted) {
       return;
     }
 
+    // 2.6 API Endpoint: Player Playback Progress Reporting (from MEEM Player)
+    if (pathname === '/api/player/progress') {
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+          try {
+            const data = JSON.parse(body);
+            const { handleExternalPlayerProgress } = require('./ipc/mediaPlay');
+            if (typeof handleExternalPlayerProgress === 'function') {
+              await handleExternalPlayerProgress(data);
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+          } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+          }
+        });
+      } else {
+        res.writeHead(405);
+        res.end();
+      }
+      return;
+    }
+
     // 2. Poster Endpoint: Proxy local banner files
     if (pathname.startsWith('/api/poster/')) {
       const bannerId = pathname.replace('/api/poster/', '');
@@ -202,7 +228,7 @@ function startPersistentServer(onStarted) {
           ];
         }
 
-        const ffmpegProcess = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const ffmpegProcess = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         
         ffmpegProcess.stderr.on('data', (data) => {
           console.error(`[SyncServer/FFmpeg] ${data.toString().trim()}`);
@@ -296,7 +322,7 @@ function startPersistentServer(onStarted) {
     if (bonjour) {
       try {
         bonjourService = bonjour.publish({
-          name: `MediaVault-${localIp.replace(/\./g, '-')}`,
+          name: `MediaVault-${(primaryIp || 'device').replace(/\./g, '-')}`,
           type: 'mediavault',
           protocol: 'tcp',
           port: port,

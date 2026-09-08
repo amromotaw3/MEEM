@@ -256,6 +256,76 @@ class StremioAddonService {
     return results.flat();
   }
 
+  generateVidSrcStreams(query) {
+    const { imdbId, tmdbId, type, season, episode, title } = query || {};
+    const cleanTmdb = tmdbId ? String(tmdbId).replace(/^tmdb:/, '') : null;
+    const targetId = cleanTmdb || (imdbId && String(imdbId).startsWith('tt') ? imdbId : null) || imdbId;
+    if (!targetId) return [];
+
+    const isSeries = type === 'series' || type === 'tv' || type === 'anime' || (season != null && episode != null);
+    const sn = season || 1;
+    const ep = episode || 1;
+    const displayTitle = title || 'Instant Stream';
+
+    const vidsrcStreams = [];
+
+    // Primary: VidSrc SBS
+    const sbsUrl = isSeries
+      ? `https://vidsrc.sbs/embed/tv/${targetId}/${sn}/${ep}`
+      : `https://vidsrc.sbs/embed/movie/${targetId}`;
+
+    vidsrcStreams.push({
+      addon: 'VidSrc SBS',
+      name: 'VidSrc SBS (Instant Play)',
+      title: `⚡ VidSrc SBS — ${displayTitle} [HD 1080p]`,
+      quality: '1080p',
+      icon: '⚡',
+      url: sbsUrl,
+      type: 'embed',
+      isDirectStream: true,
+      isVidSrc: true,
+      seeds: 99999
+    });
+
+    // Mirror 1: VidSrc ME
+    const meUrl = isSeries
+      ? `https://vidsrc.me/embed/tv?${imdbId && String(imdbId).startsWith('tt') ? 'imdb=' + imdbId : 'tmdb=' + targetId}&season=${sn}&episode=${ep}`
+      : `https://vidsrc.me/embed/movie?${imdbId && String(imdbId).startsWith('tt') ? 'imdb=' + imdbId : 'tmdb=' + targetId}`;
+
+    vidsrcStreams.push({
+      addon: 'VidSrc ME',
+      name: 'VidSrc ME Mirror',
+      title: `🌐 VidSrc ME — ${displayTitle} [HD]`,
+      quality: '1080p',
+      icon: '🌐',
+      url: meUrl,
+      type: 'embed',
+      isDirectStream: true,
+      isVidSrc: true,
+      seeds: 88888
+    });
+
+    // Mirror 2: VidSrc CC
+    const ccUrl = isSeries
+      ? `https://vidsrc.cc/v2/embed/tv/${targetId}/${sn}/${ep}`
+      : `https://vidsrc.cc/v2/embed/movie/${targetId}`;
+
+    vidsrcStreams.push({
+      addon: 'VidSrc CC',
+      name: 'VidSrc CC Mirror',
+      title: `🎬 VidSrc CC — ${displayTitle} [1080p]`,
+      quality: '1080p',
+      icon: '🎬',
+      url: ccUrl,
+      type: 'embed',
+      isDirectStream: true,
+      isVidSrc: true,
+      seeds: 77777
+    });
+
+    return vidsrcStreams;
+  }
+
   /** Universal entry point — routes by content type. */
   async getStreams(query) {
     let { imdbId, kitsuId, type, season, episode, title } = query;
@@ -271,8 +341,14 @@ class StremioAddonService {
         imdbId = null;
       }
     }
-    // console.log(`[StremioAddon] getStreams() — type=${type}, imdb=${imdbId}, kitsu=${kitsuId}, S${season}E${episode}, "${title}"`);
 
+    const hasVidSrc = (this.installedAddons || []).some(a => {
+      const id = (a.id || '').toLowerCase();
+      const name = (a.name || '').toLowerCase();
+      const url = (a.url || a.manifestUrl || '').toLowerCase();
+      return id.includes('vidsrc') || name.includes('vidsrc') || url.includes('vidsrc');
+    });
+    const vidsrcStreams = hasVidSrc ? this.generateVidSrcStreams(query) : [];
     let streams = [];
 
     switch (type) {
@@ -285,7 +361,6 @@ class StremioAddonService {
         break;
       case 'anime':
         streams = await this.getAnimeStreams({ imdbId, kitsuId, season, episode });
-        // If no streams from anime-specific path, also try series route (covers Peario + torrent addons)
         if (!streams.length && imdbId) {
           streams = await this.getSeriesStreams(imdbId, season, episode);
         }
@@ -299,15 +374,16 @@ class StremioAddonService {
         }
     }
 
+    const allStreams = [...vidsrcStreams, ...streams];
+
     // Sort: quality first, then seeds
     const qOrder = { '4K': 5, '1080p': 4, '720p': 3, 'HD': 2, '480p': 1, 'CAM': 0, 'Unknown': -1 };
-    streams.sort((a, b) => {
+    allStreams.sort((a, b) => {
       const qd = (qOrder[b.quality] || 0) - (qOrder[a.quality] || 0);
       return qd !== 0 ? qd : (b.seeds || 0) - (a.seeds || 0);
     });
 
-    // console.log(`[StremioAddon] Total streams found: ${streams.length}`);
-    return streams;
+    return allStreams;
   }
 
   /**

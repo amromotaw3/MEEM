@@ -11,7 +11,7 @@
         flex-direction: column !important; /* Stack vertically */
     }
 
-    #sidebar {
+    #sidebar:not(.drawer-open) {
         display: none !important;
     }
 
@@ -19,24 +19,24 @@
         display: none !important; /* Fully Hide Top Bar as requested */
     }
 
-    /* Premium Dark Mode - Clean White Accent */
+    /* Premium Dark Mode - True Luxury Obsidian Monochrome */
     :root {
-        --bg: radial-gradient(circle at 20% 0%, #141422 0%, #0a0a14 85%, #050508 100%) !important;
-        --bg-content: #08080c !important; 
-        --bg-surface: #131320 !important; 
-        --bg-surface-2: #1a1a2e !important;
-        --bg-card: #131320 !important;
+        --bg: #050508 !important;
+        --bg-content: #050508 !important; 
+        --bg-surface: #09090f !important; 
+        --bg-surface-2: #111116 !important;
+        --bg-card: #0d0d12 !important;
         --text-primary: #ffffff !important;
-        --text-secondary: #a0aec0 !important;
-        --text-muted: #718096 !important;
-        --border: rgba(255, 255, 255, 0.18) !important; 
+        --text-secondary: #a1a1aa !important;
+        --text-muted: #71717a !important;
+        --border: rgba(255, 255, 255, 0.14) !important; 
         --accent: #ffffff !important;
         --accent-light: rgba(255, 255, 255, 0.14) !important;
         --accent-glow: rgba(255, 255, 255, 0.25) !important;
     }
 
     body {
-        background: var(--bg) !important;
+        background: #050508 !important;
         background-attachment: fixed !important;
         color: var(--text-primary) !important;
     }
@@ -94,31 +94,19 @@
         opacity: 0.5;
     }
 
-    /* 3. The Premium Bottom Dock (Improved & Centered) */
-    #mobile-dock, .mobile-dock-contextual {
-        display: flex !important;
-        position: fixed;
-        bottom: calc(15px + env(safe-area-inset-bottom));
-        left: 50%;
-        transform: translateX(-50%);
-        width: 94% !important; /* Fixed width for consistency */
-        max-width: 520px; /* Increased to fit 7 buttons comfortably */
-        height: var(--dock-h);
-        background: rgba(18, 18, 28, 0.95) !important; 
-        backdrop-filter: blur(24px) saturate(210%);
-        -webkit-backdrop-filter: blur(24px) saturate(210%);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 22px;
-        z-index: 100001; /* Above the detail view which uses 99999 */
-        justify-content: space-around; /* Distribute buttons evenly */
-        gap: 0;
-        padding: 0 8px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
-        animation: dockPop 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    }
-
-    #mobile-dock.active, .mobile-dock-contextual.active {
-        display: flex !important;
+    /* 3. Hide Mobile Bottom Dock (Replaced by Top-Left 3-Bars Hamburger Drawer) */
+    #mobile-dock,
+    #mobile-dock.active,
+    .mobile-dock-contextual,
+    .mobile-dock-contextual.active,
+    .dd-mobile-bottom-nav {
+        display: none !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        height: 0 !important;
+        width: 0 !important;
+        overflow: hidden !important;
     }
 
     @keyframes dockPop {
@@ -766,7 +754,7 @@
     #view-discover-detail {
         padding: 0 !important;
         overflow: hidden !important; /* Block all scrolling */
-        background: radial-gradient(circle at 50% 0%, #1a1a2e 0%, #050508 100%) !important;
+        background: #050508 !important;
         height: 100vh !important;
         width: 100vw !important;
         position: fixed !important;
@@ -1190,18 +1178,33 @@
     #profile-list {
         display: grid !important;
         grid-template-columns: repeat(2, 1fr) !important;
-        gap: 20px !important;
+        gap: 24px !important;
         width: 100%;
-        max-width: 320px;
+        max-width: 380px;
     }
 
     .profile-avatar-box {
-        width: 90px !important;
-        height: 90px !important;
+        width: 130px !important;
+        height: 130px !important;
+        border-width: 3px !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.6) !important;
     }
 
     .profile-card span {
-        font-size: 1rem !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+        margin-top: 10px !important;
+    }
+
+    #mobile-dock .nav-btn[data-view="account"],
+    #mobile-dock .nav-btn[data-view="profiles"] {
+        width: 72px !important;
+    }
+
+    #mobile-dock .nav-btn[data-view="account"] i,
+    #mobile-dock .nav-btn[data-view="profiles"] i {
+        font-size: 26px !important;
+        color: var(--accent) !important;
     }
 
     /* 14. Profile Modal Redesign */
@@ -1684,6 +1687,98 @@
         padding: 10px 10px 40px !important;
     }
 
+    /* Smaller compact cards grid unified across Movies, Shows, Watchlist, and Custom Lists */
+    #view-movies .card-grid,
+    #view-shows .card-grid,
+    #movies-grid,
+    #shows-grid,
+    #movies-no-images-grid,
+    #shows-no-images-grid,
+    #view-watchlist .card-grid,
+    #watchlist-grid,
+    #watched-grid,
+    #watchlist-live-grid,
+    #view-custom-list-detail .card-grid,
+    #custom-list-grid,
+    .watchlist-grid,
+    .watchlist-grid-cinematic {
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 8px !important;
+        padding: 8px 4px 30px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    #view-movies .media-card,
+    #view-shows .media-card,
+    #movies-grid .media-card,
+    #shows-grid .media-card,
+    #view-watchlist .media-card,
+    #watchlist-grid .media-card,
+    #watched-grid .media-card,
+    #view-custom-list-detail .media-card,
+    .watchlist-grid .media-card {
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0 !important;
+    }
+
+    #view-movies .card-poster,
+    #view-shows .card-poster,
+    #movies-grid .card-poster,
+    #shows-grid .card-poster,
+    #view-watchlist .card-poster,
+    #watchlist-grid .card-poster,
+    #watched-grid .card-poster {
+        width: 100% !important;
+        padding-top: 142% !important; /* Standard 2:3 compact poster aspect ratio matching My List */
+        border-radius: 11px 11px 0 0 !important;
+        overflow: hidden !important;
+    }
+
+    #view-movies .card-info,
+    #view-shows .card-info,
+    #movies-grid .card-info,
+    #shows-grid .card-info,
+    #view-watchlist .card-info,
+    #view-custom-list-detail .card-info,
+    .watchlist-grid .card-info {
+        padding: 6px 6px 8px !important;
+    }
+
+    #view-movies .card-title,
+    #view-shows .card-title,
+    #movies-grid .card-title,
+    #shows-grid .card-title,
+    #view-watchlist .card-title,
+    #view-custom-list-detail .card-title,
+    .watchlist-grid .card-title {
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        line-height: 1.25 !important;
+        margin-bottom: 2px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    #view-movies .card-meta,
+    #view-shows .card-meta,
+    #movies-grid .card-meta,
+    #shows-grid .card-meta,
+    #view-watchlist .card-meta,
+    #view-custom-list-detail .card-meta,
+    .watchlist-grid .card-meta {
+        font-size: 9.5px !important;
+        opacity: 0.6 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
     /* Search Box Premium Overhaul */
     .discover-search-box {
         width: 100% !important;
@@ -1723,17 +1818,22 @@
         margin-bottom: 15px !important; /* Fixed huge gap */
     }
 
-    /* Smart Scroll for My Space - Fully Transparent with Blur */
+    /* Categories & Headers - Normal Scrolling (Not Sticky) */
+    .discover-sticky-bar,
     #view-movies .myspace-header-sticky,
     #view-shows .myspace-header-sticky,
     #view-music .myspace-header-sticky,
-    #view-social .myspace-header-sticky {
-        position: sticky !important;
-        top: 60px !important;
-        z-index: 90 !important;
-        background: rgba(5, 5, 8, 0.7) !important;
-        backdrop-filter: blur(10px) !important;
-        -webkit-backdrop-filter: blur(10px) !important;
+    #view-social .myspace-header-sticky,
+    .genre-pills,
+    .category-chips,
+    .radio-category-bar,
+    .iptv-category-pills {
+        position: relative !important;
+        top: auto !important;
+        z-index: 1 !important;
+        background: transparent !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
         padding-top: 10px !important;
         padding-bottom: 10px !important;
     }
@@ -1999,7 +2099,7 @@
         --dock-h: 64px !important;
     }
 
-    #sidebar { display: none !important; }
+    #sidebar:not(.drawer-open) { display: none !important; }
     #content { margin-left: 0 !important; width: 100% !important; padding-bottom: 80px !important; }
 
     /* 13. Mobile Overlays & Modals */
@@ -2015,8 +2115,8 @@
         padding: 0 !important;
         overflow-y: auto !important;
         overflow-x: hidden !important;
-        /* Use app radial gradient as page background */
-        background: radial-gradient(circle at 20% 0%, #141422 0%, #0a0a14 85%, #050508 100%) !important;
+        /* Pure obsidian page background */
+        background: #050508 !important;
         position: relative !important;
         min-height: 100vh !important;
         display: none !important;
@@ -2881,5 +2981,969 @@ body.modal-open .modal-overlay {
         grid-template-columns: repeat(2, 1fr) !important;
         gap: 16px !important;
     }
+}
 
+/* New top-level media query for Mobile Drawer Sidebar */
+@media (max-width: 1080px) {
+    /* ══════════════════════════════════════════════════════════════
+       MEEM LUXURY OBSIDIAN MOBILE DRAWER OVERHAUL
+       ══════════════════════════════════════════════════════════════ */
+
+    /* Mobile Drawer Header with MEEM branding & circular close button */
+    .mobile-drawer-header {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        padding: calc(env(safe-area-inset-top, 0px) + 16px) 18px 14px 18px !important;
+        background: rgba(255, 255, 255, 0.02) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+        flex-shrink: 0 !important;
+        box-sizing: border-box !important;
+    }
+
+    .drawer-brand {
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+
+    .drawer-brand-logo {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        border-radius: 9px !important;
+        object-fit: contain !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+        display: block !important;
+    }
+
+    .drawer-brand-text {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+    }
+
+    .drawer-brand-title {
+        font-size: 16px !important;
+        font-weight: 800 !important;
+        letter-spacing: 1.2px !important;
+        color: #ffffff !important;
+        text-transform: uppercase !important;
+        line-height: 1 !important;
+    }
+
+    .drawer-brand-badge {
+        font-size: 9px !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.8px !important;
+        padding: 2px 7px !important;
+        border-radius: 6px !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        color: #ffffff !important;
+        text-transform: uppercase !important;
+        line-height: 1.2 !important;
+    }
+
+    .drawer-close-btn {
+        width: 40px !important;
+        height: 40px !important;
+        min-width: 40px !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        border: none !important;
+        color: rgba(255, 255, 255, 0.75) !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer !important;
+        padding: 0 !important;
+        transition: opacity 0.2s ease, transform 0.2s ease !important;
+        outline: none !important;
+        box-shadow: none !important;
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent !important;
+    }
+
+    .drawer-close-btn:active {
+        transform: scale(0.88) !important;
+        background: transparent !important;
+        color: #ffffff !important;
+        opacity: 1 !important;
+    }
+
+    .drawer-close-btn svg {
+        width: 22px !important;
+        height: 22px !important;
+        stroke: currentColor !important;
+        stroke-width: 2.2 !important;
+    }
+
+    /* Sidebar Wrapper acts as the sliding drawer on mobile */
+    .sidebar-wrapper {
+        display: flex !important;
+        flex-direction: column !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: min(310px, 84vw) !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        z-index: 1000000 !important;
+        background: #050508 !important;
+        background-image: linear-gradient(180deg, #090910 0%, #050508 100%) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.09) !important;
+        box-shadow: 20px 0 60px rgba(0, 0, 0, 0.95) !important;
+        transform: translateX(-105%) !important;
+        transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
+    .sidebar-wrapper.drawer-open {
+        transform: translateX(0) !important;
+    }
+
+    /* Lock body background scrolling when mobile drawer is open */
+    body.mobile-drawer-active {
+        overflow: hidden !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        touch-action: none !important;
+    }
+
+    body.mobile-drawer-active #content,
+    body.mobile-drawer-active .view {
+        overflow: hidden !important;
+        pointer-events: none !important;
+    }
+
+    body.mobile-drawer-active .sidebar-wrapper {
+        pointer-events: auto !important;
+        touch-action: pan-y !important;
+    }
+
+    /* Reset #sidebar to center all buttons vertically with Settings under them */
+    .sidebar-wrapper.drawer-open #sidebar,
+    #sidebar.drawer-open,
+    #sidebar {
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        position: static !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        flex: 1 !important;
+        height: 100% !important;
+        min-height: 100% !important;
+        max-height: none !important;
+        background: transparent !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        border: none !important;
+        box-shadow: none !important;
+        transform: none !important;
+        padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 20px) 16px !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+        align-self: stretch !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        box-sizing: border-box !important;
+    }
+
+    .sidebar-wrapper #sidebar::-webkit-scrollbar {
+        display: none !important;
+    }
+
+    /* Hide Mobile Bottom Docks and Floating Search Button */
+    #mobile-dock, .mobile-dock-contextual, #floating-search-btn, .floating-search-btn {
+        display: none !important;
+    }
+
+    /* Hide top DASHBOARD title header */
+    .mobile-view-title,
+    #mobile-nav-header {
+        display: none !important;
+    }
+
+    /* Mobile Hamburger Menu Button next to Search Input */
+    .mobile-hamburger-nav-btn,
+    .mobile-hamburger-nav-btn.hide-on-pc {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 44px !important;
+        height: 44px !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+        border-radius: 13px !important;
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        color: #ffffff !important;
+        flex-shrink: 0 !important;
+        cursor: pointer !important;
+        transition: all 0.2s ease-in-out !important;
+        outline: none !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35) !important;
+    }
+
+    .mobile-hamburger-nav-btn:active,
+    .mobile-hamburger-nav-btn.hide-on-pc:active {
+        transform: scale(0.92) !important;
+        background: rgba(255, 255, 255, 0.16) !important;
+    }
+
+    .mobile-hamburger-nav-btn i,
+    .mobile-hamburger-nav-btn.hide-on-pc i {
+        font-size: 17px !important;
+        color: #ffffff !important;
+    }
+
+    /* Enlarge Profile Avatar Button next to Search input */
+    #btn-switch-profile-main-mobile,
+    .btn-switch-profile-main-dynamic.hide-on-pc {
+        display: flex !important;
+        width: 44px !important;
+        height: 44px !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+        border-radius: 50% !important;
+        border: 2px solid rgba(255, 255, 255, 0.8) !important;
+        box-shadow: 0 0 16px rgba(255, 255, 255, 0.2), 0 4px 14px rgba(0, 0, 0, 0.6) !important;
+        flex-shrink: 0 !important;
+        cursor: pointer !important;
+        margin-left: 8px !important;
+        transition: transform 0.2s ease !important;
+    }
+
+    #btn-switch-profile-main-mobile:active {
+        transform: scale(0.92) !important;
+    }
+
+    /* Sidebar groups & separation */
+    .sidebar-wrapper #sidebar .sidebar-group {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        margin: 0 0 10px 0 !important;
+        padding: 0 !important;
+    }
+
+    .sidebar-wrapper #sidebar .sidebar-separator {
+        display: block !important;
+        width: calc(100% - 16px) !important;
+        height: 1px !important;
+        margin: 10px 8px !important;
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: none !important;
+    }
+
+    .sidebar-wrapper #sidebar .sidebar-label,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .sidebar-label {
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: none !important;
+        position: static !important;
+        pointer-events: auto !important;
+        font-size: 10px !important;
+        font-weight: 800 !important;
+        letter-spacing: 1.6px !important;
+        color: rgba(255, 255, 255, 0.38) !important;
+        padding: 8px 14px 4px !important;
+        margin: 0 !important;
+        text-transform: uppercase !important;
+    }
+
+    /* Reset buttons and show texts/labels on mobile drawer */
+    .sidebar-wrapper #sidebar .nav-btn,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn {
+        width: 100% !important;
+        height: 48px !important;
+        min-height: 48px !important;
+        padding: 0 16px !important;
+        margin: 3px 0 !important;
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
+        gap: 15px !important;
+        border-radius: 14px !important;
+        background: transparent !important;
+        box-sizing: border-box !important;
+        outline: none !important;
+        border: 1px solid transparent !important;
+        cursor: pointer !important;
+        position: relative !important;
+        transition: background 0.15s ease, opacity 0.15s ease !important;
+        -webkit-tap-highlight-color: transparent !important;
+        touch-action: manipulation !important;
+        user-select: none !important;
+        -webkit-user-select: none !important;
+    }
+
+    /* Disable hover state shifts on mobile so first tap triggers click immediately without double-tap delay */
+    .sidebar-wrapper #sidebar .nav-btn:hover,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn:hover {
+        background: transparent !important;
+        transform: none !important;
+    }
+
+    .sidebar-wrapper #sidebar .nav-btn:active {
+        background: rgba(255, 255, 255, 0.08) !important;
+        transform: scale(0.97) !important;
+    }
+
+    .sidebar-wrapper #sidebar .nav-btn.active,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn.active {
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.05) 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.15) !important;
+        transform: none !important;
+    }
+
+    .sidebar-wrapper #sidebar .nav-btn svg,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn svg,
+    .sidebar-wrapper #sidebar .nav-btn i,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn i {
+        width: 19px !important;
+        height: 19px !important;
+        font-size: 17px !important;
+        margin: 0 !important;
+        color: rgba(255, 255, 255, 0.7) !important;
+        stroke: currentColor !important;
+        opacity: 0.85 !important;
+        flex-shrink: 0 !important;
+        transition: color 0.18s ease, opacity 0.18s ease !important;
+    }
+
+    .sidebar-wrapper #sidebar .nav-btn.active svg,
+    .sidebar-wrapper #sidebar .nav-btn.active i {
+        color: #ffffff !important;
+        opacity: 1 !important;
+        filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.3)) !important;
+    }
+
+    .sidebar-wrapper #sidebar .nav-btn span,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn span {
+        display: inline-block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: none !important;
+        position: static !important;
+        pointer-events: auto !important;
+        font-size: 13.5px !important;
+        font-weight: 500 !important;
+        color: rgba(255, 255, 255, 0.75) !important;
+        letter-spacing: 0.2px !important;
+        white-space: nowrap !important;
+        flex: 1 !important;
+        text-align: left !important;
+        transition: color 0.18s ease !important;
+    }
+
+    .sidebar-wrapper #sidebar .nav-btn.active span {
+        font-weight: 700 !important;
+        color: #ffffff !important;
+    }
+
+    /* Hide empty or non-visible badges in mobile drawer */
+    .sidebar-wrapper #sidebar .nav-badge:empty,
+    .sidebar-wrapper #sidebar .nav-badge:not(.visible),
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-badge:empty,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-badge:not(.visible) {
+        display: none !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        border: none !important;
+    }
+
+    /* Refined Luxury Pill Badge */
+    .sidebar-wrapper #sidebar .nav-badge.visible:not(:empty),
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-badge.visible:not(:empty) {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: none !important;
+        position: static !important;
+        pointer-events: auto !important;
+        margin-left: auto !important;
+        font-size: 10px !important;
+        font-weight: 800 !important;
+        background: rgba(255, 255, 255, 0.14) !important;
+        color: #ffffff !important;
+        padding: 0 7px !important;
+        border-radius: 999px !important;
+        border: 1px solid rgba(255, 255, 255, 0.22) !important;
+        height: 18px !important;
+        min-width: 18px !important;
+        flex: 0 0 auto !important;
+        box-sizing: border-box !important;
+        line-height: 1 !important;
+    }
+
+    /* Flyout Chevron Arrow - Pushed to Far Right Edge */
+    .sidebar-wrapper #sidebar .flyout-arrow,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .flyout-arrow {
+        display: block !important;
+        opacity: 0.7 !important;
+        visibility: visible !important;
+        position: absolute !important;
+        right: 14px !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        pointer-events: none !important;
+        color: rgba(255, 255, 255, 0.5) !important;
+        transition: transform 0.25s ease, color 0.25s ease !important;
+        margin-left: auto !important;
+    }
+
+    .sidebar-wrapper #sidebar .sidebar-flyout-wrap.open .flyout-arrow,
+    .sidebar-wrapper #sidebar .sidebar-flyout-wrap.active .flyout-arrow,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .sidebar-flyout-wrap.open .flyout-arrow,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .sidebar-flyout-wrap.active .flyout-arrow {
+        transform: translateY(-50%) rotate(90deg) !important;
+        color: #ffffff !important;
+        opacity: 1 !important;
+    }
+
+    /* Flyout Submenu - Collapsed by default, expanded when .open or .active */
+    .sidebar-wrapper #sidebar .sidebar-flyout-menu,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .sidebar-flyout-menu {
+        display: none !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        transition: all 0.25s ease !important;
+    }
+
+    .sidebar-wrapper #sidebar .sidebar-flyout-wrap.open .sidebar-flyout-menu,
+    .sidebar-wrapper #sidebar .sidebar-flyout-wrap.active .sidebar-flyout-menu,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .sidebar-flyout-wrap.open .sidebar-flyout-menu,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .sidebar-flyout-wrap.active .sidebar-flyout-menu {
+        display: flex !important;
+        flex-direction: column !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        height: auto !important;
+        overflow: visible !important;
+        transform: none !important;
+        position: static !important;
+        pointer-events: auto !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.07) !important;
+        border-radius: 12px !important;
+        padding: 4px !important;
+        margin: 4px 0 6px 0 !important;
+    }
+
+    .sidebar-wrapper #sidebar .flyout-header {
+        display: none !important;
+    }
+
+    .sidebar-wrapper #sidebar .flyout-item {
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        padding: 10px 12px !important;
+        margin: 2px 0 !important;
+        border-radius: 9px !important;
+        background: transparent !important;
+        color: rgba(255, 255, 255, 0.8) !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        border: none !important;
+        width: 100% !important;
+        cursor: pointer !important;
+        transition: all 0.18s ease !important;
+    }
+
+    .sidebar-wrapper #sidebar .flyout-item:active {
+        background: rgba(255, 255, 255, 0.08) !important;
+        color: #ffffff !important;
+    }
+
+    /* Settings Button & Last Sidebar Group inside Drawer - Grouped naturally under other buttons */
+    .sidebar-wrapper #sidebar .sidebar-group:last-of-type,
+    .sidebar-wrapper #sidebar .sidebar-group:last-child {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+        border-top: none !important;
+        margin-bottom: 8px !important;
+    }
+
+    .sidebar-wrapper #sidebar .sidebar-separator:last-of-type {
+        display: block !important;
+        margin: 10px 8px !important;
+    }
+
+    .sidebar-wrapper #sidebar #nav-settings,
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar #nav-settings {
+        margin-top: 0 !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+    }
+
+    .sidebar-wrapper #sidebar #nav-settings.active {
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.06) 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.22) !important;
+    }
+
+    /* ── IPTV View Mobile Overhaul ── */
+    #view-iptv {
+        padding: 12px 12px calc(var(--dock-h, 60px) + 30px) !important;
+        height: auto !important;
+        overflow-y: auto !important;
+    }
+
+    .iptv-container {
+        display: flex !important;
+        flex-direction: column !important;
+        height: auto !important;
+        overflow: visible !important;
+        gap: 14px !important;
+        width: 100% !important;
+    }
+
+    .iptv-resizer {
+        display: none !important;
+    }
+
+    /* Player on top for mobile viewing */
+    .iptv-right-panel {
+        order: 1 !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        flex: none !important;
+        border-radius: 16px !important;
+        overflow: hidden !important;
+        background: #09090f !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        box-sizing: border-box !important;
+    }
+
+    .iptv-player-viewport {
+        width: 100% !important;
+        aspect-ratio: 16 / 9 !important;
+        height: auto !important;
+        min-height: 200px !important;
+        max-height: 260px !important;
+        border-radius: 14px !important;
+        background: #000000 !important;
+    }
+
+    /* Channels below video player */
+    .iptv-middle-panel {
+        order: 2 !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        flex: none !important;
+        border-radius: 16px !important;
+        background: #09090f !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        padding: 12px !important;
+        box-sizing: border-box !important;
+    }
+
+    .iptv-channels-list {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 10px !important;
+        max-height: 300px !important;
+        overflow-y: auto !important;
+    }
+
+    /* Sources list below channels */
+    .iptv-sources-panel {
+        order: 3 !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: 180px !important;
+        flex: none !important;
+        border-radius: 16px !important;
+        background: #09090f !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        padding: 12px !important;
+        overflow-y: auto !important;
+        box-sizing: border-box !important;
+    }
+
+    /* ── Live Radio Mobile Overhaul ── */
+    #view-radio {
+        padding: 12px 12px calc(var(--dock-h, 60px) + 80px) !important;
+        height: auto !important;
+        overflow-y: auto !important;
+    }
+
+    .radio-view-container {
+        padding: 0 !important;
+        width: 100% !important;
+    }
+
+    .radio-header-top {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+    }
+
+    .radio-title-wrap {
+        width: 100% !important;
+    }
+
+    .radio-search-box {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 44px !important;
+    }
+
+    .radio-chips-container {
+        overflow-x: auto !important;
+        white-space: nowrap !important;
+        padding-bottom: 6px !important;
+        gap: 8px !important;
+        display: flex !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    .radio-chip {
+        flex-shrink: 0 !important;
+        padding: 8px 14px !important;
+        font-size: 12px !important;
+    }
+
+    .radio-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 12px !important;
+        padding-bottom: 40px !important;
+    }
+
+    /* Fixed Bottom Mini Player on Mobile */
+    .radio-player-bar {
+        position: fixed !important;
+        left: 10px !important;
+        right: 10px !important;
+        bottom: 12px !important;
+        width: auto !important;
+        max-width: none !important;
+        border-radius: 16px !important;
+        background: rgba(18, 18, 28, 0.95) !important;
+        backdrop-filter: blur(16px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+        z-index: 99999 !important;
+    }
+
+    .radio-player-inner {
+        flex-direction: row !important;
+        padding: 10px 14px !important;
+        gap: 10px !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+    }
+
+    .radio-player-volume {
+        display: none !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       MOBILE AMBIENT GLOW ORBS OPTIMIZATION
+       ══════════════════════════════════════════════════════════════ */
+    #ambient-glow-container {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: fixed !important;
+        inset: 0 !important;
+        overflow: hidden !important;
+        pointer-events: none !important;
+        z-index: 0 !important;
+    }
+
+    .ambient-glow-orb {
+        filter: blur(60px) !important;
+        -webkit-filter: blur(60px) !important;
+        will-change: transform, opacity !important;
+    }
+
+    .ambient-glow-orb.orb-1 {
+        width: 240px !important;
+        height: 240px !important;
+        top: -70px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        opacity: 0.07 !important;
+    }
+
+    .ambient-glow-orb.orb-2 {
+        width: 200px !important;
+        height: 200px !important;
+        bottom: -35px !important;
+        right: -35px !important;
+        opacity: 0.05 !important;
+    }
+
+    .ambient-glow-orb.orb-3 {
+        width: 170px !important;
+        height: 170px !important;
+        top: 38% !important;
+        left: -45px !important;
+        opacity: 0.03 !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       ACCOUNT DETAILS MOBILE OVERHAUL
+       ══════════════════════════════════════════════════════════════ */
+    #view-account {
+        padding: 12px 12px calc(var(--dock-h, 60px) + 30px) !important;
+        overflow-y: auto !important;
+        box-sizing: border-box !important;
+    }
+
+    #view-account > div[style*="padding: 20px 40px"] {
+        padding: 6px 0 !important;
+        width: 100% !important;
+    }
+
+    #view-account .settings-card {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 18px 14px !important;
+        border-radius: 18px !important;
+        box-sizing: border-box !important;
+        gap: 16px !important;
+    }
+
+    #view-account #account-banner-container {
+        height: 200px !important;
+    }
+
+    #view-account .account-actions-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 10px !important;
+        width: 100% !important;
+        margin-top: 6px !important;
+    }
+
+    #view-account .account-square-btn {
+        width: 100% !important;
+        min-height: 74px !important;
+        padding: 12px 8px !important;
+        border-radius: 14px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+
+    #view-account div[style*="display: flex; gap: 10px;"] {
+        flex-direction: row !important;
+        gap: 8px !important;
+    }
+
+    #view-account input[type="text"],
+    #view-account input[type="email"] {
+        min-width: 0 !important;
+        font-size: 13.5px !important;
+        padding: 8px 12px !important;
+    }
+
+    #view-account .btn-primary {
+        padding: 8px 14px !important;
+        font-size: 13px !important;
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       MEEM VIP MEMBERSHIP MODAL OVERHAUL
+       ══════════════════════════════════════════════════════════════ */
+    #modal-subscription-plans {
+        padding: 10px !important;
+        align-items: flex-start !important;
+        overflow-y: auto !important;
+    }
+
+    #modal-subscription-plans .modal {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: none !important;
+        padding: 16px 8px 24px 8px !important;
+        gap: 16px !important;
+        box-sizing: border-box !important;
+    }
+
+    #btn-close-sub-modal {
+        top: 8px !important;
+        right: 8px !important;
+        width: 34px !important;
+        height: 34px !important;
+        z-index: 10 !important;
+    }
+
+    #modal-subscription-plans #sub-modal-title {
+        font-size: 20px !important;
+        line-height: 1.3 !important;
+    }
+
+    #modal-subscription-plans #sub-modal-desc {
+        font-size: 12.5px !important;
+        line-height: 1.4 !important;
+    }
+
+    /* Activation Card */
+    #modal-subscription-plans div[style*="border-radius: 20px"][style*="padding: 22px 26px"] {
+        padding: 16px 14px !important;
+        border-radius: 16px !important;
+    }
+
+    #modal-subscription-plans div[style*="gap: 10px; align-items: stretch"] {
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+
+    #input-gumroad-license {
+        width: 100% !important;
+        height: 44px !important;
+        font-size: 12.5px !important;
+        box-sizing: border-box !important;
+    }
+
+    #btn-activate-gumroad-license {
+        width: 100% !important;
+        height: 44px !important;
+        justify-content: center !important;
+    }
+
+    /* Pricing Plans Cards */
+    #modal-subscription-plans div[style*="repeat(auto-fit, minmax(230px, 1fr))"] {
+        grid-template-columns: 1fr !important;
+        gap: 14px !important;
+        width: 100% !important;
+    }
+
+    .sub-plan-card {
+        padding: 18px 14px !important;
+        border-radius: 18px !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       LIST CHAT DRAWER MOBILE OVERHAUL
+       ══════════════════════════════════════════════════════════════ */
+    .vault-chat-drawer {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        z-index: 1000005 !important;
+        transform: translateX(100%) !important;
+        transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        background: #090910 !important;
+    }
+
+    .vault-chat-drawer.active {
+        transform: translateX(0) !important;
+    }
+
+    .vault-chat-resizer,
+    .vault-chat-fullscreen-btn,
+    .chat-detach-btn {
+        display: none !important;
+    }
+
+    #app-body {
+        margin-right: 0 !important;
+    }
+
+    .vault-chat-header {
+        padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 12px !important;
+    }
+
+    .vault-chat-input-area {
+        padding: 10px 14px calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       CLEAN DEFAULT MOBILE SPLASH SCREEN
+       ══════════════════════════════════════════════════════════════ */
+    #app-splash {
+        background: #050508 !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    /* Cancel and hide decorative geometric SVG lines & circles on mobile */
+    #app-splash > div:first-child,
+    #app-splash svg {
+        display: none !important;
+    }
+
+    /* Display ONLY the clean centered MEEM app icon */
+    #app-splash .splash-title {
+        display: none !important;
+    }
+
+    #app-splash .splash-logo-wrapper {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    #app-splash .splash-logo-img {
+        width: 108px !important;
+        height: 108px !important;
+        border-radius: 26px !important;
+        background: #000000 !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.9), 0 0 30px rgba(255, 255, 255, 0.05) !important;
+        animation: none !important;
+        transform: none !important;
+        opacity: 1 !important;
+    }
+}
+
+/* Separate top-level media query for 768px to ensure wrapper is visible */
+@media (max-width: 768px) {
+    .sidebar-wrapper {
+        display: block !important;
+    }
+}
+
+/* Hide Mobile Hamburger Button on Desktop / Large Screens (> 1080px) */
+@media (min-width: 1081px) {
+    .mobile-hamburger-nav-btn,
+    .mobile-hamburger-nav-btn.hide-on-pc {
+        display: none !important;
+    }
 }

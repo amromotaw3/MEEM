@@ -1,65 +1,15 @@
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { spawn } = require('child_process');
 const { toMediaProtocolUrl } = require('../mediaProtocol');
 const { startStreaming, stopStreaming } = require('../streamer');
 const { createPlayerWindow } = require('../windowManager');
 
-let activePlayerChild = null;
 let activeVlcChild = null;
+let activeMeemPlayerChild = null;
 
-function getMeemPlayerConfig() {
-  const isWin = process.platform === 'win32';
-  const appExecDir = process.execPath ? path.dirname(process.execPath) : null;
-  
-  // 1. Root directories of MEEM Player to inspect
-  const candidateDirs = [
-    appExecDir ? path.join(appExecDir, 'MEEM-Player') : null,
-    appExecDir ? path.join(appExecDir, 'resources', 'MEEM-Player') : null,
-    appExecDir ? path.join(appExecDir, '..', 'MEEM-Player') : null,
-    process.resourcesPath ? path.join(process.resourcesPath, 'MEEM-Player') : null,
-    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'MEEM-Player') : null,
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'MEEM Player') : null,
-    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'MEEM Player') : null,
-    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)'], 'MEEM Player') : null,
-    path.resolve(__dirname, '../../../../MEEM Player'),
-    path.resolve(process.cwd(), '../MEEM Player'),
-    'C:\\Users\\motawa\\Documents\\MEEM-Workspace\\MEEM Player'
-  ].filter(Boolean);
 
-  for (const baseDir of candidateDirs) {
-    if (!fs.existsSync(baseDir)) continue;
-
-    // Check for pre-built EXE
-    const exePaths = [
-      path.join(baseDir, 'MEEM-Player.exe'),
-      path.join(baseDir, 'dist', 'MEEM-Player.exe'),
-      path.join(baseDir, 'dist', 'MEEM-Player', 'MEEM-Player.exe'),
-      path.join(baseDir, 'dist', 'main.exe'),
-      path.join(baseDir, 'main.exe')
-    ];
-    for (const exe of exePaths) {
-      if (fs.existsSync(exe)) {
-        return { type: 'exe', command: exe, args: [], cwd: path.dirname(exe) };
-      }
-    }
-
-    // Check for .venv Python
-    const venvPy = path.join(baseDir, '.venv', isWin ? 'Scripts\\python.exe' : 'bin/python');
-    const mainPy = path.join(baseDir, 'main.py');
-    if (fs.existsSync(venvPy) && fs.existsSync(mainPy)) {
-      return { type: 'python', command: venvPy, args: [mainPy], cwd: baseDir };
-    }
-
-    // Check for run_player.bat
-    const batPath = path.join(baseDir, 'run_player.bat');
-    if (fs.existsSync(batPath)) {
-      return { type: 'bat', command: batPath, args: [], cwd: baseDir };
-    }
-  }
-
-  return null;
-}
 
 function getVlcExecutable() {
   if (process.platform === 'win32') {
@@ -132,362 +82,518 @@ function resolveRealMediaUrlOrPath(raw) {
 
   if (/^(media|local-file|file):\/\//i.test(str)) {
     let clean = str.replace(/^(media|local-file|file):\/\/\/?/i, '');
-    clean = decodeURIComponent(clean);
+    try { clean = decodeURIComponent(clean); } catch (_) {}
+    clean = clean.replace(/\//g, '\\');
+    if (/^\\[a-zA-Z]:/.test(clean)) clean = clean.slice(1);
     if (/^[a-zA-Z]:/.test(clean)) {
-      clean = path.normalize(clean);
-    } else if (/^\/[a-zA-Z]:/.test(clean)) {
-      clean = path.normalize(clean.slice(1));
+      return path.normalize(clean);
     }
-    if (fs.existsSync(clean)) {
-      return clean;
-    }
+    return clean;
+  }
+
+  if (/^[a-zA-Z]:[\\/]/i.test(str)) {
+    try { str = decodeURIComponent(str); } catch (_) {}
+    return path.normalize(str);
   }
 
   return str;
 }
 
-function initMediaPlayIpc(ipcMain) {
-  async function playNativeWindow(args) {
-    try {
-      const opts = typeof args === 'string' ? { path: args } : (args || {});
-      const raw = opts.url || opts.path || opts.pathOrUrl || opts.filePath || '';
-      const startTime = typeof opts.startTime === 'number' ? Math.max(0, Math.floor(opts.startTime)) : 0;
+function getMeemPlayerConfig() {
+  const os = require('os');
+  const userHome = os.homedir() || process.env.USERPROFILE || '';
+  const exeName = process.platform === 'win32' ? 'MEEM-Player.exe' : 'MEEM-Player';
+  const cppExeName = process.platform === 'win32' ? 'MEEM-Player-CPP.exe' : 'MEEM-Player-CPP';
 
-      // ── DETECT ACTIVE LOCAL TORRENT STREAM ──
-      const isLocalStream = /^https?:\/\/(127\.0\.0\.1|localhost):1147\d\//i.test(raw);
-      if (isLocalStream && (opts.item?.torrentMagnet || opts.torrentMagnet)) {
-        console.log('[PLAY-NATIVE] Using already active torrent stream:', raw);
-        createPlayerWindow({
-          url: raw,
-          path: raw,
-          title: opts.title || opts.name || 'Torrent Playback',
-          startTime,
-          pbKey: opts.pbKey,
-          item: {
-            ...(opts.item || {}),
-            torrentMagnet: opts.item?.torrentMagnet || opts.torrentMagnet
-          },
-          show: opts.show,
-          isTorrentStream: true
-        });
-        return { success: true, player: 'native', source: 'torrent', streamUrl: raw };
+  // Candidate directories where MEEM Player may reside
+  const dirCandidates = [
+    // 1. Packaged Electron app extraResources directory (Production Build)
+    process.resourcesPath ? path.join(process.resourcesPath, 'MEEM-Player') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'MEEM-Player') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'MEEM-Player') : null,
+
+    // 2. Application root folder (installed next to main executable)
+    process.execPath ? path.join(path.dirname(process.execPath), 'resources', 'MEEM-Player') : null,
+    process.execPath ? path.join(path.dirname(process.execPath), 'MEEM-Player') : null,
+
+    // 3. Development Workspace candidates
+    `C:\\Users\\motawa\\Documents\\MEEM-Workspace\\MEEM Player`,
+    path.join(userHome, 'Documents', 'MEEM-Workspace', 'MEEM Player'),
+    path.join(process.cwd(), '..', 'MEEM Player'),
+    path.join(process.cwd(), 'MEEM Player'),
+    path.join(__dirname, '..', '..', '..', 'MEEM Player'),
+    path.join(__dirname, '..', '..', '..', 'MEEM Player', 'dist', 'MEEM-Player')
+  ].filter(Boolean);
+
+  for (const dir of dirCandidates) {
+    if (!fs.existsSync(dir)) continue;
+
+    // A. PRIMARY: Check C++ Compiled Executable (MEEM-Player-CPP.exe)
+    const cppExe = path.join(dir, cppExeName);
+    if (fs.existsSync(cppExe)) {
+      return { available: true, type: 'exe', command: cppExe, cwd: dir };
+    }
+
+    // B. Check Standalone Executable in root or dist/MEEM-Player
+    const rootExe = path.join(dir, exeName);
+    if (fs.existsSync(rootExe)) {
+      return { available: true, type: 'exe', command: rootExe, cwd: dir };
+    }
+    const distExe = path.join(dir, 'dist', 'MEEM-Player', exeName);
+    if (fs.existsSync(distExe)) {
+      return { available: true, type: 'exe', command: distExe, cwd: path.dirname(distExe) };
+    }
+
+    // C. Check Python Virtualenv (Dev Mode Fallback)
+    const venvPythonw = path.join(dir, '.venv', 'Scripts', 'pythonw.exe');
+    const venvPython = path.join(dir, '.venv', 'Scripts', 'python.exe');
+    const mainPy = path.join(dir, 'main.py');
+    if (fs.existsSync(mainPy)) {
+      if (fs.existsSync(venvPythonw)) {
+        return { available: true, type: 'python', command: venvPythonw, script: mainPy, cwd: dir };
       }
-
-      // ── DETECT MAGNET / INFOHASH ──
-      const isMagnet = /^magnet:/i.test(raw);
-      const isInfoHash = /^[a-f0-9]{40}$/i.test(raw);
-
-      if (isMagnet || isInfoHash) {
-        console.log('[PLAY-NATIVE] Detected torrent input, starting WebTorrent stream...');
-        const res = await startStreaming(raw, opts.fileIdx ?? null);
-        if (!res || !res.success) {
-          throw new Error(res?.error || 'Failed to start torrent stream');
-        }
-        let streamUrl = res.localUrl || res.url;
-        console.log('[PLAY-NATIVE] Torrent stream ready:', streamUrl);
-        createPlayerWindow({
-          url: streamUrl,
-          path: streamUrl,
-          title: opts.title || res.title || opts.name || 'Torrent Playback',
-          startTime,
-          pbKey: opts.pbKey,
-          item: {
-            ...(opts.item || {}),
-            torrentFiles: res.files,
-            fileIdx: res.fileIdx,
-            torrentMagnet: raw
-          },
-          show: opts.show,
-          isTorrentStream: true
-        });
-        return { success: true, player: 'native', source: 'torrent', streamUrl };
+      if (fs.existsSync(venvPython)) {
+        return { available: true, type: 'python', command: venvPython, script: mainPy, cwd: dir };
       }
+    }
 
-      // ── LOCAL FILE or HTTP URL ──
-      const mediaUrl = toMediaProtocolUrl(raw);
-      createPlayerWindow({
-        url: mediaUrl,
-        path: mediaUrl,
-        title: opts.title || opts.name || 'Playback',
-        startTime,
-        pbKey: opts.pbKey,
-        item: opts.item,
-        show: opts.show
-      });
-      return { success: true, player: 'native' };
-    } catch (err) {
-      console.error('[PLAY-NATIVE] Native player failed:', err.message);
-      return { success: false, error: err.message };
+    // D. Check Batch Scripts
+    const batPy = path.join(dir, 'run_player.bat');
+    if (fs.existsSync(batPy)) {
+      return { available: true, type: 'bat', command: batPy, cwd: dir };
+    }
+    const batCpp = path.join(dir, 'run_cpp_player.bat');
+    if (fs.existsSync(batCpp)) {
+      return { available: true, type: 'bat', command: batCpp, cwd: dir };
     }
   }
 
-  // ─── PRIMARY PLAYER: MEEM PLAYER ─────────────────────────────────────────
-  async function openInMeemPlayer(args) {
+  return { available: false };
+}
+
+let activeWebEmbedWindow = null;
+
+function openWebEmbedPlayerWindow(embedUrl, opts = {}) {
+  const { BrowserWindow, app } = require('electron');
+  if (activeWebEmbedWindow && !activeWebEmbedWindow.isDestroyed()) {
+    try { activeWebEmbedWindow.close(); } catch (e) {}
+    activeWebEmbedWindow = null;
+  }
+
+  const mediaTitle = opts.title || opts.name || 'Stream';
+
+  activeWebEmbedWindow = new BrowserWindow({
+    width: 1200,
+    height: 720,
+    title: `MEEM Player — ${mediaTitle}`,
+    autoHideMenuBar: true,
+    backgroundColor: '#050508',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false,
+      allowRunningInsecureContent: true
+    }
+  });
+
+  activeWebEmbedWindow.setMenu(null);
+  activeWebEmbedWindow.loadURL(embedUrl, {
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+  });
+
+  if (app) app.emit('update-tray-status-internal', { status: 'Playing Web Stream', isPlaying: true, isExternalPlayer: true });
+
+  activeWebEmbedWindow.on('closed', () => {
+    activeWebEmbedWindow = null;
+    if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
+  });
+
+  return { success: true, player: 'meem-web-player', streamUrl: embedUrl };
+}
+
+async function openInMeemPlayer(args) {
+  const opts = typeof args === 'string' ? { path: args } : (args || {});
+  let raw = opts.path || opts.url || opts.streamUrl || opts.mediaUrl;
+  if (!raw && opts.item) raw = opts.item.path || opts.item.url;
+
+  let torrentFiles = null;
+  let torrentSelectedIdx = 0;
+
+  // Extract Poster / Thumbnail & Series Metadata
+  const poster = opts.poster || opts.thumbnail || opts.still_path || opts.image ||
+                 opts.item?.thumbnail || opts.item?.still_path || opts.item?.poster || opts.item?.poster_path ||
+                 opts.show?.poster || opts.show?.poster_path || opts.show?.still_path;
+  const showTitle = opts.showTitle || opts.seriesTitle || opts.item?.showTitle || opts.item?.seriesTitle || opts.show?.title || opts.show?.name;
+  const season = opts.season ?? opts.item?.season;
+  const episode = opts.episode ?? opts.item?.episode;
+  const subTitle = showTitle ? (season != null && episode != null ? `${showTitle} • S${season}E${episode}` : `${showTitle}`) : (opts.subtitle || opts.subTitle || null);
+
+  // If magnet or torrent file, resolve stream URL
+  if (raw && (raw.startsWith('magnet:') || raw.endsWith('.torrent'))) {
+    const res = await startStreaming(raw, opts.fileIdx).catch(e => {
+      console.warn('[Streamer] startStreaming error:', e.message);
+      return null;
+    });
+    if (res && res.url) {
+      raw = res.url;
+      if (Array.isArray(res.files) && res.files.length > 0) {
+        torrentFiles = res.files;
+        torrentSelectedIdx = res.fileIdx ?? 0;
+      }
+    }
+  }
+
+  if (!raw && (!opts.playlist || opts.playlist.length === 0)) {
+    return { success: false, error: 'No media path provided' };
+  }
+
+  let targetPath = raw ? resolveRealMediaUrlOrPath(raw) : '';
+
+  // Handle Web Embed URLs (VidSrc, 2embed, superembed, etc.)
+  if (targetPath.startsWith('http://') || targetPath.startsWith('https://')) {
+    const isEmbed = targetPath.includes('/embed/') || targetPath.includes('vidsrc') || targetPath.includes('2embed') || targetPath.includes('superembed');
+    if (isEmbed) {
+      console.log(`[MEEM Player] Target is Web Embed URL (${targetPath}). Opening in dedicated Web Embed Window...`);
+      return openWebEmbedPlayerWindow(targetPath, opts);
+    }
+  }
+
+  const config = getMeemPlayerConfig();
+  if (!config.available) {
+    console.error('[MEEM Player] Standalone MEEM Player executable not found');
+    return { success: false, error: 'MEEM Player executable not found' };
+  }
+
+  const cliArgs = [];
+  if (config.type === 'python') {
+    cliArgs.push(config.script);
+  }
+
+  // Check if a full playlist array was provided (e.g. from local TV show or season torrent)
+  let playlistItems = Array.isArray(opts.playlist) ? [...opts.playlist] : [];
+
+  // If torrent returned multiple video files, convert them to a playlist
+  if (torrentFiles && torrentFiles.length > 0) {
+    const portMatch = targetPath.match(/:(\d+)\//);
+    const streamPort = portMatch ? portMatch[1] : '11470';
+    const isTvShow = Boolean(season != null || (opts.type && opts.type !== 'movie') || (showTitle && showTitle !== opts.title));
+    playlistItems = torrentFiles.map((f, i) => ({
+      path: `http://127.0.0.1:${streamPort}/${f.idx}/${encodeURIComponent(f.name)}`,
+      title: (!isTvShow || torrentFiles.length === 1) ? (opts.title || f.name) : f.name,
+      show_title: isTvShow ? (showTitle || opts.title || '') : '',
+      season: isTvShow ? (season || 1) : 0,
+      episode: isTvShow ? (f.idx + 1) : 0,
+      thumbnail: poster || ''
+    }));
+  }
+
+  let tempPlaylistPath = null;
+  if (playlistItems.length > 0) {
     try {
-      const config = getMeemPlayerConfig();
-      if (!config) {
-        return { success: false, error: 'MEEM Player not configured or not found' };
+      const initialIdx = opts.playlistIndex != null ? opts.playlistIndex : (torrentSelectedIdx || 0);
+      if (initialIdx >= 0 && initialIdx < playlistItems.length && targetPath) {
+        playlistItems[initialIdx].path = targetPath;
+        playlistItems[initialIdx].url = targetPath;
+      }
+      const os = require('os');
+      tempPlaylistPath = path.join(os.tmpdir(), `meem_playlist_${Date.now()}.json`);
+      fs.writeFileSync(tempPlaylistPath, JSON.stringify(playlistItems, null, 2), 'utf-8');
+      cliArgs.push(`--playlist=${tempPlaylistPath}`);
+      cliArgs.push(`--playlist-index=${initialIdx}`);
+    } catch (e) {
+      console.warn('[MEEM Player] Could not create temporary playlist file:', e.message);
+    }
+  }
+
+  if (targetPath) cliArgs.push(targetPath);
+  if (opts.title || opts.name) cliArgs.push(`--title=${opts.title || opts.name}`);
+  if (opts.startTime && opts.startTime > 0) cliArgs.push(`--start-time=${opts.startTime}`);
+  if (opts.subtitle || opts.subPath) cliArgs.push(`--sub=${opts.subtitle || opts.subPath}`);
+  if (poster) cliArgs.push(`--poster=${poster}`);
+  if (subTitle) cliArgs.push(`--subtitle=${subTitle}`);
+
+  // Playback key and profile for progress tracking
+  const pbKey = opts.pbKey || (opts.item ? (opts.item.id || opts.item.path) : targetPath);
+  let profileId = opts.profileId;
+  if (!profileId) {
+    try {
+      const { readLocalAppData } = require('../store');
+      const local = readLocalAppData();
+      profileId = local?.profiles?.[0]?.id || 'default';
+    } catch (_) {}
+  }
+
+  // Ensure local server is ready to obtain sync port
+  let syncPort = null;
+  try {
+    const { ensureLocalServerReady } = require('../mediaServer');
+    const baseUrl = await ensureLocalServerReady();
+    if (baseUrl) {
+      const urlObj = new URL(baseUrl);
+      syncPort = urlObj.port;
+    }
+  } catch (e) {
+    console.warn('[MEEM Player] Could not resolve local mediaServer port:', e.message);
+  }
+
+  const syncFilePath = path.join(os.tmpdir(), `meem_player_sync_${Date.now()}.json`);
+
+  if (pbKey) cliArgs.push(`--pb-key=${pbKey}`);
+  if (profileId) cliArgs.push(`--profile-id=${profileId}`);
+  if (syncPort) cliArgs.push(`--sync-port=${syncPort}`);
+  cliArgs.push(`--sync-file=${syncFilePath}`);
+
+  console.log(`[MEEM Player] Spawning external player (${config.command}) with args:`, cliArgs);
+
+  if (activeMeemPlayerChild) {
+    try { activeMeemPlayerChild.kill(); } catch (e) {}
+    activeMeemPlayerChild = null;
+  }
+
+  const sessionContext = {
+    pbKey,
+    profileId,
+    item: opts.item,
+    show: opts.show,
+    title: opts.title || opts.name,
+    poster,
+    subTitle,
+    raw,
+    type: opts.type,
+    fileIdx: opts.fileIdx,
+    syncFilePath,
+    startTime: opts.startTime || 0,
+    lastReportedTime: opts.startTime || 0,
+    startedAt: Date.now()
+  };
+  activeMeemSession = sessionContext;
+
+  const child = spawn(config.command, cliArgs, {
+    cwd: config.cwd,
+    detached: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: false
+  });
+
+  activeMeemPlayerChild = child;
+
+  // Listen for real-time progress broadcasts from MEEM Player
+  if (child.stdout) {
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (line.includes('[MEEM_PLAYBACK_PROGRESS]')) {
+          try {
+            const jsonPart = line.substring(line.indexOf('[MEEM_PLAYBACK_PROGRESS]') + '[MEEM_PLAYBACK_PROGRESS]'.length).trim();
+            const data = JSON.parse(jsonPart);
+            handleExternalPlayerProgress(data, sessionContext);
+          } catch (e) {
+            console.warn('[MEEM Player] Error parsing progress stdout:', e.message);
+          }
+        }
+      }
+    });
+  }
+
+  child.on('exit', () => {
+    if (activeMeemPlayerChild === child) {
+      activeMeemPlayerChild = null;
+      stopStreaming().catch(() => {});
+      if (tempPlaylistPath && fs.existsSync(tempPlaylistPath)) {
+        try { fs.unlinkSync(tempPlaylistPath); } catch (e) {}
       }
 
-      const opts = typeof args === 'string' ? { path: args } : (args || {});
-      let raw = opts.url || opts.path || opts.pathOrUrl || opts.filePath || '';
-      const startTime = typeof opts.startTime === 'number' ? Math.max(0, Math.floor(opts.startTime)) : 0;
-
-      raw = resolveRealMediaUrlOrPath(raw);
-
-      // ── DETECT YOUTUBE STREAM ──
-      const isYtUrl = /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i.test(raw);
-      const isYtId = /^[a-zA-Z0-9_-]{11}$/.test(raw) && (opts.item?.isYoutube || opts.item?.type === 'youtube' || opts.isYoutube);
-      let ytAudioUrl = null;
-      if (isYtUrl || isYtId) {
-        const vId = isYtId ? raw : raw.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)[1];
-        console.log('[MEEM-PLAYER] Resolving YouTube video stream for ID:', vId);
+      // Check sync file for final reported progress
+      let reportedFinal = false;
+      if (fs.existsSync(syncFilePath)) {
         try {
-          const YouTubeService = require('../youtube/YouTubeService');
-          const ytRes = await YouTubeService.getVideoDetails(vId, '1080');
-          if (ytRes && ytRes.success && ytRes.details?.streamUrl) {
-            raw = ytRes.details.streamUrl;
-            if (ytRes.details.audioStreamUrl) {
-              ytAudioUrl = ytRes.details.audioStreamUrl;
-            }
-            if (!opts.title && ytRes.details.title) {
-              opts.title = ytRes.details.title;
-            }
-            console.log('[MEEM-PLAYER] ✓ YouTube resolved to 1080p stream:', raw.slice(0, 60) + '...', 'audio:', ytAudioUrl ? 'yes' : 'no');
+          const content = fs.readFileSync(syncFilePath, 'utf-8');
+          const data = JSON.parse(content);
+          if (data && data.key) {
+            handleExternalPlayerProgress(data, sessionContext);
+            reportedFinal = true;
           }
-        } catch (ytErr) {
-          console.warn('[MEEM-PLAYER] YouTubeService resolution warning:', ytErr.message);
+        } catch (e) {}
+        try { fs.unlinkSync(syncFilePath); } catch (e) {}
+      }
+
+      // Fallback: If no progress was reported by player, use elapsed duration
+      if (!reportedFinal && sessionContext.lastReportedTime === sessionContext.startTime) {
+        const elapsed = Math.max(0, Math.floor((Date.now() - sessionContext.startedAt) / 1000));
+        const finalTime = Math.floor(sessionContext.startTime + elapsed);
+        if (finalTime > 5) {
+          handleExternalPlayerProgress({
+            key: sessionContext.pbKey,
+            profileId: sessionContext.profileId,
+            time: finalTime,
+            duration: sessionContext.item?.duration || 0
+          }, sessionContext);
         }
       }
-
-      let allFiles = opts.item?.torrentFiles || opts.torrentFiles || [];
-      let torrentRes = null;
-      const isMagnet = /^magnet:/i.test(raw) || /^[a-f0-9]{40}$/i.test(raw);
-      if (isMagnet) {
-        console.log('[MEEM-PLAYER] Starting WebTorrent stream for MEEM Player:', raw);
-        torrentRes = await startStreaming(raw, opts.fileIdx ?? null);
-        if (!torrentRes || !torrentRes.success) throw new Error(torrentRes?.error || 'Failed to start torrent stream');
-        raw = torrentRes.localUrl || torrentRes.url;
-        if (torrentRes.files && torrentRes.files.length > 0) {
-          allFiles = torrentRes.files;
-        }
-      }
-
-      if (activePlayerChild) {
-        try { activePlayerChild.kill(); } catch (e) {}
-        activePlayerChild = null;
-      }
-
-      const playerArgs = [...config.args];
-
-      if (opts.title) {
-        playerArgs.push(`--title=${opts.title}`);
-      }
-      if (startTime > 0) {
-        playerArgs.push(`--start-time=${startTime}`);
-      }
-      if (opts.subPath && fs.existsSync(opts.subPath)) {
-        playerArgs.push(`--sub=${opts.subPath}`);
-      }
-      if (ytAudioUrl) {
-        playerArgs.push(`--audio=${ytAudioUrl}`);
-      }
-
-      // 1. Structured Playlist (e.g. TV Show with TMDB posters/thumbnails)
-      let hasCustomPlaylist = false;
-      if (opts.playlist && Array.isArray(opts.playlist) && opts.playlist.length > 0) {
-        const plPath = path.join(require('os').tmpdir(), 'meem_player_playlist.json');
-        try {
-          fs.writeFileSync(plPath, JSON.stringify(opts.playlist), 'utf8');
-          playerArgs.push(`--playlist=${plPath}`);
-          if (typeof opts.playlistIndex === 'number') {
-            playerArgs.push(`--playlist-index=${opts.playlistIndex}`);
-          }
-          hasCustomPlaylist = true;
-        } catch (e) {
-          console.error('[MEEM-PLAYER] Error writing playlist temp file:', e);
-        }
-      }
-
-      // 2. Direct media file or stream URL (if not using structured playlist)
-      if (raw && !hasCustomPlaylist) {
-        playerArgs.push(raw);
-      }
-
-      // 3. Additional playlist items for multi-file torrent
-      if (!hasCustomPlaylist && allFiles && allFiles.length > 1) {
-        const currentPort = 11470;
-        const selectedIdx = opts.fileIdx != null ? parseInt(opts.fileIdx, 10) : (torrentRes?.fileIdx ?? 0);
-        const sorted = [...allFiles].sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
-        for (const f of sorted) {
-          if (f.idx !== selectedIdx) {
-            const safeName = encodeURIComponent(f.name || '');
-            playerArgs.push(`http://127.0.0.1:${currentPort}/${f.idx}/${safeName}`);
-          }
-        }
-      }
-
-      console.log('[MEEM-PLAYER] 🚀 Launching MEEM Player:', { command: config.command, args: playerArgs, cwd: config.cwd });
-
-      const child = spawn(config.command, playerArgs, {
-        cwd: config.cwd,
-        stdio: 'ignore'
-      });
-
-      activePlayerChild = child;
 
       const { app } = require('electron');
-      if (app) {
-        app.emit('update-tray-status-internal', { status: 'Playing (MEEM Player)', isPlaying: true, isExternalPlayer: true });
-      }
-
-      child.on('exit', (code) => {
-        console.log(`[MEEM-PLAYER] MEEM Player closed (exit code: ${code}). Stopping stream.`);
-        if (activePlayerChild === child) {
-          activePlayerChild = null;
-          stopStreaming().catch(() => {});
-          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
-        }
-      });
-
-      child.on('close', () => {
-        if (activePlayerChild === child) {
-          activePlayerChild = null;
-          stopStreaming().catch(() => {});
-          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
-        }
-      });
-
-      child.on('error', (err) => {
-        console.error('[MEEM-PLAYER] Spawn error:', err.message);
-        if (activePlayerChild === child) {
-          activePlayerChild = null;
-          stopStreaming().catch(() => {});
-          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
-        }
-      });
-
-      return { success: true, player: 'meem-player', streamUrl: raw };
-    } catch (e) {
-      console.error('[MEEM-PLAYER] Launch failed:', e.message);
-      return { success: false, error: e.message };
+      if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
     }
+  });
+
+  const { app } = require('electron');
+  if (app) app.emit('update-tray-status-internal', { status: 'Playing in MEEM Player', isPlaying: true, isExternalPlayer: true });
+
+  return { success: true, player: 'meem-player', streamUrl: targetPath };
+}
+
+let activeMeemSession = null;
+let lastSupabaseSyncWall = 0;
+
+async function handleExternalPlayerProgress(data, context = null) {
+  try {
+    const ctx = context || activeMeemSession;
+    const profileId = data.profileId || ctx?.profileId;
+    const key = data.key || ctx?.pbKey;
+    if (!profileId || !key) return;
+
+    const time = Number(data.time != null ? data.time : 0);
+    const duration = Number(data.duration != null ? data.duration : 0);
+    if (time <= 0 && duration <= 0) return;
+
+    const prevTime = ctx?.lastReportedTime || 0;
+    if (ctx) ctx.lastReportedTime = time;
+
+    const watched = Boolean(data.watched || (duration > 0 && (time / duration) >= 0.90));
+
+    let meta = ctx?.item || null;
+    if (ctx?.show && meta && !meta.show) {
+      meta = { ...meta, show: ctx.show, showTitle: ctx.show.title || ctx.show.name };
+    }
+
+    if (!meta) {
+      meta = {
+        id: key,
+        title: ctx?.title || 'Playback',
+        poster: ctx?.poster || null,
+        backdrop_path: ctx?.poster || null,
+        type: ctx?.type || (key.includes('_S') ? 'tv' : 'movie')
+      };
+    } else {
+      if (!meta.title && ctx?.title) meta.title = ctx.title;
+      if (!meta.poster && ctx?.poster) meta.poster = ctx.poster;
+      if (!meta.backdrop_path && ctx?.poster) meta.backdrop_path = ctx.poster;
+    }
+
+    if (ctx?.raw && (ctx.raw.startsWith('magnet:') || ctx.raw.endsWith('.torrent'))) {
+      meta.torrentMagnet = ctx.raw;
+      if (ctx.fileIdx != null) meta.fileIdx = ctx.fileIdx;
+    }
+
+    // Always attach exact file path if available
+    const resolvedPath = ctx?.raw || ctx?.item?.path || (key && (key.includes(':\\') || key.includes(':/') || key.startsWith('/')) ? key : null);
+    if (resolvedPath && !resolvedPath.startsWith('magnet:')) {
+      meta.path = resolvedPath;
+    }
+
+    const entry = {
+      time: Math.floor(time),
+      duration: Math.floor(duration),
+      lastWatched: Date.now(),
+      watched,
+      meta
+    };
+
+    // Practical Cloud Throttling:
+    // Sync to Supabase:
+    // 1. Every 30 seconds during active playback
+    // 2. Immediately if seek jump occurred (jump >= 5s)
+    // 3. Immediately on pause, end of video, or window exit (data.force / data.isEnded / watched)
+    const now = Date.now();
+    const isSeekJump = Math.abs(time - prevTime) >= 5;
+    const isSpecialEvent = Boolean(data.force || data.isEnded || isSeekJump || watched);
+    const isPeriodicCloudSync = (now - lastSupabaseSyncWall >= 30000);
+
+    const shouldSyncCloud = isSpecialEvent || isPeriodicCloudSync;
+    if (shouldSyncCloud) {
+      lastSupabaseSyncWall = now;
+      console.log(`[MEEM Player -> Supabase] Syncing cloud snapshot: "${key}" => ${entry.time}s / ${entry.duration}s (watched=${watched})`);
+    }
+
+    // Local cache & UI is ALWAYS updated in real-time
+    const { savePlaybackPositionInternal } = require('../store');
+    if (typeof savePlaybackPositionInternal === 'function') {
+      await savePlaybackPositionInternal({
+        profileId,
+        key,
+        entry,
+        localOnly: !shouldSyncCloud,
+        forceImmediate: shouldSyncCloud
+      });
+    }
+  } catch (err) {
+    console.error('[MEEM Player] handleExternalPlayerProgress error:', err);
   }
+}
 
-  // ─── SECONDARY PLAYER: VLC MEDIA PLAYER ───────────────────────────────────
-  async function openInVlc(args) {
-    try {
-      const opts = typeof args === 'string' ? { path: args } : (args || {});
-      let raw = opts.url || opts.path || opts.pathOrUrl || opts.filePath || '';
-      const startTime = typeof opts.startTime === 'number' ? Math.max(0, Math.floor(opts.startTime)) : 0;
+async function openInVlc(args) {
+  try {
+    const opts = typeof args === 'string' ? { path: args } : (args || {});
+    let raw = opts.path || opts.url || opts.streamUrl || opts.mediaUrl;
+    if (!raw && opts.item) raw = opts.item.path || opts.item.url;
 
-      raw = resolveRealMediaUrlOrPath(raw);
+    if (!raw) {
+      return { success: false, error: 'No media path provided' };
+    }
 
-      let allFiles = opts.item?.torrentFiles || opts.torrentFiles || [];
-      let torrentRes = null;
-      const isMagnet = /^magnet:/i.test(raw) || /^[a-f0-9]{40}$/i.test(raw);
-      if (isMagnet) {
-        console.log('[VLC] Starting WebTorrent stream for VLC playback:', raw);
-        torrentRes = await startStreaming(raw, opts.fileIdx ?? null);
-        if (!torrentRes || !torrentRes.success) throw new Error(torrentRes?.error || 'Failed to start torrent stream');
-        raw = torrentRes.localUrl || torrentRes.url;
-        if (torrentRes.files && torrentRes.files.length > 0) {
-          allFiles = torrentRes.files;
-        }
-      }
+    let targetPath = resolveRealMediaUrlOrPath(raw);
 
-      // Determine VLC executable
-      const vlcCmd = getVlcExecutable();
-      const skinPath = getVlcSkinPath();
+    const vlcCmd = getVlcExecutable();
+    const skinPath = getVlcSkinPath();
 
-      if (activeVlcChild) {
-        try { activeVlcChild.kill(); } catch (e) {}
+    const vlcArgs = [];
+    if (skinPath && fs.existsSync(skinPath) && process.platform === 'win32') {
+      vlcArgs.push('--intf', 'skins2', `--skins2-last=${skinPath}`);
+    }
+    vlcArgs.push(targetPath);
+    if (opts.subtitle || opts.subPath) {
+      vlcArgs.push(`--sub-file=${opts.subtitle || opts.subPath}`);
+    }
+    if (opts.startTime && opts.startTime > 0) {
+      vlcArgs.push(`--start-time=${Math.floor(opts.startTime)}`);
+    }
+    if (opts.title) {
+      vlcArgs.push(`--meta-title=${opts.title}`);
+    }
+
+    if (activeVlcChild) {
+      try { activeVlcChild.kill(); } catch (e) {}
+      activeVlcChild = null;
+    }
+
+    const child = spawn(vlcCmd, vlcArgs, {
+      detached: true,
+      stdio: 'ignore'
+    });
+
+    child.unref();
+    activeVlcChild = child;
+
+    const { app } = require('electron');
+    if (app) app.emit('update-tray-status-internal', { status: 'Playing in VLC', isPlaying: true, isExternalPlayer: true });
+
+    child.on('exit', () => {
+      if (activeVlcChild === child) {
         activeVlcChild = null;
+        stopStreaming().catch(() => {});
+        if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
       }
+    });
 
-      console.log('[VLC] Launching VLC with MEEM Theme:', { vlcCmd, skinPath, raw, startTime, filesCount: allFiles?.length || 0 });
-
-      let child;
-      if (process.platform === 'darwin') {
-        const vlcAppArgs = ['-a', 'VLC'];
-        if (raw) vlcAppArgs.push(raw);
-        child = spawn('open', vlcAppArgs, { stdio: 'ignore' });
-      } else {
-        const vlcArgs = [];
-        if (process.platform === 'win32' && skinPath && fs.existsSync(skinPath)) {
-          vlcArgs.push('--intf', 'skins2', '--skins2-last', skinPath);
-        }
-        vlcArgs.push('--network-caching=2000');
-        if (startTime > 0) {
-          vlcArgs.push('--start-time', String(Math.floor(startTime)));
-        }
-        if (opts.title) {
-          vlcArgs.push('--meta-title', opts.title);
-        }
-        if (opts.subPath && fs.existsSync(opts.subPath)) {
-          vlcArgs.push('--sub-file', opts.subPath);
-        }
-
-        // Multi-file torrent / episode playlist support in VLC
-        if (allFiles && allFiles.length > 1) {
-          const currentPort = 11470;
-          const selectedIdx = opts.fileIdx != null ? parseInt(opts.fileIdx, 10) : (torrentRes?.fileIdx ?? 0);
-          if (raw) vlcArgs.push(raw);
-          const sorted = [...allFiles].sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
-          for (const f of sorted) {
-            if (f.idx !== selectedIdx) {
-              const safeName = encodeURIComponent(f.name || '');
-              vlcArgs.push(`http://127.0.0.1:${currentPort}/${f.idx}/${safeName}`);
-            }
-          }
-        } else if (raw) {
-          vlcArgs.push(raw);
-        }
-
-        child = spawn(vlcCmd, vlcArgs, { stdio: 'ignore' });
-      }
-
-      activeVlcChild = child;
-
-      const { app } = require('electron');
-      if (app) {
-        app.emit('update-tray-status-internal', { status: 'Playing (VLC)', isPlaying: true, isExternalPlayer: true });
-      }
-
-      child.on('exit', (code) => {
-        console.log(`[VLC] VLC closed (exit code: ${code}). Stopping torrent stream.`);
-        if (activeVlcChild === child) {
-          activeVlcChild = null;
-          stopStreaming().catch(() => {});
-          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
-        }
-      });
-
-      child.on('close', () => {
-        if (activeVlcChild === child) {
-          activeVlcChild = null;
-          stopStreaming().catch(() => {});
-          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
-        }
-      });
-
-      child.on('error', (err) => {
-        console.error('[VLC] Spawn error:', err.message);
-        if (activeVlcChild === child) {
-          activeVlcChild = null;
-          stopStreaming().catch(() => {});
-          if (app) app.emit('update-tray-status-internal', { status: 'Idle', isPlaying: false, isExternalPlayer: false });
-        }
-      });
-
-      return { success: true, player: 'vlc', streamUrl: raw };
-    } catch (e) {
-      console.error('[VLC] openInVlc failed:', e.message);
-      return { success: false, error: e.message };
-    }
+    return { success: true, player: 'vlc', streamUrl: targetPath };
+  } catch (e) {
+    console.error('[VLC] openInVlc failed:', e.message);
+    return { success: false, error: e.message };
   }
+}
 
-  // Primary playback router: MEEM Player (Standalone if installed) -> MEEM Built-in Player Window -> VLC (Only when explicitly chosen)
+function initMediaPlayIpc(ipcMain) {
   async function playMedia(args) {
     const opts = typeof args === 'string' ? { path: args } : (args || {});
     
@@ -496,43 +602,18 @@ function initMediaPlayIpc(ipcMain) {
       return openInVlc(args);
     }
 
-    // Explicit request for native/internal player window
-    if (opts.forceNative || opts.player === 'native' || opts.engine === 'native') {
-      return playNativeWindow(args);
-    }
-
-    // 1. PRIMARY & DESIRED PLAYER: MEEM Player (PySide6 Native Player)
-    const meemConfig = getMeemPlayerConfig();
-    if (meemConfig) {
-      console.log('[PLAY] Found MEEM Player instance:', meemConfig);
-      const meemResult = await openInMeemPlayer(args);
-      if (meemResult && meemResult.success) {
-        return meemResult;
-      }
-      console.warn('[PLAY] Standalone MEEM Player launch failed, switching to built-in MEEM player window...', meemResult?.error);
-    }
-
-    // 2. DEFAULT & CORE: MEEM Built-in Cinematic Native Player Window
-    // Guarantees distributed .exe plays seamlessly with MEEM's custom player interface on all users' machines
-    return playNativeWindow(args);
+    // DEFAULT & EXCLUSIVE: Launch MEEM Player
+    return openInMeemPlayer(args);
   }
 
   ipcMain.handle('play-media', async (_e, args) => playMedia(args));
   ipcMain.handle('open-in-meem-player', async (_e, args) => openInMeemPlayer(args));
-  ipcMain.handle('open-in-external-player', async (_e, args) => openInMeemPlayer(args));
+  ipcMain.handle('open-in-external-player', async (_e, args) => playMedia(args));
   ipcMain.handle('open-in-vlc', async (_e, args) => openInVlc(args));
-  ipcMain.handle('play-external', async (_e, args) => openInMeemPlayer(args));
-  ipcMain.handle('play-native', async (_e, args) => playNativeWindow(args));
+  ipcMain.handle('play-external', async (_e, args) => playMedia(args));
+  ipcMain.handle('play-native', async (_e, args) => openInMeemPlayer(args));
 
-  ipcMain.handle('get-meem-player-status', async () => {
-    const config = getMeemPlayerConfig();
-    return {
-      available: !!config,
-      type: config?.type || null,
-      command: config?.command || null,
-      cwd: config?.cwd || null
-    };
-  });
+  ipcMain.handle('get-meem-player-status', async () => getMeemPlayerConfig());
 
   ipcMain.handle('get-vlc-status', async () => {
     const vlcCmd = getVlcExecutable();
@@ -560,5 +641,4 @@ function initMediaPlayIpc(ipcMain) {
   });
 }
 
-module.exports = { initMediaPlayIpc };
-
+module.exports = { initMediaPlayIpc, handleExternalPlayerProgress };

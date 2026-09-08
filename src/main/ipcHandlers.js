@@ -7,6 +7,9 @@ const { initMetadataIpc } = require('./ipc/metadata');
 const { initRadioIpc } = require('./ipc/radio');
 const { initIptvIpc } = require('./ipc/iptv');
 const { initYoutubeIpc } = require('./ipc/youtube');
+const { initPatreonIpc } = require('./ipc/patreon');
+const { initGumroadIpc } = require('./ipc/gumroad');
+const { initMusicIpc } = require('./ipc/music');
 
 function initMiscIpc(ipcMain) {
   initUtilityIpc(ipcMain);
@@ -18,6 +21,9 @@ function initMiscIpc(ipcMain) {
   initRadioIpc(ipcMain);
   initIptvIpc(ipcMain);
   initYoutubeIpc(ipcMain);
+  initMusicIpc(ipcMain);
+  initPatreonIpc(ipcMain);
+  initGumroadIpc(ipcMain);
 }
 
 module.exports = { initMiscIpc };

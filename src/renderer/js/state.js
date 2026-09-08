@@ -43,6 +43,7 @@ var appData = {
   thumbnails: {}, banners: {}, pinned: [], lastView: 'movies',
   tmdbCache: {}, downloadHistory: [], theme: 'minimalist', downloadPath: '',
   notifications: [],
+  followedAnime: [],
   enableVideoTrailers: true,
   youtubeFolder: '', youtubeVideos: [], socialVideos: [], uiState: { collapsedGroups: [] },
   tmdbKey: null, searchHistory: [],
@@ -213,13 +214,25 @@ async function requestNativePlayback(item, show, extra = {}) {
   if (!window.api?.playMedia) return { success: false, error: 'playMedia unavailable' };
   
   // Prefer active stream URL if available, fallback to torrentMagnet or media path
-  let pathUrl = item.path || item.url || item.torrentMagnet || item.streamUrl || item.mediaUrl || item.sourceUrl || item.videoId || item.id;
+  let pathUrl = item.path || item.url || item.torrentMagnet || item.streamUrl || item.mediaUrl || item.sourceUrl;
+  if (!pathUrl && item.id && (item.id.startsWith('http') || item.id.includes(':\\') || item.id.includes(':/') || item.id.startsWith('\\\\'))) {
+    pathUrl = item.id;
+  }
+  if (!pathUrl && item.torrentMagnet) pathUrl = item.torrentMagnet;
   if ((item.isYoutube || item.type === 'youtube') && (item.videoId || item.id) && (!pathUrl || !pathUrl.startsWith('http'))) {
     pathUrl = `https://www.youtube.com/watch?v=${item.videoId || item.id}`;
   }
+
+  if (!pathUrl) {
+    console.warn('[requestNativePlayback] Aborting: No valid stream URL or local path for item:', item);
+    return { success: false, error: 'No valid stream URL or file path found' };
+  }
   const pbKey = typeof getPlaybackKey === 'function' ? getPlaybackKey(item) : null;
-  const pb = currentProfile?.playback?.[pbKey];
-  const startTime = extra.startTime ?? ((pb && pb.time > 2 && !pb.watched) ? pb.time : 0);
+  const pb = (currentProfile?.playback?.[pbKey]) ||
+             (item.id && currentProfile?.playback?.[item.id]) ||
+             (item.path && currentProfile?.playback?.[item.path]) ||
+             (item.url && currentProfile?.playback?.[item.url]);
+  const startTime = extra.startTime ?? item.startTime ?? ((pb && pb.time > 2 && !pb.watched) ? pb.time : 0);
   
   // ── Smart Playlist Construction for TV Shows & Multi-Item Series ──
   let playlist = null;
@@ -293,7 +306,8 @@ async function requestNativePlayback(item, show, extra = {}) {
       }
 
       const epTitle = ep.title || ep.name || tE?.name || `Episode ${epNum}`;
-      const epPath = ep.path || ep.url || ep.sourceUrl || '';
+      const targetShowId = showObj?.tmdbId || showObj?.tmdb_id || showObj?.imdbId || showObj?.imdb_id || showObj?.id || item?.tmdbId || item?.imdbId;
+      const epPath = ep.path || ep.url || ep.sourceUrl || (targetShowId ? `https://vidsrc.sbs/embed/tv/${String(targetShowId).replace(/^tmdb:/, '')}/${snNum}/${epNum}` : '');
 
       return {
         path: epPath,
@@ -317,6 +331,15 @@ async function requestNativePlayback(item, show, extra = {}) {
 
     if (foundIdx >= 0) {
       playlistIndex = foundIdx;
+      // CRITICAL: Bind the exact resolved stream/magnet pathUrl to the current playlist entry
+      playlist[foundIdx].path = pathUrl;
+      playlist[foundIdx].url = pathUrl;
+      if (item.displayTitle || item.title || item.epTitle) {
+        playlist[foundIdx].title = item.displayTitle || item.title || item.epTitle;
+      }
+      if (!playlist[foundIdx].thumbnail && (item.thumbnail || item.still_path || item.poster)) {
+        playlist[foundIdx].thumbnail = item.thumbnail || item.still_path || item.poster;
+      }
     }
   }
 

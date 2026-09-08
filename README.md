@@ -2,12 +2,12 @@
 
 # 🎬 MEEM — Play Anything. Anytime.
 
-[![Version](https://img.shields.io/badge/version-2.7.0-ffffff?style=for-the-badge&logo=electron&logoColor=black)](https://github.com/amromotaw3/MEEM)
+[![Version](https://img.shields.io/badge/version-3.8.0-ffffff?style=for-the-badge&logo=electron&logoColor=black)](https://github.com/amromotaw3/MEEM)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-000000?style=for-the-badge)](https://github.com/amromotaw3/MEEM)
 [![License](https://img.shields.io/badge/license-MIT-white?style=for-the-badge)](LICENSE)
 
-**The next-generation personal media hub.**  
-Stream torrents, watch live IPTV, listen to global radio, manage your local library, watch anime, and connect community add-ons — all in a sleek minimalist black & white interface.
+**The next-generation personal media hub for Desktop & Android.**  
+Stream torrents, watch live IPTV, listen to global radio, manage your local library, watch anime, and connect community add-ons — all in a sleek minimalist pitch-black interface.
 
 </div>
 

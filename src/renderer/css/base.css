@@ -4,17 +4,17 @@
 
 /* Default Theme: Modern Black & White Minimalist (mono-theme) */
 :root, .theme-minimalist {
-  --font: 'Comfortaa', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --bg: #000000;
-  --bg-surface: #000000;
-  --bg-surface-2: #09090b;
-  --bg-card: #000000;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", Helvetica, Arial, sans-serif;
+  --bg: #050508;
+  --bg-surface: #09090f;
+  --bg-surface-2: #11111a;
+  --bg-card: rgba(13, 13, 20, 0.7);
   --text-primary: #ffffff;
   --text-secondary: #a1a1aa;
   --text-muted: #8e8e93;
-  --border: rgba(255, 255, 255, 0.30);
-  --border-subtle: rgba(255, 255, 255, 0.22);
-  --border-strong: rgba(255, 255, 255, 0.50);
+  --border: rgba(255, 255, 255, 0.22);
+  --border-subtle: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.45);
   --accent: #ffffff;
   --accent-hover: #f4f4f5;
   --accent-light: rgba(255, 255, 255, 0.16);
@@ -31,16 +31,32 @@
 }
 
 /* --- THEME MINIMALIST (BLACK & WHITE) SPECIFIC OVERRIDES --- */
-.theme-minimalist body,
+body.theme-minimalist,
+.theme-minimalist {
+  background-color: #050508 !important;
+  background: #050508 !important;
+  color: #ffffff !important;
+}
+
+.theme-minimalist #content,
 .theme-minimalist #app-content,
+.theme-minimalist .content-wrapper,
+.theme-minimalist #main-scroll-container,
 .theme-minimalist .main-content,
 .theme-minimalist .page-view,
 .theme-minimalist .discover-main,
 .theme-minimalist .discover-section,
-.theme-minimalist .settings-card,
+.theme-minimalist .discover-sticky-bar,
+.theme-minimalist .discover-genre-pills,
 .theme-minimalist .card-grid,
 .theme-minimalist .library-view,
-.theme-minimalist .iptv-view,
+.theme-minimalist .iptv-view {
+  background-color: transparent !important;
+  background: transparent !important;
+  color: #ffffff !important;
+}
+
+.theme-minimalist .settings-card,
 .theme-minimalist .modal-backdrop > div,
 .theme-minimalist .modal-content,
 .theme-minimalist .dialog-container,
@@ -49,8 +65,8 @@
 .theme-minimalist .detail-content,
 .theme-minimalist .detail-sheet,
 .theme-minimalist .profile-picker-screen {
-  background-color: #000000 !important;
-  background: #000000 !important;
+  background-color: #050508 !important;
+  background: #050508 !important;
   color: #ffffff !important;
 }
 
@@ -99,7 +115,7 @@
 
 .dark-theme .splash-orb,
 .dark-theme .player-splash-blob {
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.3) 0%, transparent 70%) !important;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, transparent 70%) !important;
 }
 
 /* Profile Picker Override */
@@ -220,10 +236,10 @@ input[type="checkbox"]:checked::before {
 
 /* Optional Classic Midnight Dark Theme */
 .dark-theme, .theme-dark {
-  --bg: radial-gradient(circle at 20% 0%, #1a1a3a 0%, #0a0a14 85%, #050508 100%);
-  --bg-surface: rgba(15, 15, 25, 0.92);
-  --bg-surface-2: rgba(30, 30, 50, 0.85);
-  --bg-card: rgba(20, 20, 35, 0.9);
+  --bg: #050508;
+  --bg-surface: rgba(9, 9, 15, 0.95);
+  --bg-surface-2: rgba(17, 17, 24, 0.9);
+  --bg-card: rgba(13, 13, 20, 0.95);
   --text-primary: #ffffff;
   --text-secondary: rgba(255, 255, 255, 0.9);
   --text-muted: rgba(255, 255, 255, 0.6);
@@ -235,6 +251,11 @@ input[type="checkbox"]:checked::before {
   --accent-hover: #f8fafc;
   --accent-light: rgba(255, 255, 255, 0.12);
   --accent-glow: rgba(255, 255, 255, 0.18);
+}
+
+/* Hide mobile drawer header on desktop */
+.mobile-drawer-header {
+  display: none !important;
 }
 
 /* --- UNIVERSAL BUTTON ACCESSIBILITY & CONTRAST --- */
@@ -436,10 +457,10 @@ img {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(10, 10, 15, 0.45) !important;
-  backdrop-filter: blur(20px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-bottom: none !important;
   padding: 0 10px;
   -webkit-app-region: drag;
   user-select: none;
@@ -573,12 +594,12 @@ img {
   }
 }
 
-/* ─── UNIVERSAL COMFORTAA FONT ENFORCEMENT ────────────────────────────── */
+/* ─── UNIVERSAL CLEAN FONT ENFORCEMENT ────────────────────────────── */
 *:not(.fa):not(.fas):not(.far):not(.fab):not(.fad):not(.fal):not(.fat):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(i) {
-  font-family: 'Comfortaa', 'Cairo', -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", Helvetica, Arial, sans-serif !important;
 }
 
-/* ─── APPTITLE, SPLASH & SIDEBAR FONT OVERRIDE ('Cairo') ─────────────────── */
+/* ─── APPTITLE, SPLASH & SIDEBAR FONT OVERRIDE ─────────────────── */
 .title-text,
 #app-splash h1,
 #player-splash .player-splash-text,
@@ -586,5 +607,66 @@ img {
 #sidebar *:not(.fa):not(.fas):not(.far):not(.fab):not(.fad):not(.fal):not(.fat):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(i),
 .sidebar-wrapper *:not(.fa):not(.fas):not(.far):not(.fab):not(.fad):not(.fal):not(.fat):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(i),
 .sidebar-flyout-menu *:not(.fa):not(.fas):not(.far):not(.fab):not(.fad):not(.fal):not(.fat):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(i) {
-  font-family: 'Cairo', sans-serif !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", Helvetica, Arial, sans-serif !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Ambient Light Orbs & Atmospheric Depth (Subtle, Calm, Non-pulsing)
+   ══════════════════════════════════════════════════════════════════════════ */
+#ambient-glow-container {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+  opacity: 0.6;
+}
+
+.ambient-glow-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(140px);
+  -webkit-filter: blur(140px);
+  pointer-events: none;
+  animation: none !important;
+}
+
+/* Primary Top-Center Spotlight Glow (Calm & Dim) */
+.ambient-glow-orb.orb-1 {
+  width: 480px;
+  height: 480px;
+  background: rgba(255, 255, 255, 0.05);
+  top: -120px;
+  left: 50%;
+  transform: translateX(-50%);
+  opacity: 0.06;
+}
+
+/* Bottom-Right Slate Glow */
+.ambient-glow-orb.orb-2 {
+  width: 400px;
+  height: 400px;
+  background: rgba(148, 163, 184, 0.04);
+  bottom: -60px;
+  right: -60px;
+  opacity: 0.04;
+}
+
+/* Middle-Left Ambient Glow */
+.ambient-glow-orb.orb-3 {
+  width: 320px;
+  height: 320px;
+  background: rgba(255, 255, 255, 0.03);
+  top: 35%;
+  left: -80px;
+  opacity: 0.03;
+}
+
+/* Automatically hide during video playback or fullscreen */
+body.playing-mode #ambient-glow-container,
+body.fullscreen-mode #ambient-glow-container,
+.fullscreen-mode #ambient-glow-container {
+  display: none !important;
 }

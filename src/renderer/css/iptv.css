@@ -54,17 +54,23 @@
 
 /* ─── PANE 1: Sources & Playlists Sidebar ─── */
 .iptv-sources-panel {
-  background: rgba(18, 18, 28, 0.75);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+  background: rgba(16, 16, 20, 0.92) !important;
+  backdrop-filter: blur(32px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 20px !important;
   display: flex;
   flex-direction: column;
   padding: 16px;
   gap: 14px;
   overflow: hidden;
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+.iptv-sources-panel:hover {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
 }
 
 .iptv-sources-header {
@@ -77,12 +83,14 @@
 
 .iptv-sources-title {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.92rem;
   font-weight: 800;
   color: #ffffff;
   display: flex;
   align-items: center;
   gap: 8px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
 }
 
 .iptv-sources-list {
@@ -98,41 +106,39 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px;
+  padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .iptv-source-item:hover {
   background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.4) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  transform: translateX(2px);
 }
 
 .iptv-source-item.active {
-  background: rgba(255, 255, 255, 0.15) !important;
-  border-color: #ffffff !important;
+  background: #ffffff !important;
+  border-color: transparent !important;
   box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25) !important;
 }
 
-.iptv-channel-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.4) !important;
-  transform: translateX(3px);
+.iptv-source-item.active .iptv-source-name {
+  color: #000000 !important;
+  font-weight: 800 !important;
 }
 
-.iptv-channel-card.active {
-  background: rgba(255, 255, 255, 0.15) !important;
-  border-color: #ffffff !important;
-  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25) !important;
+.iptv-source-item.active .iptv-source-count {
+  color: rgba(0, 0, 0, 0.6) !important;
 }
 
 .iptv-source-info {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   overflow: hidden;
 }
 
@@ -183,7 +189,7 @@
 
 .iptv-add-source-btn {
   width: 100%;
-  padding: 12px;
+  padding: 11px;
   border-radius: 12px;
   background: #ffffff !important;
   color: #000000 !important;
@@ -195,7 +201,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: all 0.25s ease;
+  transition: all 0.2s ease;
   box-shadow: 0 4px 18px rgba(255, 255, 255, 0.25);
 }
 
@@ -208,17 +214,23 @@
 
 /* ─── PANE 2: Categories & Channels Explorer ─── */
 .iptv-middle-panel {
-  background: rgba(18, 18, 28, 0.75);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+  background: rgba(16, 16, 20, 0.92) !important;
+  backdrop-filter: blur(32px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 20px !important;
   display: flex;
   flex-direction: column;
   padding: 16px;
   gap: 14px;
   overflow: hidden;
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+.iptv-middle-panel:hover {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
 }
 
 .iptv-search-box {
@@ -269,9 +281,9 @@
 
 .iptv-cat-pill {
   padding: 6px 14px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.7);
   font-size: 0.8rem;
   font-weight: 700;
@@ -281,7 +293,8 @@
 }
 
 .iptv-cat-pill:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.18);
   color: #ffffff;
 }
 
@@ -311,25 +324,34 @@
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.07);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .iptv-channel-card:hover {
   background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.4);
-  transform: translateX(3px);
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  transform: translateX(2px);
 }
 
 .iptv-channel-card.active {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: #ffffff;
-  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25);
+  background: #ffffff !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25) !important;
+}
+
+.iptv-channel-card.active .iptv-ch-name {
+  color: #000000 !important;
+  font-weight: 800 !important;
+}
+
+.iptv-channel-card.active .iptv-ch-meta {
+  color: rgba(0, 0, 0, 0.6) !important;
 }
 
 .iptv-ch-logo-wrap {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
@@ -344,7 +366,7 @@
   height: 100%;
   object-fit: contain;
   padding: 3px;
-  border-radius: 10px;
+  border-radius: 8px;
   box-sizing: border-box;
 }
 
@@ -388,19 +410,24 @@
 }
 
 /* ─── PANE 3: Main Video Viewport & Player ─── */
-/* ─── PANE 3: Main Video Viewport & Player ─── */
 .iptv-right-panel {
-  background: rgba(18, 18, 28, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+  background: rgba(16, 16, 20, 0.92) !important;
+  backdrop-filter: blur(32px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 20px !important;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
   position: relative;
   height: 100%;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+.iptv-right-panel:hover {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
 }
 
 .iptv-player-viewport {

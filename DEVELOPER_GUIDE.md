@@ -53,7 +53,7 @@
 ## 2. هيكل المجلدات ومسؤوليات الملفات
 
 ```
-MediaVault v2/
+MEEM/
 ├── main.js                     # المدخل الرئيسي للـ Electron، النوافذ، والبروتوكولات
 ├── package.json                # التبعيات وسكربتات التشغيل والبناء
 ├── capacitor.config.json       # إعدادات Capacitor لتطبيق الأندرويد
@@ -105,14 +105,14 @@ MediaVault v2/
 ### 📡 أهم قنوات الـ IPC:
 | القناة (Channel) | الملف المعالج | الوظيفة |
 | :--- | :--- | :--- |
-| `check-network-status` | [`main.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/main.js) | فحص مباشر لحالة الاتصال الحقيقية بالإنترنت عبر DNS/Sockets |
-| `download-image` | [`metadata.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/src/main/ipc/metadata.js) | تنزيل صورة مع تتبع الـ Redirects وحفظها في `BANNERS_DIR` |
-| `cinemeta-catalog` | [`metadata.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/src/main/ipc/metadata.js) | جلب كتالوجات Cinemeta المنسقة |
-| `start-torrent-stream` | [`main.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/main.js) | تشغيل بث ملف تورنت أو رابط Magnet عبر خادم محلي |
-| `stop-torrent-stream` | [`main.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/main.js) | إيقاف محرك التورنت وتحرير الموارد والمنافذ |
-| `scan-local-library` | [`libraryScanner.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/src/main/libraryScanner.js) | مسح المجلدات المحلية واستخراج العناوين والحلقات |
-| `search-subtitles` | [`SubtitleManager.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/src/main/SubtitleManager.js) | البحث عن ملفات الترجمة للفيلم أو الحلقة |
-| `save-store` / `load-store` | [`store.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/src/main/store.js) | حفظ وقراءة قاعدة بيانات `data.json` للمستخدم |
+| `check-network-status` | [`main.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/main.js) | فحص مباشر لحالة الاتصال الحقيقية بالإنترنت عبر DNS/Sockets |
+| `download-image` | [`metadata.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/src/main/ipc/metadata.js) | تنزيل صورة مع تتبع الـ Redirects وحفظها في `BANNERS_DIR` |
+| `cinemeta-catalog` | [`metadata.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/src/main/ipc/metadata.js) | جلب كتالوجات Cinemeta المنسقة |
+| `start-torrent-stream` | [`main.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/main.js) | تشغيل بث ملف تورنت أو رابط Magnet عبر خادم محلي |
+| `stop-torrent-stream` | [`main.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/main.js) | إيقاف محرك التورنت وتحرير الموارد والمنافذ |
+| `scan-local-library` | [`libraryScanner.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/src/main/libraryScanner.js) | مسح المجلدات المحلية واستخراج العناوين والحلقات |
+| `search-subtitles` | [`SubtitleManager.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/src/main/SubtitleManager.js) | البحث عن ملفات الترجمة للفيلم أو الحلقة |
+| `save-store` / `load-store` | [`store.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/src/main/store.js) | حفظ وقراءة قاعدة بيانات `data.json` للمستخدم |
 
 ---
 
@@ -190,7 +190,7 @@ graph LR
 
 ## 10. نظام المزامنة والحسابات والشبكة الاجتماعية
 
-- يتم استخدام عميل `Supabase` المدمج في [`src/renderer/js/supabase.js`](file:///c:/Users/motawa/Documents/Vault-Workspace/MediaVault%20v2/src/renderer/js/supabase.js) لإدارة المصادقة السحابية والمزامنة بين الأجهزة.
+- يتم استخدام عميل `Supabase` المدمج في [`src/renderer/js/supabase.js`](file:///c:/Users/motawa/Documents/MEEM-Workspace/MEEM/src/renderer/js/supabase.js) لإدارة المصادقة السحابية والمزامنة بين الأجهزة.
 - تدير موديول `social-presence.js` قنوات الـ Realtime لمزامنة حالة التشغيل وغرف الـ Watch Party ورسائل المحادثة.
 
 ---

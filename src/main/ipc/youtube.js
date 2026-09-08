@@ -30,9 +30,17 @@ function initYoutubeIpc(ipcMain) {
     return YouTubeService.getTranscriptOrSubtitle(videoId, lang);
   });
 
-  // Account Auth & OAuth2 TV Login Handlers
+  // Account Auth & OAuth2 Web/TV Login Handlers
   ipcMain.handle('youtube-get-account', async () => {
     return YouTubeService.getAccountInfo();
+  });
+
+  ipcMain.handle('youtube-web-login', async (event, opts) => {
+    return YouTubeService.startWebAuthFlow(opts);
+  });
+
+  ipcMain.handle('youtube-sync-meem-account', async (event, customInfo) => {
+    return YouTubeService.syncMeemAccount(customInfo);
   });
 
   ipcMain.handle('youtube-auth-start', async (event) => {
@@ -93,8 +101,19 @@ function initYoutubeIpc(ipcMain) {
     return YouTubeService.getComments(videoId);
   });
 
-  // Download Media with Progress Broadcasting
+  // Download Media with Progress Broadcasting (MEEM VIP Only)
   ipcMain.handle('youtube-download-media', async (event, { videoId, mode, title, targetDir }) => {
+    const { getInMemorySession, isSessionVIP } = require('../store');
+    const session = getInMemorySession();
+    if (!isSessionVIP(session)) {
+      console.warn('[YouTube IPC] Blocked download attempt: MEEM VIP subscription required.');
+      return {
+        success: false,
+        error: 'VIP_REQUIRED',
+        message: 'YouTube downloads are available exclusively for MEEM VIP members.'
+      };
+    }
+
     const webContents = event.sender;
     return YouTubeService.downloadMedia({
       videoId,

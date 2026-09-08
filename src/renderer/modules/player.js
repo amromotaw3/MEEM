@@ -6,7 +6,17 @@
   function getPlaybackKey(item) {
     if (!item) return '';
     // Stable identifier so Torrents/Streams (which change path URL) don't lose progress
-    const baseKey = item.tmdbId || item.id || item.path;
+    let baseKey = item.tmdbId || item.id;
+    if (!baseKey && item.torrentMagnet) {
+      const match = item.torrentMagnet.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
+      baseKey = match ? `magnet_${match[1].toLowerCase()}` : item.torrentMagnet;
+      if (item.fileIdx !== undefined && item.fileIdx !== null) {
+        baseKey += `_f${item.fileIdx}`;
+      }
+    }
+    if (!baseKey) {
+      baseKey = item.path;
+    }
     const type = item.type || item.media_type || (item.format === 'MOVIE' ? 'movie' : (item.format ? 'anime' : (item.title ? 'movie' : 'tv')));
     
     if (type === 'movie' || type === 'character' || type === 'actor') {
@@ -15,6 +25,9 @@
     
     // For series and anime
     if (item.episode !== undefined) {
+        if (typeof baseKey === 'string' && (/_S\d+E\d+$/i.test(baseKey) || /_E\d+$/i.test(baseKey))) {
+            return baseKey;
+        }
         if (item.season !== undefined && item.season !== null && item.season !== '') {
             return `${baseKey}_S${item.season}E${item.episode}`;
         }
@@ -185,10 +198,35 @@
       showToast('This content is restricted by age rating filters.');
       return;
     }
+
+    // Resolve local path if missing or contained in id/meta/appData
+    if (!item.path && item.url) item.path = item.url;
+    if (!item.path && item.id && (item.id.includes(':\\') || item.id.includes(':/') || item.id.startsWith('/'))) {
+      item.path = item.id;
+    }
+    if (!item.path && item.meta?.path) item.path = item.meta.path;
+
+    if (!item.path && window.appData) {
+      if (Array.isArray(appData.shows)) {
+        for (const s of appData.shows) {
+          const ep = (s.episodes || []).find(e => {
+            if (e.path && (item.id === e.path || (item.season != null && item.episode != null && e.season == item.season && e.episode == item.episode && (s.title === item.showTitle || s.title === item.showName || s.cleanTitle === item.showTitle)))) return true;
+            return false;
+          });
+          if (ep && ep.path) {
+            item.path = ep.path;
+            if (!show) show = s;
+            break;
+          }
+        }
+      }
+      if (!item.path && Array.isArray(appData.movies)) {
+        const m = appData.movies.find(mv => mv.path && (mv.path === item.id || mv.id === item.id || (item.title && mv.path.includes(item.title))));
+        if (m && m.path) item.path = m.path;
+      }
+    }
+
     if (item?.path && isStaleStreamUrl(item.path) && !item.torrentMagnet) {
-      // Guarded: findLibraryItemForPlayback is an optional resolver (maps a stale
-      // stream URL back to its local library item). If it isn't available, skip the
-      // remap instead of throwing a ReferenceError and aborting playback.
       const resolved = (typeof findLibraryItemForPlayback === 'function')
         ? findLibraryItemForPlayback(item)
         : null;
@@ -226,10 +264,10 @@
     const isMobile = !!(window.Capacitor);
     const useNativeDesktop = !isMobile && window.api?.isElectron && !isNativePlayerWindow();
     if (useNativeDesktop) {
-      showToast('Opening in MEEM Player...');
-      const res = await requestNativePlayback(item, show);
+      showToast('Opening video...');
+      const res = await requestNativePlayback(item, show, extra);
       if (res?.success !== false) return;
-      showToast('Failed to open MEEM player' + (res?.error ? ': ' + res.error : ''));
+      showToast('Failed to open player' + (res?.error ? ': ' + res.error : ''));
       return;
     }
 
@@ -455,7 +493,9 @@
 
     $('#player-title').textContent = displayTitle;
     currentItem.displayTitle = displayTitle; // Store for mini-player usage
-    $('#player-show-name').textContent = show?.title || '';
+    $('#player-show-name').textContent = show?.title || item.author || item.creator || item.showName || 'MEEM';
+    const posterUrl = item.poster || item.poster_path || item.posterPath || item.cover || item.thumbnail || item.image || show?.poster || show?.poster_path || show?.posterPath || 'imgs/appicon.png';
+    if ($('#player-now-poster')) $('#player-now-poster').src = posterUrl;
     if ($('#music-poster-container')) $('#music-poster-container').style.display = 'none';
 
     // Update Loading Screen Clearlogo (Official Title Logo PNG only)
@@ -777,6 +817,11 @@
       btnYtDlVid.onclick = async (e) => {
         e.stopPropagation();
         if (ytDlMenu) ytDlMenu.style.display = 'none';
+        if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+          showToast('👑 Offline downloads are available exclusively for MEEM VIP members!');
+          if (typeof window.openSubscriptionModal === 'function') window.openSubscriptionModal('YouTube Video Downloads');
+          return;
+        }
         if (!ytVideoId) return;
         showToast('Starting YouTube Video download to Social folder...');
         try {
@@ -801,6 +846,11 @@
       btnYtDlAud.onclick = async (e) => {
         e.stopPropagation();
         if (ytDlMenu) ytDlMenu.style.display = 'none';
+        if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+          showToast('👑 Offline downloads are available exclusively for MEEM VIP members!');
+          if (typeof window.openSubscriptionModal === 'function') window.openSubscriptionModal('YouTube Audio (MP3) Downloads');
+          return;
+        }
         if (!ytVideoId) return;
         showToast('Starting YouTube Audio (MP3) download to Downloads folder...');
         try {
@@ -1283,6 +1333,10 @@
     const displayTime = manualTime !== null ? manualTime : engine.currentTime;
     const timeDisplay = $('#time-display');
     if (timeDisplay) timeDisplay.textContent = `${formatTime(displayTime)} / ${formatTime(dur)}`;
+    const timeCur = $('#time-current');
+    const timeDur = $('#time-duration');
+    if (timeCur) timeCur.textContent = formatTime(displayTime);
+    if (timeDur) timeDur.textContent = formatTime(dur);
 
     // Music time display
     const mTimeCur = $('#music-time-current');
@@ -1790,7 +1844,9 @@
     bass: [6, 3, 0, 0, -1]
   };
 
-  $('#btn-transcode-audio').onclick = async () => {
+  const btnTranscode = $('#btn-transcode-audio') || $('#psd-btn-transcode');
+  if (btnTranscode) {
+    btnTranscode.onclick = async () => {
     if (!video) return;
 
     // ── Source detection ─────────────────────────────────────────────────────
@@ -1898,6 +1954,7 @@
       showToast('❌ Failed to switch stream: ' + e.message);
     }
   };
+}
 
   // ─── dedicated subdl subtitles panel integration ───
   const btnPlayerSubdl = $('#btn-player-subdl');
@@ -2091,17 +2148,22 @@
     }
   }
 
-  $('#btn-close-tracks').onclick = () => closeSidePanel();
+  if ($('#btn-close-tracks')) $('#btn-close-tracks').onclick = () => closeSidePanel();
 
-  $('#btn-eq').onclick = () => {
-    if (!audioCtx) initAudioEQ();
-    openPanel('#player-eq-panel');
-  };
-  $('#music-btn-eq').onclick = () => {
-    if (!audioCtx) initAudioEQ();
-    openPanel('#player-eq-panel');
-  };
-  $('#btn-close-eq').onclick = () => closeSidePanel();
+  const btnEq = $('#btn-eq') || $('#psd-btn-eq');
+  if (btnEq) {
+    btnEq.onclick = () => {
+      if (!audioCtx) initAudioEQ();
+      openPanel('#player-eq-panel');
+    };
+  }
+  if ($('#music-btn-eq')) {
+    $('#music-btn-eq').onclick = () => {
+      if (!audioCtx) initAudioEQ();
+      openPanel('#player-eq-panel');
+    };
+  }
+  if ($('#btn-close-eq')) $('#btn-close-eq').onclick = () => closeSidePanel();
 
   function initAudioEQ() {
     if (!audioCtx) {

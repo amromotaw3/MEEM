@@ -1,6 +1,6 @@
 {
   "name": "meem",
-  "version": "3.8.0",
+  "version": "3.9.1",
   "description": "MEEM — Play Anything. Anytime.",
   "main": "main.js",
   "repository": {
@@ -20,11 +20,10 @@
     "build:portable": "electron-builder --win portable",
     "release": "node scripts/run-release.js",
     "release:ci": "npm run release",
-    "mobile:dev": "npx cap run android -l",
-    "mobile:sync": "npx cap sync",
-    "mobile:open": "npx cap open android",
-    "mobile:build": "npx cap sync && cd android && gradlew.bat assembleRelease",
-    "web:preview": "npx http-server src/renderer"
+    "web:preview": "npx http-server src/renderer",
+    "mobile:sync": "cap sync android",
+    "mobile:open": "cap open android",
+    "mobile:build": "cd android && .\\gradlew.bat assembleDebug"
   },
   "keywords": [
     "media",
@@ -37,15 +36,7 @@
   "author": "MEEM",
   "license": "MIT",
   "devDependencies": {
-    "@capacitor/android": "^8.3.1",
-    "@capacitor/app": "^8.1.0",
-    "@capacitor/browser": "^8.0.3",
-    "@capacitor/cli": "^8.3.1",
-    "@capacitor/core": "^8.3.1",
-    "@capacitor/device": "^8.0.0",
-    "@capacitor/filesystem": "^8.1.2",
-    "@capacitor/preferences": "^8.0.0",
-    "@capacitor/share": "^8.0.1",
+    "@capacitor/cli": "^8.5.0",
     "app-builder-bin": "^4.2.0",
     "electron": "^30.1.0",
     "electron-builder": "^26.8.1",
@@ -68,7 +59,9 @@
       {
         "from": "../MEEM Player/dist/MEEM-Player",
         "to": "MEEM-Player",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "asarUnpack": [
@@ -118,6 +111,11 @@
     }
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/core": "^8.5.0",
+    "@distube/ytdl-core": "^4.16.12",
     "@supabase/supabase-js": "^2.106.1",
     "adm-zip": "^0.5.17",
     "axios": "^1.18.0",
@@ -136,6 +134,7 @@
     "music-metadata": "^10.0.0",
     "node-machine-id": "^1.1.12",
     "opensubtitles-api": "^5.1.2",
+    "play-dl": "^1.9.7",
     "radio-browser-api": "^6.0.3",
     "torrent-stream": "^1.2.1",
     "webtorrent": "^2.8.5",

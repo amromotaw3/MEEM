@@ -65,6 +65,10 @@ function resolveYtDlpPath() {
 function spawnYtDlp(args, opts = {}) {
   const yt = resolveYtDlpPath();
   if (!yt) throw new Error('yt-dlp binary not found');
+  // Hide CMD console windows on Windows to prevent UI flicker
+  if (process.platform === 'win32' && opts.windowsHide === undefined) {
+    opts = { ...opts, windowsHide: true };
+  }
   return spawn(yt, args, opts);
 }
 
@@ -74,7 +78,8 @@ function execYtDlp(args, options = {}) {
   return new Promise((resolve, reject) => {
     exec(`"${yt}" ${args}`, {
       maxBuffer: options.maxBuffer || 1024 * 1024 * 50,
-      timeout: options.timeout || 30000
+      timeout: options.timeout || 30000,
+      windowsHide: true
     }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(`yt-dlp exec failed: ${error.message}`));

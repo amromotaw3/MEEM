@@ -56,6 +56,13 @@ contextBridge.exposeInMainWorld('api', {
   searchAddons: (opts) => ipcRenderer.invoke('search-addons', opts),
   streamTorrent: (magnet, fileIdx) => ipcRenderer.invoke('stream-torrent', magnet, fileIdx),
 
+  // YouTube Music Full Integration
+  searchMusic: (query) => ipcRenderer.invoke('music-search', query),
+  getTrendingMusic: (genre) => ipcRenderer.invoke('music-get-trending', genre),
+  getMusicStreamUrl: (videoId) => ipcRenderer.invoke('music-get-stream-url', videoId),
+  downloadMusicTrack: (track, customFolder) => ipcRenderer.invoke('music-download-track', { track, customFolder }),
+  getMusicLyrics: (title, artist, duration, videoId) => ipcRenderer.invoke('music-get-lyrics', { title, artist, duration, videoId }),
+
 
   cinemetaDetails: (type, id) => ipcRenderer.invoke('cinemeta-details', { type, id }),
   cinemetaCatalog: (type, id) => ipcRenderer.invoke('cinemeta-catalog', { type, id }),
@@ -87,6 +94,7 @@ contextBridge.exposeInMainWorld('api', {
   // Cloud Auth & Profile wrappers
   cloudLogin: (email, password) => ipcRenderer.invoke('cloud-login', { email, password }),
   cloudRegister: (email, password) => ipcRenderer.invoke('cloud-register', { email, password }),
+  cloudVerifyOtp: (email, token) => ipcRenderer.invoke('cloud-verify-otp', { email, token }),
   cloudCreateProfile: (profileData) => ipcRenderer.invoke('cloud-create-profile', profileData),
   cloudUpdateProfile: (profileData) => ipcRenderer.invoke('cloud-update-profile', profileData),
   cloudDeleteProfile: (id) => ipcRenderer.invoke('cloud-delete-profile', { id }),
@@ -101,15 +109,22 @@ contextBridge.exposeInMainWorld('api', {
   cloudAdminMutate: (admin_id, action, payload) => ipcRenderer.invoke('cloud-admin-mutate', { admin_id, action, payload }),
 
 
+  // Gumroad Integration
+  gumroadVerifyLicense: (licenseKey, productId) => ipcRenderer.invoke('gumroad-verify-license', { licenseKey, productId }),
+  gumroadStatus: () => ipcRenderer.invoke('gumroad-status'),
+  gumroadDisconnect: () => ipcRenderer.invoke('gumroad-disconnect'),
+
   // Fanart Key Management
   setFanartKey: (key) => ipcRenderer.invoke('set-fanart-key', key),
   getFanartKeyMasked: () => ipcRenderer.invoke('get-fanart-key-masked'),
   verifyFanartKey: (key) => ipcRenderer.invoke('verify-fanart-key', key),
   fanartGetImages: (imdbId, type) => ipcRenderer.invoke('fanart-get-images', { imdbId, type }),
 
-  // MyAnimeList (Jikan API)
+  // MyAnimeList & AniList Schedule
   malSearch: (q) => ipcRenderer.invoke('mal-search', q),
   malDetails: (id) => ipcRenderer.invoke('mal-details', id),
+  jikanSchedule: (filter) => ipcRenderer.invoke('jikan-schedule', filter),
+  animeSearchSchedule: (q) => ipcRenderer.invoke('anime-search-schedule', q),
   malTopRated: () => ipcRenderer.invoke('mal-top-rated'),
   malTopUpcoming: () => ipcRenderer.invoke('mal-top-upcoming'),
   malSeasonal: (season, year) => ipcRenderer.invoke('mal-seasonal', season, year),
@@ -144,8 +159,8 @@ contextBridge.exposeInMainWorld('api', {
       'clean-missing-downloads', 'clear-session',
 
       // Cloud Authentication & Profiles
-      'cloud-login', 'cloud-register', 'cloud-discord-login',
-      'cloud-create-profile', 'cloud-update-profile', 'cloud-delete-profile',
+      'cloud-login', 'cloud-register', 'cloud-verify-otp',
+      'cloud-discord-login', 'cloud-create-profile', 'cloud-update-profile', 'cloud-delete-profile',
       'cloud-verify-profile-pin', 'cloud-sync-user-session', 'cloud-oauth',
       'cloud-update-profile-avatar-color',
 
@@ -187,7 +202,7 @@ contextBridge.exposeInMainWorld('api', {
       'get-metadata-provider', 'set-metadata-provider',
       'set-fanart-key', 'get-fanart-key-masked', 'verify-fanart-key', 'fanart-get-images', 'fanart-images',
       'mal-search', 'map-mal-id', 'mal-details', 'mal-recommendations', 'mal-top-rated',
-      'mal-top-upcoming', 'mal-seasonal', 'jikan-trending', 'jikan-episodes', 'jikan-details',
+      'mal-top-upcoming', 'mal-seasonal', 'jikan-trending', 'jikan-episodes', 'jikan-details', 'jikan-schedule', 'anime-search-schedule',
       'kitsu-search', 'kitsu-details', 'kitsu-details-by-mal', 'kitsu-trending',
       'anilist-search', 'anilist-media-detailed', 'anilist-media-assets',
       'unified-search', 'save-manual-link', 'get-anime-media-internal', 'get-western-media-internal',
@@ -200,14 +215,13 @@ contextBridge.exposeInMainWorld('api', {
 
       // Streaming & Media Playback
       'stream-torrent', 'start-torrent-stream', 'stop-torrent-stream', 'play-media', 'open-in-external-player',
-      'open-in-meem-player', 'get-meem-player-status',
       'open-in-vlc', 'play-external', 'play-native', 'start-local-server', 'get-vlc-status',
       'resolve-trailer-stream',
 
       // YouTube
       'youtube-search', 'youtube-get-trending', 'youtube-get-home', 'youtube-get-video-info',
       'youtube-get-captions', 'youtube-download-media',
-      'youtube-get-account', 'youtube-sign-in', 'youtube-sign-out', 'youtube-auth-start',
+      'youtube-get-account', 'youtube-web-login', 'youtube-sync-meem-account', 'youtube-sign-in', 'youtube-sign-out', 'youtube-auth-start',
       'youtube-auth-status', 'youtube-get-subscriptions', 'youtube-get-history',
       'youtube-add-history', 'youtube-clear-history', 'youtube-like', 'youtube-dislike',
       'youtube-subscribe', 'youtube-unsubscribe', 'youtube-get-comments',
@@ -215,6 +229,12 @@ contextBridge.exposeInMainWorld('api', {
       // Addons & Downloads
       'uninstall-addon', 'stremio-remove-addon', 'remove-stremio-addon',
       'start-download', 'cancel-download', 'pause-download', 'resume-download', 'download-file',
+
+      // Patreon Integration
+      'patreon-connect', 'patreon-disconnect', 'patreon-status',
+
+      // Gumroad Integration
+      'gumroad-verify-license', 'gumroad-status', 'gumroad-disconnect',
 
       // Utility & Window Controls
       'check-network-status', 'get-app-version', 'open-external', 'set-fullscreen', 'is-fullscreen', 'open-devtools',
@@ -255,5 +275,6 @@ contextBridge.exposeInMainWorld('api', {
   updateDiscordActivity: (data) => ipcRenderer.send('discord-activity', data),
 
   // UTILS
-  getFilePath: (file) => webUtils.getPathForFile(file)
+  getFilePath: (file) => webUtils.getPathForFile(file),
+  showNativeNotification: (opts) => ipcRenderer.invoke('show-native-notification', opts)
 });

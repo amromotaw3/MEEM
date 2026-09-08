@@ -175,14 +175,9 @@ function initAddonsIpc(ipcMain, store) {
             }
         }
 
-        console.log(`[Addons] "search-addons" invoked for: ${title} (IMDb: ${imdbId}, TMDB: ${tmdbId}, Kitsu: ${kitsuId}, MAL: ${malId}, Type: ${type}, S${season}E${episode})`);
         const sc = appData.scraperConfig || {};
-        sc.installedAddons = (Array.isArray(appData.installedAddons) && appData.installedAddons.length > 0)
-            ? appData.installedAddons
-            : [
-                { id: 'torrentio', name: 'Torrentio', url: 'https://torrentio.strem.fun', types: ['movie', 'series', 'anime'], icon: '⚡' },
-                { id: 'knightcrawler', name: 'KnightCrawler', url: 'https://main.knightcrawler.elfhosted.com', types: ['movie', 'series', 'anime'], icon: '🐉' }
-            ];
+        let installed = Array.isArray(appData.installedAddons) ? [...appData.installedAddons] : [];
+        sc.installedAddons = installed;
         const { StremioAddonService } = require('./StremioAddonService');
         const service = new StremioAddonService(sc);
         const results = await service.getStreams({ imdbId, kitsuId, type, season, episode, title });
@@ -538,10 +533,22 @@ function initAddonsIpc(ipcMain, store) {
             console.log('[Unified Search] Searching for:', query);
             const q = encodeURIComponent(query.trim());
             const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
-            const tmdbKey = appData.tmdbKey || '';
+            const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
 
-            // 1. Search Stremio TMDB Addon (Fast 2.5s timeout)
-            const tmdbMoviesPromise = axios.get(`https://tmdb.elfhosted.com/catalog/movie/top/search=${q}.json`, { timeout: 2500 })
+            const hasCinemeta = installed.length === 0 || installed.some(a => {
+                if (a.enabled === false) return false;
+                const id = String(a.id || a.name || '').toLowerCase();
+                return id.includes('cinemeta');
+            });
+
+            const hasTmdbAddon = installed.some(a => {
+                if (a.enabled === false) return false;
+                const id = String(a.id || a.name || '').toLowerCase();
+                return id.includes('tmdb');
+            });
+
+            // 1. Search Stremio TMDB Addon (only if installed)
+            const tmdbMoviesPromise = hasTmdbAddon ? axios.get(`https://tmdb.elfhosted.com/catalog/movie/top/search=${q}.json`, { timeout: 2500 })
                 .then(resp => {
                     const items = resp.data?.metas || [];
                     return items.map(movie => ({
@@ -556,9 +563,9 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: movie.description || ''
                     }));
                 })
-                .catch(err => []);
+                .catch(err => []) : Promise.resolve([]);
 
-            const tmdbTvPromise = axios.get(`https://tmdb.elfhosted.com/catalog/series/top/search=${q}.json`, { timeout: 2500 })
+            const tmdbTvPromise = hasTmdbAddon ? axios.get(`https://tmdb.elfhosted.com/catalog/series/top/search=${q}.json`, { timeout: 2500 })
                 .then(resp => {
                     const items = resp.data?.metas || [];
                     return items.map(tv => ({
@@ -573,10 +580,10 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: tv.description || ''
                     }));
                 })
-                .catch(err => []);
+                .catch(err => []) : Promise.resolve([]);
 
-            // 2. Search Cinemeta (Fast 2.5s timeout)
-            const cinemetaMoviesPromise = fetchCinemeta(`/catalog/movie/top/search=${q}.json`, 2500)
+            // 2. Search Cinemeta (only if installed)
+            const cinemetaMoviesPromise = hasCinemeta ? fetchCinemeta(`/catalog/movie/top/search=${q}.json`, 2500)
                 .then(data => {
                     const items = data?.metas || [];
                     return items.map(movie => ({
@@ -590,9 +597,9 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: movie.description || ''
                     }));
                 })
-                .catch(err => []);
+                .catch(err => []) : Promise.resolve([]);
 
-            const cinemetaTvPromise = fetchCinemeta(`/catalog/series/top/search=${q}.json`, 2500)
+            const cinemetaTvPromise = hasCinemeta ? fetchCinemeta(`/catalog/series/top/search=${q}.json`, 2500)
                 .then(data => {
                     const items = data?.metas || [];
                     return items.map(tv => ({
@@ -606,7 +613,7 @@ function initAddonsIpc(ipcMain, store) {
                         synopsis: tv.description || ''
                     }));
                 })
-                .catch(err => []);
+                .catch(err => []) : Promise.resolve([]);
 
             // 3. Search Official TMDB API if tmdbKey is active
             let officialTmdbMoviesPromise = Promise.resolve([]);
@@ -680,12 +687,21 @@ function initAddonsIpc(ipcMain, store) {
                 }
             };
 
-            addResults(officialTmdbMovies);
-            addResults(officialTmdbTv);
-            addResults(cinemetaMovies);
-            addResults(cinemetaTv);
-            addResults(tmdbMovies);
-            addResults(tmdbTv);
+            // Interleave Movies and TV Series so both types appear in results
+            const maxCount = Math.max(
+                officialTmdbMovies.length, officialTmdbTv.length,
+                cinemetaMovies.length, cinemetaTv.length,
+                tmdbMovies.length, tmdbTv.length
+            );
+
+            for (let i = 0; i < maxCount; i++) {
+                if (officialTmdbMovies[i]) addResults([officialTmdbMovies[i]]);
+                if (officialTmdbTv[i]) addResults([officialTmdbTv[i]]);
+                if (cinemetaMovies[i]) addResults([cinemetaMovies[i]]);
+                if (cinemetaTv[i]) addResults([cinemetaTv[i]]);
+                if (tmdbMovies[i]) addResults([tmdbMovies[i]]);
+                if (tmdbTv[i]) addResults([tmdbTv[i]]);
+            }
 
             if (cacheKey && merged.length > 0) {
                 searchCache.set(cacheKey, { data: { results: merged }, timestamp: Date.now() });

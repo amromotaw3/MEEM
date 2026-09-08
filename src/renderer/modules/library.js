@@ -4,6 +4,11 @@
   let currentTmdbFolderType = 'tv';
   let metaSearchTarget = null;
 
+  function safeBumpBannerRevision(id) {
+    if (typeof window.bumpBannerRevision === 'function') window.bumpBannerRevision(id);
+    else if (typeof bumpBannerRevision === 'function') bumpBannerRevision(id);
+  }
+
   let __isScanning = false;
 
   async function scanLibrary() {
@@ -126,6 +131,10 @@
   }
 
   async function autoMatchMetadata() {
+    if (typeof window.isMetadataProviderActive === 'function' && !window.isMetadataProviderActive()) {
+      console.log('[Library] Skipping autoMatchMetadata: neither Cinemeta nor TMDB is active/installed');
+      return;
+    }
     const cache = appData.cinemetaCache = appData.cinemetaCache || {};
     const tmdbCache = appData.tmdbCache || {};
     const items = [
@@ -164,7 +173,7 @@
                 window.api.downloadImage(m.poster || m.background, item.id).then(lp => {
                   if (lp) {
                     appData.banners[item.id] = lp;
-                    bumpBannerRevision(item.id);
+                    safeBumpBannerRevision(item.id);
                     persist();
                   }
                 });
@@ -198,7 +207,7 @@
             window.api.downloadImage(cached.poster || cached.backdrop, item.id).then(lp => {
               if (lp) {
                 appData.banners[item.id] = lp;
-                bumpBannerRevision(item.id);
+                safeBumpBannerRevision(item.id);
                 matched++;
                 persist();
               }
@@ -256,7 +265,7 @@
               window.api.downloadImage(m.poster || m.background, item.id).then(lp => {
                 if (lp) {
                   appData.banners[item.id] = lp;
-                  bumpBannerRevision(item.id);
+                  safeBumpBannerRevision(item.id);
                   persist();
                 }
               });
@@ -351,7 +360,7 @@
       window.api.downloadImage(result.poster, metaSearchTarget.id, true).then(lp => {
         if (lp) {
           appData.banners[metaSearchTarget.id] = lp;
-          bumpBannerRevision(metaSearchTarget.id);
+          safeBumpBannerRevision(metaSearchTarget.id);
           persist();
         }
       });

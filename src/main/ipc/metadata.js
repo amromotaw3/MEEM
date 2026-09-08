@@ -608,6 +608,19 @@ function initMetadataIpc(ipcMain) {
 
   ipcMain.handle('cinemeta-catalog', async (_e, { type, id }) => {
     try {
+      const sessionStore = getInMemorySession();
+      const appData = sessionStore?.appData || {};
+      const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
+      const hasCinemeta = installed.length === 0 || installed.some(a => {
+        if (a.enabled === false) return false;
+        const addId = String(a.id || a.name || '').toLowerCase();
+        return addId.includes('cinemeta');
+      });
+
+      if (!hasCinemeta) {
+        return { metas: [] };
+      }
+
       const cinemetaType = type === 'tv' ? 'series' : 'movie';
       const catalogId = id || 'top';
       const url = `https://v3-cinemeta.strem.io/catalog/${cinemetaType}/${catalogId}.json`;
@@ -929,6 +942,239 @@ function initMetadataIpc(ipcMain) {
 
   ipcMain.handle('mal-recommendations', async () => {
     return { data: [] };
+  });
+
+  ipcMain.handle('jikan-schedule', async (_e, filter) => {
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const start = now - 86400 * 2;
+      const end = now + 86400 * 5;
+      const query = `query {
+        Page(page: 1, perPage: 50) {
+          airingSchedules(airingAt_greater: ${start}, airingAt_lesser: ${end}, sort: TIME) {
+            id
+            episode
+            airingAt
+            media {
+              id
+              idMal
+              title { romaji english native }
+              coverImage { extraLarge large }
+              bannerImage
+              genres
+              averageScore
+              episodes
+              description
+            }
+          }
+        }
+      }`;
+
+      const aniResp = await axios.post('https://graphql.anilist.co', { query }, { timeout: 7000 }).catch(() => null);
+      if (aniResp?.data?.data?.Page?.airingSchedules?.length > 0) {
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const mapped = aniResp.data.data.Page.airingSchedules.map(item => {
+          const date = new Date(item.airingAt * 1000);
+          const dayName = days[date.getDay()];
+          const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const title = item.media.title.english || item.media.title.romaji || item.media.title.native;
+          return {
+            id: item.media.idMal || item.media.id,
+            mal_id: item.media.idMal || item.media.id,
+            title: title,
+            title_english: item.media.title.english || title,
+            images: {
+              jpg: {
+                large_image_url: item.media.coverImage?.extraLarge || item.media.coverImage?.large,
+                image_url: item.media.coverImage?.large
+              }
+            },
+            broadcast: {
+              day: dayName,
+              string: `${timeStr} (Ep ${item.episode})`,
+              time: timeStr
+            },
+            score: item.media.averageScore ? (item.media.averageScore / 10).toFixed(1) : null,
+            episodes: item.media.episodes || item.episode,
+            synopsis: item.media.description?.replace(/<[^>]*>/g, '') || ''
+          };
+        });
+
+        if (filter) {
+          const targetDay = String(filter).trim().toLowerCase();
+          return { data: mapped.filter(x => x.broadcast.day === targetDay) };
+        }
+        return { data: mapped };
+      }
+
+      // Fallback to Jikan if AniList is unreachable
+      const endpoint = filter ? `/schedules?filter=${filter}` : `/schedules`;
+      const res = await jikanFetch(endpoint);
+      if (res && res.data && Array.isArray(res.data)) return res;
+      return { data: [] };
+    } catch (err) {
+      console.error('[Metadata] Anime schedule error:', err.message);
+      return { data: [] };
+    }
+  });
+
+  ipcMain.handle('anime-search-schedule', async (_e, searchTerm) => {
+    try {
+      if (!searchTerm || !String(searchTerm).trim()) return { data: [] };
+      const q = String(searchTerm).trim();
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      // 1. Query AniList
+      const gql = `query ($search: String) {
+        Page(page: 1, perPage: 25) {
+          media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+            id
+            idMal
+            title { romaji english native }
+            status
+            episodes
+            nextAiringEpisode {
+              id
+              episode
+              airingAt
+              timeUntilAiring
+            }
+            coverImage { extraLarge large medium }
+            bannerImage
+            averageScore
+            description
+          }
+        }
+      }`;
+
+      const [anilistResp, animeScheduleResp] = await Promise.allSettled([
+        axios.post('https://graphql.anilist.co', { query: gql, variables: { search: q } }, {
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          timeout: 8000
+        }),
+        axios.get(`https://animeschedule.net/api/v3/anime?q=${encodeURIComponent(q)}`, { timeout: 8000 })
+      ]);
+
+      const mapped = [];
+      const seenTitles = new Set();
+
+      // Process AniList items
+      if (anilistResp.status === 'fulfilled' && anilistResp.value?.data?.data?.Page?.media) {
+        anilistResp.value.data.data.Page.media.forEach(media => {
+          const title = media.title?.english || media.title?.romaji || media.title?.native || 'Unknown Anime';
+          let scheduleInfo = 'Finished / Complete';
+          let dayName = 'Unknown';
+          let timeStr = '';
+          let badgeColor = 'rgba(255,255,255,0.1)';
+
+          if (media.nextAiringEpisode) {
+            const next = media.nextAiringEpisode;
+            const date = new Date(next.airingAt * 1000);
+            dayName = days[date.getDay()];
+            timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            const daysLeft = Math.floor(next.timeUntilAiring / 86400);
+            const hoursLeft = Math.floor((next.timeUntilAiring % 86400) / 3600);
+            const timeLeftStr = daysLeft > 0 ? `in ${daysLeft}d ${hoursLeft}h` : `in ${hoursLeft}h`;
+
+            scheduleInfo = `Ep ${next.episode} on ${dayName} at ${timeStr} (${timeLeftStr})`;
+            badgeColor = 'rgba(99, 102, 241, 0.95)';
+          } else if (media.status === 'RELEASING') {
+            scheduleInfo = 'Currently Airing (Schedule TBA)';
+            badgeColor = 'rgba(16, 185, 129, 0.9)';
+          } else if (media.status === 'NOT_YET_RELEASED') {
+            scheduleInfo = 'Upcoming (Not Yet Released)';
+            badgeColor = 'rgba(245, 158, 11, 0.9)';
+          } else if (media.status === 'FINISHED') {
+            scheduleInfo = `Finished (${media.episodes ? media.episodes + ' Episodes' : 'Complete'})`;
+            badgeColor = 'rgba(107, 114, 128, 0.8)';
+          }
+
+          seenTitles.add(title.toLowerCase());
+          mapped.push({
+            id: media.idMal || media.id,
+            mal_id: media.idMal || media.id,
+            title: title,
+            title_english: media.title?.english || title,
+            images: {
+              jpg: {
+                large_image_url: media.coverImage?.extraLarge || media.coverImage?.large,
+                image_url: media.coverImage?.large || media.coverImage?.medium
+              }
+            },
+            broadcast: {
+              day: dayName.toLowerCase(),
+              string: scheduleInfo,
+              time: timeStr
+            },
+            badgeColor,
+            status: media.status,
+            score: media.averageScore ? (media.averageScore / 10).toFixed(1) : null,
+            episodes: media.episodes,
+            synopsis: media.description?.replace(/<[^>]*>/g, '') || ''
+          });
+        });
+      }
+
+      // Process AnimeSchedule.net items
+      if (animeScheduleResp.status === 'fulfilled' && animeScheduleResp.value?.data?.anime) {
+        const asList = animeScheduleResp.value.data.anime;
+        for (const item of asList.slice(0, 5)) {
+          const itemTitle = item.title || item.route;
+          if (seenTitles.has(itemTitle.toLowerCase())) continue;
+
+          try {
+            const detailRes = await axios.get(`https://animeschedule.net/api/v3/anime/${item.route}`, { timeout: 4000 });
+            const detail = detailRes?.data;
+            if (!detail) continue;
+
+            let dateStr = detail.subPremier || detail.premier;
+            let dayName = 'Unknown';
+            let timeStr = '';
+            let scheduleInfo = detail.status || 'Scheduled';
+            let badgeColor = 'rgba(99, 102, 241, 0.95)';
+
+            if (dateStr && !dateStr.startsWith('0001')) {
+              const date = new Date(dateStr);
+              dayName = days[date.getDay()];
+              timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              scheduleInfo = `Air date on ${dayName} at ${timeStr}`;
+            }
+
+            const posterUrl = detail.imageVersionRoute ? `https://img.animeschedule.net/production/assets/public/img/${detail.imageVersionRoute}` : '';
+            const displayTitle = detail.names?.english || detail.title;
+
+            seenTitles.add(displayTitle.toLowerCase());
+            mapped.push({
+              id: detail.id,
+              mal_id: detail.id,
+              title: displayTitle,
+              title_english: detail.names?.english || displayTitle,
+              images: {
+                jpg: {
+                  large_image_url: posterUrl,
+                  image_url: posterUrl
+                }
+              },
+              broadcast: {
+                day: dayName.toLowerCase(),
+                string: scheduleInfo,
+                time: timeStr
+              },
+              badgeColor,
+              status: detail.status,
+              episodes: detail.episodes,
+              synopsis: detail.description?.replace(/<[^>]*>/g, '') || ''
+            });
+          } catch (_) {}
+        }
+      }
+
+      return { data: mapped };
+    } catch (err) {
+      console.error('[Metadata] anime-search-schedule error:', err.message);
+      return { data: [] };
+    }
   });
 
   ipcMain.handle('mal-top-rated', async () => {

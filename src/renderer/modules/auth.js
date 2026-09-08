@@ -474,12 +474,12 @@
           cleanupListeners();
           const handled = await handleOAuthDeepLink(rawVal);
           if (!handled) {
-            showToast('❌ Invalid link or token.');
+            showToast('âŒ Invalid link or token.');
             submitBtn.disabled = false;
             submitBtn.textContent = 'Confirm';
           }
         } catch (err) {
-          showToast('❌ Verification failed: ' + err.message);
+          showToast('âŒ Verification failed: ' + err.message);
           submitBtn.disabled = false;
           submitBtn.textContent = 'Confirm';
         }
@@ -1046,7 +1046,7 @@
             <label class="auth-label" for="auth-email">Email</label>
             <div class="auth-input-wrap">
               <i class="fa-regular fa-envelope" aria-hidden="true"></i>
-              <input id="auth-email" class="auth-input" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@example.com" required>
+              <input id="auth-email" class="auth-input" type="email" autocomplete="email" placeholder="you@example.com" required>
             </div>
           </div>
           <div class="auth-field">
@@ -1055,12 +1055,9 @@
               <a href="#" id="auth-forgot-password" style="font-size: 12px; color: rgba(255, 255, 255, 0.7); text-decoration: none;">Forgot Password?</a>
             </div>
 
-            <div class="auth-input-wrap" style="position: relative;">
+            <div class="auth-input-wrap">
               <i class="fa-solid fa-lock" aria-hidden="true"></i>
-              <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Enter password" required style="padding-right: 40px;">
-              <button type="button" id="toggle-auth-password" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 4px;" aria-label="Toggle password visibility">
-                <i class="fa-regular fa-eye" id="toggle-password-icon"></i>
-              </button>
+              <input id="auth-password" class="auth-input" type="password" autocomplete="${authMode === 'register' ? 'new-password' : 'current-password'}" placeholder="Password" required>
             </div>
           </div>
           <button type="submit" id="auth-submit" class="auth-submit">Sign in</button>
@@ -1070,7 +1067,6 @@
         <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
           <button id="oauth-google" class="auth-oauth btn google-btn"><svg aria-hidden="true" style="width:18px;height:18px;margin-right:6px;vertical-align:middle;" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24c0-1.55-.15-3.24-.47-4.78H24v9.03h12.72c-.55 2.87-2.22 5.3-4.72 6.96l7.33 5.68C43.6 36.42 46.5 30.73 46.5 24z"/><path fill="#FBBC05" d="M10.54 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.33-5.68c-2.11 1.42-4.8 2.3-8.56 2.3-6.26 0-11.57-4.22-13.46-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Continue with Google</button>
           <button id="oauth-discord" class="auth-oauth btn discord-btn"><i class="fab fa-discord" aria-hidden="true" style="margin-left:4px;"></i> Continue with Discord</button>
-          <button id="auth-qr-login-btn" class="auth-oauth btn" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; font-weight: 600;"><i class="fas fa-qrcode" aria-hidden="true" style="margin-right:8px; font-size:16px;"></i> Scan QR / Fast Code Login</button>
         </div>
       </div>
     `;
@@ -1082,14 +1078,6 @@
     const tabs = overlay.querySelectorAll('.auth-tab');
     const submitBtn = overlay.querySelector('#auth-submit');
     const passwordInput = overlay.querySelector('#auth-password');
-
-    // QR Login button handler
-    const qrBtn = overlay.querySelector('#auth-qr-login-btn');
-    if (qrBtn) {
-      qrBtn.onclick = () => {
-        openMobileQrScannerModal();
-      };
-    }
 
     // OAuth button handler (Discord)
     const oauthBtn = overlay.querySelector('#oauth-discord');
@@ -1115,18 +1103,6 @@
         } catch (e) {
           console.error('[AUTH] Google OAuth start failed', e);
           setAuthMessage(msgEl, formatAuthMessage(e));
-        }
-      };
-    const togglePasswordBtn = overlay.querySelector('#toggle-auth-password');
-    if (togglePasswordBtn) {
-      togglePasswordBtn.onclick = () => {
-        const input = overlay.querySelector('#auth-password');
-        const icon = overlay.querySelector('#toggle-password-icon');
-        if (!input) return;
-        const isPassword = input.type === 'password';
-        input.type = isPassword ? 'text' : 'password';
-        if (icon) {
-          icon.className = isPassword ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
         }
       };
     }
@@ -1205,7 +1181,7 @@
 
       <form id="auth-otp-form" style="display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%;">
         <div class="auth-field" style="width: 100%; display: flex; justify-content: center;">
-          <input id="auth-otp-input" class="auth-input" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="••••••••" autofocus
+          <input id="auth-otp-input" class="auth-input" type="text" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="123456" autofocus
             style="width: 220px; text-align: center; font-size: 28px; letter-spacing: 10px; font-family: monospace; font-weight: 900; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.25); color: #fff;" required>
         </div>
         <button type="submit" id="auth-otp-submit" class="auth-submit" style="width: 100%;">Verify and Log in</button>
@@ -1329,7 +1305,7 @@
 
   async function handleAuthLogin() {
     const overlay = document.getElementById('auth-overlay');
-    const email = overlay.querySelector('#auth-email').value.trim().toLowerCase();
+    const email = overlay.querySelector('#auth-email').value.trim();
     const password = overlay.querySelector('#auth-password').value;
     const msgEl = overlay.querySelector('#auth-msg');
     clearAuthMessage(msgEl);
@@ -1354,7 +1330,7 @@
         const rawErr = result?.message || result?.error || 'Incorrect email or password';
         console.error('[AUTH] Login failed:', rawErr, result?.details ? '| details: ' + result.details : '');
         let userMsg = rawErr;
-        if (rawErr.includes('Invalid email or password') || rawErr.includes('INVALID_CREDENTIALS') || rawErr.includes('Invalid login credentials')) {
+        if (rawErr.includes('Invalid email or password') || rawErr.includes('INVALID_CREDENTIALS')) {
           userMsg = 'Incorrect email or password';
         } else if (rawErr.includes('timed out')) {
           userMsg = 'Server connection timed out, please try again';
@@ -1427,7 +1403,7 @@
 
   async function handleAuthRegister() {
     const overlay = document.getElementById('auth-overlay');
-    const email = overlay.querySelector('#auth-email').value.trim().toLowerCase();
+    const email = overlay.querySelector('#auth-email').value.trim();
     const password = overlay.querySelector('#auth-password').value;
     const username = overlay.querySelector('#auth-username')?.value.trim() || '';
     const msgEl = overlay.querySelector('#auth-msg');
@@ -2008,6 +1984,7 @@
         if (currentView !== 'player') {
           switchView('discover');
           renderContinueWatchingDiscover();
+          if (typeof window.renderBentoWatchlist === 'function') window.renderBentoWatchlist();
         }
 
         if (window.hideSplash) window.hideSplash();
@@ -2511,26 +2488,64 @@
     }
     
     const subExpires = view.querySelector('#account-page-sub-expires');
+    const subExpiresContainer = view.querySelector('#account-page-sub-expires-container');
+    const btnUpgradeVip = view.querySelector('#account-upgrade-vip-btn');
+    const sub = appData.user?.subscription_expires_at || appData.subscription_expires_at || null;
+    const isPremium = typeof isAccountVIP === 'function' ? isAccountVIP() : (sub && new Date(sub) > new Date());
+
     if (subDisplay) {
-      const sub = appData.user?.subscription_expires_at || appData.subscription_expires_at || null;
-      const isPremium = sub && new Date(sub) > new Date();
       if (isPremium) {
-        subDisplay.textContent = 'Premium';
-        subDisplay.style.color = 'var(--accent)';
+        subDisplay.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;color:#10b981;font-weight:700;"><i class="fas fa-check-circle" style="color:#10b981;"></i> VIP Active</span>';
         if (subExpires) {
           try {
             subExpires.textContent = new Date(sub).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
           } catch (e) {
             subExpires.textContent = sub;
           }
-          subExpires.style.color = '#a855f7';
+          subExpires.style.color = '#c084fc';
+        }
+        if (subExpiresContainer) subExpiresContainer.style.display = 'flex';
+
+        if (btnUpgradeVip) {
+          btnUpgradeVip.innerHTML = `
+            <i class="fas fa-sliders-h" style="color: #38bdf8;"></i>
+            <span>Manage Subscription</span>
+          `;
+          btnUpgradeVip.style.background = 'rgba(255, 255, 255, 0.08)';
+          btnUpgradeVip.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+          btnUpgradeVip.style.color = '#ffffff';
+          btnUpgradeVip.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+          btnUpgradeVip.onclick = () => {
+            if (typeof openSubscriptionManagementModal === 'function') {
+              openSubscriptionManagementModal();
+            } else if (typeof openSubscriptionModal === 'function') {
+              openSubscriptionModal();
+            }
+          };
         }
       } else {
-        subDisplay.textContent = 'Free Tier';
-        subDisplay.style.color = 'var(--text-muted)';
+        subDisplay.innerHTML = '<span style="color:var(--text-muted);font-weight:600;">Free Tier</span>';
         if (subExpires) {
           subExpires.textContent = 'Not Active';
           subExpires.style.color = 'var(--text-muted)';
+        }
+        if (btnUpgradeVip) {
+          btnUpgradeVip.innerHTML = `
+            <i class="fas fa-crown" style="color: #FACC15;"></i>
+            <span>Upgrade to MEEM VIP</span>
+          `;
+          btnUpgradeVip.style.background = 'linear-gradient(135deg, #00ADB5 0%, #00777B 100%)';
+          btnUpgradeVip.style.border = 'none';
+          btnUpgradeVip.style.color = '#fff';
+          btnUpgradeVip.style.boxShadow = 'none';
+          btnUpgradeVip.onclick = () => {
+            if (typeof openSubscriptionModal === 'function') {
+              openSubscriptionModal();
+            } else {
+              const modal = document.getElementById('modal-subscription-plans');
+              if (modal) modal.style.display = 'flex';
+            }
+          };
         }
       }
     }
@@ -2599,17 +2614,7 @@
       };
     }
 
-    const btnUpgradeVip = view.querySelector('#account-upgrade-vip-btn');
-    if (btnUpgradeVip) {
-      btnUpgradeVip.onclick = () => {
-        if (typeof window.openSubscriptionModal === 'function') {
-          window.openSubscriptionModal();
-        } else {
-          const modal = document.getElementById('modal-subscription-plans');
-          if (modal) modal.style.display = 'flex';
-        }
-      };
-    }
+
 
     const btnSwitchProfile = view.querySelector('#account-page-switch-profile');
     if (btnSwitchProfile) {
@@ -2718,346 +2723,7 @@
       };
     }
 
-    // Quick Mobile Login via QR Code
-    const btnQrLogin = view.querySelector('#account-qr-login-btn');
-    if (btnQrLogin) {
-      btnQrLogin.onclick = () => {
-        openPcQrLoginModal();
-      };
-    }
   }
-
-  let pcQrPollTimer = null;
-  let pcQrCountdownTimer = null;
-
-  async function openPcQrLoginModal() {
-    const modal = document.getElementById('modal-qr-pc-login');
-    if (!modal) return;
-
-    modal.style.display = 'flex';
-    const img = modal.querySelector('#qr-code-img');
-    const codeDisplay = modal.querySelector('#qr-short-code-display');
-    const timerDisplay = modal.querySelector('#qr-timer-countdown');
-    const badge = modal.querySelector('#qr-status-badge');
-    const closeBtn = modal.querySelector('#qr-modal-close-btn');
-
-    if (img) {
-      img.src = '';
-      img.style.display = 'none';
-    }
-    if (codeDisplay) codeDisplay.textContent = '------';
-    if (timerDisplay) timerDisplay.textContent = '05:00';
-    if (badge) badge.innerHTML = '<span class="auth-spinner" style="width: 12px; height: 12px; border-width: 2px;"></span> <span id="qr-status-badge-text">Creating login session...</span>';
-
-    if (pcQrPollTimer) clearInterval(pcQrPollTimer);
-    if (pcQrCountdownTimer) clearInterval(pcQrCountdownTimer);
-
-    const cleanup = () => {
-      if (pcQrPollTimer) clearInterval(pcQrPollTimer);
-      if (pcQrCountdownTimer) clearInterval(pcQrCountdownTimer);
-      pcQrPollTimer = null;
-      pcQrCountdownTimer = null;
-      modal.style.display = 'none';
-    };
-
-    if (closeBtn) closeBtn.onclick = cleanup;
-
-    try {
-      let res;
-      if (window.api && typeof window.api.cloudCreateQrSession === 'function') {
-        res = await window.api.cloudCreateQrSession();
-      } else {
-        res = await window.api.invoke('cloud-create-qr-session');
-      }
-
-      if (!res || res.error) {
-        throw new Error(res?.message || res?.error || 'Failed to create quick login session');
-      }
-
-      const { ticket_id, short_code, qrDataUrl } = res;
-      if (qrDataUrl && img) {
-        img.src = qrDataUrl;
-        img.style.display = 'block';
-      }
-      if (codeDisplay) codeDisplay.textContent = short_code || '------';
-      if (badge) badge.innerHTML = '<span class="auth-spinner" style="width: 12px; height: 12px; border-width: 2px;"></span> <span id="qr-status-badge-text">Waiting for mobile QR scan...</span>';
-
-      let remainingSeconds = 300;
-      pcQrCountdownTimer = setInterval(() => {
-        remainingSeconds--;
-        if (remainingSeconds <= 0) {
-          clearInterval(pcQrCountdownTimer);
-          clearInterval(pcQrPollTimer);
-          if (timerDisplay) timerDisplay.textContent = '00:00';
-          if (badge) badge.innerHTML = '<i class="fas fa-circle-xmark" style="color:#ef4444;font-size:14px;"></i> <span style="color:#ef4444;">Code expired, please close the window and try again</span>';
-          return;
-        }
-        const m = String(Math.floor(remainingSeconds / 60)).padStart(2, '0');
-        const s = String(remainingSeconds % 60).padStart(2, '0');
-        if (timerDisplay) timerDisplay.textContent = `${m}:${s}`;
-      }, 1000);
-
-      pcQrPollTimer = setInterval(async () => {
-        try {
-          let statusRes;
-          if (window.api && typeof window.api.cloudCheckQrStatus === 'function') {
-            statusRes = await window.api.cloudCheckQrStatus(ticket_id);
-          } else {
-            statusRes = await window.api.invoke('cloud-check-qr-status', { ticketId: ticket_id });
-          }
-
-          if (statusRes && statusRes.status === 'claimed') {
-            clearInterval(pcQrPollTimer);
-            clearInterval(pcQrCountdownTimer);
-            if (badge) badge.innerHTML = '<i class="fas fa-check-circle" style="color:#22c55e;font-size:16px;"></i> <span style="color:#22c55e;font-weight:700;">✓ Logged in on mobile successfully!</span>';
-            setTimeout(() => {
-              cleanup();
-              if (typeof showToast === 'function') showToast('✓ Mobile login successful!');
-            }, 2500);
-          } else if (statusRes && statusRes.status === 'expired') {
-            clearInterval(pcQrPollTimer);
-            clearInterval(pcQrCountdownTimer);
-            if (badge) badge.innerHTML = '<i class="fas fa-circle-xmark" style="color:#ef4444;font-size:14px;"></i> <span style="color:#ef4444;">Code expired</span>';
-          }
-        } catch (e) {
-          console.warn('[QR] Status check poll error:', e);
-        }
-      }, 2000);
-
-    } catch (err) {
-      console.error('[QR] Failed to start QR session:', err);
-      if (badge) badge.innerHTML = `<span style="color:#ef4444;">${err.message || 'Failed to create code'}</span>`;
-      if (typeof showToast === 'function') showToast('Failed to create QR code: ' + err.message);
-    }
-  }
-
-  async function openMobileQrScannerModal() {
-    const modal = document.getElementById('modal-qr-mobile-scanner');
-    if (!modal) return;
-
-    modal.style.display = 'flex';
-    const video = modal.querySelector('#qr-video');
-    const canvas = modal.querySelector('#qr-canvas');
-    const statusEl = modal.querySelector('#qr-scanner-status');
-    const closeX = modal.querySelector('#qr-scanner-close-x');
-    const tabCamera = modal.querySelector('#tab-scanner-camera');
-    const tabCode = modal.querySelector('#tab-scanner-code');
-    const viewCamera = modal.querySelector('#qr-view-camera');
-    const viewCode = modal.querySelector('#qr-view-code');
-    const inputCode = modal.querySelector('#qr-input-manual-code');
-    const submitCodeBtn = modal.querySelector('#qr-submit-manual-code');
-
-    let stream = null;
-    let scanning = false;
-    let animFrameId = null;
-
-    if (statusEl) statusEl.textContent = '';
-    if (inputCode) inputCode.value = '';
-
-    const stopCamera = () => {
-      scanning = false;
-      if (animFrameId) {
-        cancelAnimationFrame(animFrameId);
-        animFrameId = null;
-      }
-      if (stream) {
-        try {
-          stream.getTracks().forEach(t => t.stop());
-        } catch (_) {}
-        stream = null;
-      }
-      if (video) video.srcObject = null;
-    };
-
-    const closeModal = () => {
-      stopCamera();
-      modal.style.display = 'none';
-    };
-
-    if (closeX) closeX.onclick = closeModal;
-
-    const scanFrame = () => {
-      if (!scanning) return;
-      if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        if (window.jsQR) {
-          const code = window.jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: 'dontInvert'
-          });
-          if (code && code.data) {
-            scanning = false;
-            stopCamera();
-            handleQrPayload(code.data);
-            return;
-          }
-        }
-      }
-      animFrameId = requestAnimationFrame(scanFrame);
-    };
-
-    const startCamera = async () => {
-      stopCamera();
-      if (statusEl) statusEl.textContent = '';
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
-        video.srcObject = stream;
-        video.setAttribute('playsinline', 'true');
-        await video.play();
-        scanning = true;
-        animFrameId = requestAnimationFrame(scanFrame);
-      } catch (err) {
-        console.warn('[QR] Camera error:', err);
-        if (statusEl) statusEl.textContent = 'Could not access camera. Please allow camera permissions or use the manual code option.';
-      }
-    };
-
-    if (tabCamera) {
-      tabCamera.onclick = () => {
-        tabCamera.style.background = '#fff';
-        tabCamera.style.color = '#000';
-        if (tabCode) {
-          tabCode.style.background = 'transparent';
-          tabCode.style.color = '#fff';
-        }
-        if (viewCamera) viewCamera.style.display = 'flex';
-        if (viewCode) viewCode.style.display = 'none';
-        startCamera();
-      };
-    }
-
-    if (tabCode) {
-      tabCode.onclick = () => {
-        stopCamera();
-        tabCode.style.background = '#fff';
-        tabCode.style.color = '#000';
-        if (tabCamera) {
-          tabCamera.style.background = 'transparent';
-          tabCamera.style.color = '#fff';
-        }
-        if (viewCamera) viewCamera.style.display = 'none';
-        if (viewCode) viewCode.style.display = 'flex';
-        if (statusEl) statusEl.textContent = '';
-        if (inputCode) inputCode.focus();
-      };
-    }
-
-    const handleQrPayload = (raw) => {
-      let ticketId = null;
-      let shortCode = null;
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.ticket_id) ticketId = parsed.ticket_id;
-        if (parsed.short_code) shortCode = parsed.short_code;
-      } catch (_) {
-        const trimmed = String(raw).trim();
-        if (/^[a-f0-9-]{36}$/i.test(trimmed)) {
-          ticketId = trimmed;
-        } else if (/^\d{6}$/.test(trimmed)) {
-          shortCode = trimmed;
-        }
-      }
-      doClaim(ticketId, shortCode);
-    };
-
-    const doClaim = async (ticketId, shortCode) => {
-      if (statusEl) {
-        statusEl.style.color = '#fff';
-        statusEl.innerHTML = '<span class="auth-spinner"></span> Verifying session and logging in...';
-      }
-      try {
-        let res;
-        if (window.api && typeof window.api.claimQrSession === 'function') {
-          res = await window.api.claimQrSession(ticketId, shortCode);
-        } else {
-          res = await window.api.invoke('claim-qr-session', { ticketId, shortCode });
-        }
-
-        if (!res || res.error) {
-          throw new Error(res?.message || res?.error || 'QR code or short code is invalid or expired');
-        }
-
-        if (!res.refresh_token) {
-          throw new Error('Session token not received');
-        }
-
-        const client = getSupabaseRendererClient();
-        const { data: refreshData, error: refreshErr } = await client.auth.refreshSession({
-          refresh_token: res.refresh_token
-        });
-
-        const activeSession = refreshData?.session || { refresh_token: res.refresh_token };
-        const activeUser = refreshData?.user || res.user;
-
-        const syncResult = await window.api.invoke('cloud-sync-user-session', {
-          userId: activeUser.id,
-          email: activeUser.email,
-          username: activeUser.user_metadata?.username || activeUser.username || '',
-          session: {
-            access_token: activeSession.access_token,
-            refresh_token: activeSession.refresh_token
-          }
-        });
-
-        appData.authenticated = true;
-        appData.user = syncResult?.user || res.user;
-        appData.profiles = normalizeProfiles(syncResult?.profiles || res.profiles || []);
-        persist();
-
-        closeModal();
-        await proceedAfterAuthenticatedLogin();
-        if (typeof showToast === 'function') {
-          showToast('✓ Successfully logged in via QR Code!');
-        }
-      } catch (err) {
-        console.error('[AUTH] Claim QR failed:', err);
-        if (statusEl) {
-          statusEl.style.color = '#ef4444';
-          statusEl.textContent = err.message || 'Login failed';
-        }
-        if (viewCamera && viewCamera.style.display !== 'none') {
-          setTimeout(() => {
-            if (modal.style.display !== 'none' && viewCamera.style.display !== 'none') {
-              startCamera();
-            }
-          }, 3000);
-        }
-      }
-    };
-
-    if (submitCodeBtn) {
-      submitCodeBtn.onclick = () => {
-        const code = inputCode ? inputCode.value.trim() : '';
-        if (!code || code.length !== 6) {
-          if (statusEl) {
-            statusEl.style.color = '#ef4444';
-            statusEl.textContent = 'Please enter the 6-digit code';
-          }
-          return;
-        }
-        doClaim(null, code);
-      };
-    }
-
-    if (inputCode) {
-      inputCode.oninput = () => {
-        inputCode.value = inputCode.value.replace(/[^0-9]/g, '');
-        if (inputCode.value.length === 6 && submitCodeBtn) {
-          submitCodeBtn.click();
-        }
-      };
-    }
-
-    if (tabCamera) tabCamera.click();
-  }
-
-  window.openPcQrLoginModal = openPcQrLoginModal;
-  window.openMobileQrScannerModal = openMobileQrScannerModal;
 
   function createFavModal() {
     if (document.getElementById('fav-avatar-modal')) return;
@@ -4330,6 +3996,37 @@
   }
   window.isAccountVIP = isAccountVIP;
 
+  function openSubscriptionManagementModal() {
+    const modal = document.getElementById('modal-subscription-management');
+    if (!modal) {
+      if (typeof openSubscriptionModal === 'function') openSubscriptionModal();
+      return;
+    }
+
+    const sub = appData.user?.subscription_expires_at || appData.subscription_expires_at || null;
+    const expEl = document.getElementById('sub-mgmt-expires-text');
+    const emailEl = document.getElementById('sub-mgmt-email-text');
+
+    if (expEl) {
+      if (sub) {
+        try {
+          expEl.textContent = new Date(sub).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+        } catch (e) {
+          expEl.textContent = sub;
+        }
+      } else {
+        expEl.textContent = 'Lifetime VIP';
+      }
+    }
+
+    if (emailEl) {
+      emailEl.textContent = appData.user?.email || (typeof currentProfile !== 'undefined' && currentProfile?.name ? `Profile: ${currentProfile.name}` : 'Active Account');
+    }
+
+    modal.style.display = 'flex';
+  }
+  window.openSubscriptionManagementModal = openSubscriptionManagementModal;
+
   function openSubscriptionModal(featureName, customTitle, customDesc) {
     const modal = document.getElementById('modal-subscription-plans');
     if (modal) {
@@ -4365,7 +4062,45 @@
       const isVip = isAccountVIP();
       const savedLicense = appData.user?.gumroad_license;
 
+      let vipManageBanner = document.getElementById('sub-modal-vip-active-banner');
       if (isVip) {
+        if (!vipManageBanner) {
+          vipManageBanner = document.createElement('div');
+          vipManageBanner.id = 'sub-modal-vip-active-banner';
+          vipManageBanner.style.cssText = 'background: rgba(16, 185, 129, 0.12); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 18px; padding: 14px 20px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; text-align: right; box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);';
+          const modalBody = modal.querySelector('.modal');
+          if (modalBody) {
+            const firstHeader = modalBody.querySelector('div:first-of-type');
+            if (firstHeader && firstHeader.nextSibling) {
+              modalBody.insertBefore(vipManageBanner, firstHeader.nextSibling);
+            }
+          }
+        }
+        if (vipManageBanner) {
+          const subDate = appData.user?.subscription_expires_at || appData.subscription_expires_at;
+          let expText = 'Lifetime VIP';
+          if (subDate) {
+            try {
+              expText = new Date(subDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+            } catch (e) { expText = subDate; }
+          }
+          vipManageBanner.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 12px; text-align: left;">
+              <div style="width: 38px; height: 38px; border-radius: 50%; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); display: flex; align-items: center; justify-content: center; color: #10b981; font-size: 18px; flex-shrink: 0;">
+                <i class="fas fa-check-circle"></i>
+              </div>
+              <div>
+                <div style="font-weight: 800; color: #ffffff; font-size: 14px;">You have an active MEEM VIP subscription</div>
+                <div style="font-size: 12px; color: rgba(255,255,255,0.7);">Expires on: <strong style="color: #34d399;">${expText}</strong></div>
+              </div>
+            </div>
+            <button id="btn-manage-gumroad-sub" type="button" style="padding: 9px 18px; background: #ffffff; color: #000000; border: none; border-radius: 12px; font-weight: 800; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: transform 0.15s, box-shadow 0.15s; box-shadow: 0 4px 15px rgba(255, 255, 255, 0.2);" onmouseover="this.style.transform='translateY(-1px)';" onmouseout="this.style.transform='translateY(0)';">
+              <i class="fas fa-external-link-alt"></i>
+              <span>Manage Subscription</span>
+            </button>
+          `;
+          vipManageBanner.style.display = 'flex';
+        }
         if (activeBadge) activeBadge.style.display = 'inline-flex';
         if (savedLicense && licenseInput && !licenseInput.value) {
           licenseInput.value = savedLicense.licenseKey || '';
@@ -4380,6 +4115,7 @@
           feedback.innerHTML = `<i class="fas fa-check-circle" style="color:#ffffff;"></i> MEEM VIP is active on this account (Expires: <strong>${expText}</strong>)`;
         }
       } else {
+        if (vipManageBanner) vipManageBanner.style.display = 'none';
         if (activeBadge) activeBadge.style.display = 'none';
         if (feedback) feedback.style.display = 'none';
       }
@@ -4805,6 +4541,65 @@
         btn.innerHTML = originalHtml;
         btn.disabled = false;
       }
+      return;
+    }
+
+    if (e.target.closest('#btn-sub-mgmt-open-portal') || e.target.closest('#btn-manage-gumroad-sub')) {
+      const portalUrl = 'https://app.gumroad.com/library';
+      console.log('[Subscription] Opening Gumroad customer library:', portalUrl);
+      if (window.api && window.api.openExternal) {
+        window.api.openExternal(portalUrl);
+      } else {
+        window.open(portalUrl, '_blank');
+      }
+      if (typeof showToast === 'function') {
+        showToast('Opened Gumroad customer library in your browser.');
+      }
+      return;
+    }
+
+    if (e.target.closest('#btn-sub-mgmt-switch-key')) {
+      const mgmtModal = document.getElementById('modal-subscription-management');
+      if (mgmtModal) mgmtModal.style.display = 'none';
+      if (typeof openSubscriptionModal === 'function') openSubscriptionModal();
+      const input = document.getElementById('input-gumroad-license');
+      if (input) {
+        setTimeout(() => input.focus(), 300);
+      }
+      return;
+    }
+
+    if (e.target.closest('#btn-sub-mgmt-disconnect')) {
+      const ok = confirm('Are you sure you want to disconnect the current license from this device?');
+      if (ok) {
+        (async () => {
+          try {
+            if (window.api && window.api.invoke) {
+              await window.api.invoke('gumroad-disconnect');
+            }
+            if (appData.user) {
+              delete appData.user.gumroad_license;
+              appData.user.subscription_expires_at = null;
+            }
+            appData.subscription_expires_at = null;
+            if (typeof persist === 'function') await persist(true);
+            if (typeof renderProfileWidget === 'function') renderProfileWidget();
+            if (typeof renderAccount === 'function') renderAccount();
+            const mgmtModal = document.getElementById('modal-subscription-management');
+            if (mgmtModal) mgmtModal.style.display = 'none';
+            if (typeof showToast === 'function') showToast('License disconnected successfully.');
+          } catch (err) {
+            console.error('[Disconnect License Error]', err);
+            if (typeof showToast === 'function') showToast('Failed to disconnect license: ' + err.message);
+          }
+        })();
+      }
+      return;
+    }
+
+    if (e.target.closest('#btn-close-sub-mgmt-modal') || e.target.id === 'modal-subscription-management') {
+      const modal = document.getElementById('modal-subscription-management');
+      if (modal) modal.style.display = 'none';
       return;
     }
 

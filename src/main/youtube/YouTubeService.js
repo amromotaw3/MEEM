@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { app } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 
 /**
  * YouTubeService — Powered by youtubei.js (Innertube)
@@ -13,9 +13,139 @@ class YouTubeService {
     this.activeDownloads = new Map();
   }
 
+  _getUserDataDir() {
+    if (app && typeof app.getPath === 'function') {
+      try {
+        const appPath = app.getPath('userData');
+        if (appPath && fs.existsSync(appPath)) {
+          if (fs.existsSync(path.join(appPath, 'data', 'appdata.json'))) {
+            return appPath;
+          }
+        }
+      } catch (e) {}
+    }
+
+    const appData = process.env.APPDATA || process.env.USERPROFILE || '.';
+    const candidates = [
+      path.join(appData, 'meem'),
+      path.join(appData, 'meem-desktop'),
+      path.join(appData, 'MediaVault'),
+      path.join(appData, '.mediavault')
+    ];
+
+    for (const c of candidates) {
+      if (fs.existsSync(path.join(c, 'data', 'appdata.json'))) {
+        return c;
+      }
+    }
+
+    if (app && typeof app.getPath === 'function') {
+      try { return app.getPath('userData'); } catch (e) {}
+    }
+    return candidates[0];
+  }
+
   _getCredsFilePath() {
-    const userDataPath = (app && typeof app.getPath === 'function') ? app.getPath('userData') : path.join(process.env.APPDATA || process.env.USERPROFILE || '.', '.mediavault');
-    return path.join(userDataPath, 'youtube_oauth_credentials.json');
+    return path.join(this._getUserDataDir(), 'youtube_oauth_credentials.json');
+  }
+
+  _getCustomAccountPath() {
+    return path.join(this._getUserDataDir(), 'youtube_custom_account.json');
+  }
+
+  loadCustomAccount() {
+    try {
+      const p = this._getCustomAccountPath();
+      if (fs.existsSync(p)) {
+        return JSON.parse(fs.readFileSync(p, 'utf8'));
+      }
+    } catch (e) {
+      console.warn('[YouTubeService] Error loading custom account:', e.message);
+    }
+    return null;
+  }
+
+  saveCustomAccount(data) {
+    try {
+      const p = this._getCustomAccountPath();
+      fs.writeFileSync(p, JSON.stringify(data, null, 2));
+      console.log('[YouTubeService] Saved custom YouTube account to disk.');
+    } catch (e) {
+      console.error('[YouTubeService] Error saving custom account:', e.message);
+    }
+  }
+
+  removeCustomAccount() {
+    try {
+      const p = this._getCustomAccountPath();
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch (e) {}
+  }
+
+  _getDisconnectedFilePath() {
+    return path.join(this._getUserDataDir(), 'youtube_disconnected.json');
+  }
+
+  isExplicitlyDisconnected() {
+    try {
+      const p = this._getDisconnectedFilePath();
+      return fs.existsSync(p);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  clearDisconnectedFlag() {
+    try {
+      const p = this._getDisconnectedFilePath();
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch (e) {}
+  }
+
+  setDisconnectedFlag() {
+    try {
+      const p = this._getDisconnectedFilePath();
+      fs.writeFileSync(p, JSON.stringify({ disconnectedAt: new Date().toISOString() }));
+    } catch (e) {}
+  }
+
+  _getMeemUser() {
+    try {
+      const userDataPath = this._getUserDataDir();
+      const dataFile = path.join(userDataPath, 'data', 'appdata.json');
+      if (fs.existsSync(dataFile)) {
+        const data = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+        if (data && data.authenticated && data.user) {
+          const activeProfile = data.profiles?.find(p => p.id === data.activeProfileId) || data.profiles?.[0];
+          return {
+            user: data.user,
+            profile: activeProfile
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[YouTubeService] _getMeemUser warning:', e.message);
+    }
+    return null;
+  }
+
+  _getSubscriptionsFilePath() {
+    return path.join(this._getUserDataDir(), 'youtube_subscriptions.json');
+  }
+
+  loadSubscriptions() {
+    try {
+      const p = this._getSubscriptionsFilePath();
+      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+    } catch (e) {}
+    return [];
+  }
+
+  saveSubscriptions(list) {
+    try {
+      const p = this._getSubscriptionsFilePath();
+      fs.writeFileSync(p, JSON.stringify(list || [], null, 2));
+    } catch (e) {}
   }
 
   _sanitizeCreds(creds) {
@@ -81,9 +211,11 @@ class YouTubeService {
           Platform = mod.Platform;
         } catch (e1) {
           try {
-            const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtubei.js', 'dist', 'src', 'index.js');
+            const { pathToFileURL } = require('url');
+            const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtubei.js', 'dist', 'src', 'platform', 'node.js');
             if (fs.existsSync(unpackedPath)) {
-              const mod = await import('file://' + unpackedPath.replace(/\\/g, '/'));
+              const fileUrl = pathToFileURL(unpackedPath).href;
+              const mod = await import(fileUrl);
               Innertube = mod.Innertube;
               UniversalCache = mod.UniversalCache;
               Platform = mod.Platform;
@@ -114,12 +246,15 @@ class YouTubeService {
           fs.mkdirSync(cachePath, { recursive: true });
         }
 
+        const customAcc = this.loadCustomAccount();
+        const cookie = customAcc?.cookie || undefined;
         const savedCreds = this.loadSavedCredentials();
         const cleanCreds = this._sanitizeCreds(savedCreds);
 
         this.yt = await Innertube.create({
           cache: new UniversalCache(true, cachePath),
-          generate_session_locally: true
+          generate_session_locally: true,
+          ...(cookie ? { cookie } : {})
         });
 
         this.yt.session.on('update-credentials', ({ credentials }) => {
@@ -127,7 +262,7 @@ class YouTubeService {
           this.saveCredentials(credentials);
         });
 
-        if (cleanCreds) {
+        if (cleanCreds && !cookie) {
           try {
             await this.yt.session.signIn(cleanCreds);
             console.log('[YouTubeService] Signed in with saved OAuth credentials.');
@@ -136,7 +271,7 @@ class YouTubeService {
           }
         }
 
-        console.log('[YouTubeService] Innertube initialized successfully.');
+        console.log('[YouTubeService] Innertube initialized successfully. (logged_in:', this.yt?.session?.logged_in, ')');
       } catch (err) {
         console.error('[YouTubeService] Initialization failed:', err);
         this.yt = null;
@@ -155,6 +290,7 @@ class YouTubeService {
   async resetSession() {
     try {
       this.removeCredentials();
+      this.removeCustomAccount();
     } catch (e) {}
     this.yt = null;
     this._initPromise = null;
@@ -188,6 +324,14 @@ class YouTubeService {
   async getHomeFeed() {
     try {
       let yt = await this.init();
+      if (!yt.session?.logged_in) {
+        const savedCreds = this.loadSavedCredentials();
+        const cleanCreds = this._sanitizeCreds(savedCreds);
+        if (cleanCreds) {
+          try { await yt.session.signIn(cleanCreds); } catch (e) {}
+        }
+      }
+
       let feed = null;
       if (yt.session?.logged_in) {
         try {
@@ -202,6 +346,33 @@ class YouTubeService {
       }
 
       let videos = this._extractVideosFromFeed(feed);
+      if (!videos || videos.length === 0) {
+        // Smart personalized recommendation based on user watch history
+        try {
+          const histRes = await this.getWatchHistory().catch(() => null);
+          const watched = histRes?.history || [];
+          if (watched.length > 0) {
+            const sample = watched.slice(0, 3);
+            const queries = sample.map(w => (w.title || '').split(/[-:|]/)[0].trim()).filter(q => q && q.length > 3);
+            const searchPromises = queries.map(q => yt.search(q, { type: 'video' }).catch(() => null));
+            const searchResults = await Promise.all(searchPromises);
+            
+            const recoVideos = [];
+            for (const sRes of searchResults) {
+              if (sRes) {
+                const vids = this._extractVideosFromFeed(sRes);
+                if (vids && vids.length) recoVideos.push(...vids.slice(0, 4));
+              }
+            }
+            if (recoVideos.length > 0) {
+              videos = recoVideos;
+            }
+          }
+        } catch (recoErr) {
+          console.warn('[YouTubeService] getHomeFeed reco error:', recoErr.message);
+        }
+      }
+
       if (!videos || videos.length === 0) {
         const searchRes = await yt.search('recommended videos', { type: 'video' }).catch(() => null);
         videos = this._extractVideosFromFeed(searchRes);
@@ -258,7 +429,7 @@ class YouTubeService {
     // Fallback: yt-dlp binary search
     try {
       const { execYtDlp } = require('../downloader-adapter');
-      const dlpOutput = await execYtDlp(`--dump-json --flat-playlist --max-downloads 12 "ytsearch12:${query.replace(/"/g, '')}"`, { timeout: 10000 });
+      const dlpOutput = await execYtDlp(`--no-check-certificate --dump-json --flat-playlist --max-downloads 12 "ytsearch12:${query.replace(/"/g, '')}"`, { timeout: 10000 });
       if (dlpOutput) {
         const results = [];
         const lines = dlpOutput.split('\n').filter(l => l.trim().startsWith('{'));
@@ -315,47 +486,58 @@ class YouTubeService {
       let audioStreamUrl = null;
       const targetHeight = (quality && quality !== 'best' && quality !== 'Auto') ? parseInt(quality) : null;
 
-      // Priority 1: Pure JS Innertube Decipher (<150ms native stream extraction)
-      try {
-        let format = null;
-        try {
-          format = info.chooseFormat({ type: 'video+audio', quality: targetHeight ? `${targetHeight}p` : 'best' });
-        } catch (e) {}
-        if (!format) {
-          try {
-            format = info.chooseFormat({ type: 'video', quality: targetHeight ? `${targetHeight}p` : 'best' });
-          } catch (e) {}
-        }
-        if (!format) {
-          format = streamingData.formats?.[0] || streamingData.adaptive_formats?.[0];
-        }
-
-        if (format) {
-          if (typeof format.decipher === 'function' && yt.session?.player) {
-            streamUrl = await format.decipher(yt.session.player);
-            console.log('[YouTubeService] ✓ Stream URL resolved via Innertube decipher:', streamUrl ? streamUrl.slice(0, 60) + '...' : null);
-          } else if (format.url) {
-            streamUrl = format.url;
-            console.log('[YouTubeService] ✓ Stream URL resolved via Innertube format.url');
-          }
-        }
-
-        // If video-only adaptive format was chosen, extract companion audio stream
-        if (streamUrl && format && format.has_audio === false) {
-          try {
-            const audioFmt = info.chooseFormat({ type: 'audio', quality: 'best' });
-            if (audioFmt) {
-              audioStreamUrl = typeof audioFmt.decipher === 'function' && yt.session?.player
-                ? await audioFmt.decipher(yt.session.player)
-                : audioFmt.url;
-            }
-          } catch (aErr) {}
-        }
-      } catch (chooseErr) {
-        console.warn('[YouTubeService] Innertube chooseFormat warning:', chooseErr.message);
+      // ── Priority 1: HLS Manifest URL from Innertube (Full HD Adaptive Multi-Bitrate Master Playlist) ──
+      // This is YouTube's master .m3u8 stream providing native 1080p60/720p with combined audio
+      if (streamingData.hls_manifest_url && (!targetHeight || targetHeight >= 720)) {
+        streamUrl = streamingData.hls_manifest_url;
+        console.log('[YouTubeService] ✓ Stream URL resolved via HLS Manifest (Adaptive Full HD 1080p):', streamUrl.slice(0, 60) + '...');
       }
 
-      // Priority 2: Direct yt-dlp binary with exact or target height video + audio extraction
+      // ── Priority 2: High-Quality Format Decipher via Innertube ──
+      if (!streamUrl) {
+        try {
+          const adaptive = streamingData.adaptive_formats || [];
+          const formats = streamingData.formats || [];
+          const allFormats = [...adaptive, ...formats];
+
+          let chosenVideoFmt = null;
+          if (targetHeight) {
+            chosenVideoFmt = allFormats.find(f => f.height === targetHeight) ||
+                             allFormats.find(f => f.height && f.height <= targetHeight);
+          }
+          if (!chosenVideoFmt) {
+            // Sort by resolution height descending (1080p -> 720p -> 480p -> 360p)
+            const sorted = allFormats.filter(f => f.has_video).sort((a, b) => (b.height || 0) - (a.height || 0));
+            chosenVideoFmt = sorted[0];
+          }
+
+          if (chosenVideoFmt) {
+            if (typeof chosenVideoFmt.decipher === 'function' && yt.session?.player) {
+              streamUrl = await chosenVideoFmt.decipher(yt.session.player);
+            } else if (chosenVideoFmt.url) {
+              streamUrl = chosenVideoFmt.url;
+            }
+            console.log(`[YouTubeService] ✓ YouTube ${chosenVideoFmt.height || 'HD'}p stream resolved via Innertube`);
+          }
+
+          // Extract companion audio stream if adaptive format (video-only) was chosen
+          if (streamUrl && chosenVideoFmt && chosenVideoFmt.has_audio === false) {
+            try {
+              const audioFmt = info.chooseFormat({ type: 'audio', quality: 'best' }) ||
+                               adaptive.find(f => f.has_audio && !f.has_video);
+              if (audioFmt) {
+                audioStreamUrl = typeof audioFmt.decipher === 'function' && yt.session?.player
+                  ? await audioFmt.decipher(yt.session.player)
+                  : audioFmt.url;
+              }
+            } catch (aErr) {}
+          }
+        } catch (chooseErr) {
+          console.warn('[YouTubeService] Innertube format resolution warning:', chooseErr.message);
+        }
+      }
+
+      // ── Priority 3: Direct yt-dlp binary with 1080p HD video + audio extraction ──
       if (!streamUrl) {
         try {
           const { execYtDlp } = require('../downloader-adapter');
@@ -364,9 +546,9 @@ class YouTubeService {
           if (targetHeight) {
             fmtArg = `-g -f "bestvideo[height=${targetHeight}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=${targetHeight}]+bestaudio/bestvideo[height<=${targetHeight}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${targetHeight}]+bestaudio/best[height<=${targetHeight}]/22/18/best"`;
           } else {
-            fmtArg = `-g -f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/22/18/best"`;
+            fmtArg = `-g -f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/bestvideo[height<=1080]/22/18/best"`;
           }
-          const dlpOutput = await execYtDlp(`${fmtArg} --extractor-args "youtube:player_client=android,web" "${ytUrl}"`, { timeout: 9000 });
+          const dlpOutput = await execYtDlp(`--no-check-certificate ${fmtArg} --extractor-args "youtube:player_client=android,web" "${ytUrl}"`, { timeout: 9000 });
           if (dlpOutput && dlpOutput.includes('http')) {
             const lines = dlpOutput.split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
             if (lines.length >= 2) {
@@ -381,12 +563,6 @@ class YouTubeService {
         } catch (dlpErr) {
           console.warn('[YouTubeService] yt-dlp resolution attempt warning:', dlpErr.message);
         }
-      }
-
-      // Priority 3: HLS Manifest URL from Innertube (Full HD adaptive multi-bitrate stream 1080p/720p/480p/360p)
-      if (!streamUrl && streamingData.hls_manifest_url && (!targetHeight || targetHeight >= 720)) {
-        streamUrl = streamingData.hls_manifest_url;
-        console.log('[YouTubeService] ✓ Stream URL resolved via HLS Manifest (Adaptive Full HD):', streamUrl.slice(0, 60) + '...');
       }
 
       // Priority 4: Fallback to Cobalt API instances
@@ -443,7 +619,7 @@ class YouTubeService {
       try {
         const { execYtDlp } = require('../downloader-adapter');
         const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        const dlpUrl = await execYtDlp(`-g -f "best[ext=mp4]/best" "${ytUrl}"`, { timeout: 12000 });
+        const dlpUrl = await execYtDlp(`--no-check-certificate -g -f "best[ext=mp4]/best" "${ytUrl}"`, { timeout: 12000 });
         if (dlpUrl && dlpUrl.startsWith('http')) {
           const streamUrl = dlpUrl.split('\n')[0].trim();
           const thumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
@@ -511,7 +687,7 @@ class YouTubeService {
           const { execYtDlp } = require('../downloader-adapter');
           const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
           // Extract subtitle text
-          const subOutput = await execYtDlp(`--skip-download --write-auto-sub --write-sub --sub-lang "${lang},en" --sub-format vtt -o - "${ytUrl}"`, { timeout: 10000 });
+          const subOutput = await execYtDlp(`--no-check-certificate --skip-download --write-auto-sub --write-sub --sub-lang "${lang},en" --sub-format vtt -o - "${ytUrl}"`, { timeout: 10000 });
           if (subOutput && subOutput.includes('WEBVTT')) {
             vttContent = subOutput;
           }
@@ -694,21 +870,14 @@ class YouTubeService {
     this._oauthPendingData = null;
 
     return new Promise((resolve, reject) => {
-      const handlePending = (data) => {
-        console.log('[YouTubeService] OAuth Auth-Pending: URL=', data.verification_url, 'Code=', data.user_code);
-        this._oauthPendingData = {
-          verificationUrl: data.verification_url,
-          userCode: data.user_code,
-          expiresIn: data.expires_in
-        };
-        if (typeof onPending === 'function') {
-          onPending(this._oauthPendingData);
-        }
-      };
+      let isResolved = false;
 
-      const handleAuth = async ({ credentials }) => {
+      const finishAuth = async (credentials) => {
+        if (isResolved) return;
+        isResolved = true;
+
         console.log('[YouTubeService] OAuth Authenticated Successfully!');
-        
+
         let accountInfo = await this.fetchGoogleUserInfo(credentials?.access_token);
         if (!accountInfo) {
           try {
@@ -725,25 +894,59 @@ class YouTubeService {
           }
         }
 
-        this.saveCredentials({ ...credentials, accountInfo });
+        if (!accountInfo) {
+          accountInfo = {
+            name: 'Google User',
+            email: 'Signed in via Google OAuth',
+            avatar: 'https://lh3.googleusercontent.com/a/default-user=s96-c'
+          };
+        }
+
+        const fullData = { ...(credentials || {}), accountInfo };
+        this.saveCredentials(fullData);
         this._oauthPendingData = null;
+
         const info = await this.getAccountInfo();
-        resolve({ success: true, account: info.account });
+        resolve({ success: true, account: info.account || accountInfo });
+      };
+
+      const handlePending = (data) => {
+        console.log('[YouTubeService] OAuth Auth-Pending: URL=', data.verification_url, 'Code=', data.user_code);
+        this._oauthPendingData = {
+          verificationUrl: data.verification_url || 'https://www.google.com/device',
+          userCode: data.user_code,
+          expiresIn: data.expires_in
+        };
+        if (typeof onPending === 'function') {
+          onPending(this._oauthPendingData);
+        }
       };
 
       const handleAuthError = (err) => {
+        if (isResolved) return;
+        isResolved = true;
         console.error('[YouTubeService] OAuth Error:', err);
         this._oauthPendingData = null;
         reject(err);
       };
 
       yt.session.once('auth-pending', handlePending);
-      yt.session.once('auth', handleAuth);
+      yt.session.once('auth', (evtData) => {
+        const creds = evtData?.credentials || evtData || yt.session?.credentials;
+        finishAuth(creds);
+      });
       yt.session.once('auth-error', handleAuthError);
 
-      yt.session.signIn().catch(err => {
-        this._oauthPendingData = null;
-        reject(err);
+      yt.session.signIn().then((res) => {
+        if (res) {
+          const creds = res.credentials || res || yt.session?.credentials;
+          finishAuth(creds);
+        }
+      }).catch(err => {
+        if (!isResolved) {
+          this._oauthPendingData = null;
+          reject(err);
+        }
       });
     });
   }
@@ -752,43 +955,256 @@ class YouTubeService {
     return this._oauthPendingData ? { pending: true, ...this._oauthPendingData } : { pending: false };
   }
 
+  // ─── GOOGLE WEB LOGIN & OAUTH ──────────────────────────────────────────
+
+  async startWebAuthFlow(opts = {}) {
+    const switchAccount = !!opts?.switchAccount;
+    return new Promise(async (resolve, reject) => {
+      let isResolved = false;
+      let authWin = null;
+
+      try {
+        const { BrowserWindow, session } = require('electron');
+        const partition = 'persist:youtube_web_session';
+        const webSession = session.fromPartition(partition);
+
+        const cleanUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+        webSession.setUserAgent(cleanUA);
+
+        try {
+          webSession.webRequest.onBeforeSendHeaders((details, callback) => {
+            details.requestHeaders['User-Agent'] = cleanUA;
+            callback({ requestHeaders: details.requestHeaders });
+          });
+        } catch (e) {}
+
+        if (switchAccount) {
+          try {
+            await webSession.clearStorageData({ storages: ['cookies'] });
+          } catch (e) {}
+        }
+
+        authWin = new BrowserWindow({
+          width: 520,
+          height: 720,
+          minWidth: 420,
+          minHeight: 600,
+          title: 'تسجيل الدخول إلى حساب YouTube / Google',
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            session: webSession
+          }
+        });
+
+        authWin.webContents.setUserAgent(cleanUA);
+
+        const loginUrl = switchAccount
+          ? 'https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F'
+          : 'https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F';
+
+        authWin.loadURL(loginUrl);
+
+        let checkingLogin = false;
+
+        const checkAuthComplete = async (currentUrl) => {
+          if (isResolved || checkingLogin) return;
+          if (!currentUrl) return;
+
+          try {
+            const parsed = new URL(currentUrl);
+            const isYt = parsed.hostname.endsWith('youtube.com') && !parsed.hostname.includes('accounts');
+            if (!isYt) return;
+
+            checkingLogin = true;
+            // Short delay to allow cookies to settle
+            await new Promise(r => setTimeout(r, 1200));
+            if (isResolved) return;
+
+            const ytCookies = await webSession.cookies.get({ domain: '.youtube.com' });
+            const googleCookies = await webSession.cookies.get({ domain: '.google.com' });
+
+            const hasLoginCookie = ytCookies.some(c => c.name === 'LOGIN_INFO' || c.name === 'SAPISID' || c.name === 'SID');
+            if (!hasLoginCookie) {
+              checkingLogin = false;
+              return;
+            }
+
+            // Consolidate cookies
+            const allCookies = [...ytCookies, ...googleCookies];
+            const cookieMap = new Map();
+            for (const c of allCookies) {
+              if (c.name && c.value && !cookieMap.has(c.name)) {
+                cookieMap.set(c.name, c.value);
+              }
+            }
+            const cookieString = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+
+            let name = 'Google User';
+            let email = '';
+            let avatar = 'https://lh3.googleusercontent.com/a/default-user=s96-c';
+
+            // Try DOM inspection from YouTube window
+            try {
+              if (authWin && !authWin.isDestroyed()) {
+                const domInfo = await authWin.webContents.executeJavaScript(`
+                  (() => {
+                    try {
+                      let avatar = document.querySelector('button#avatar-btn img, #avatar-btn img, yt-img-shadow#avatar img')?.src || '';
+                      let name = '';
+                      let email = '';
+                      if (window.ytcfg && typeof window.ytcfg.get === 'function') {
+                        name = window.ytcfg.get('USER_NAME') || '';
+                        email = window.ytcfg.get('USER_EMAIL') || '';
+                      }
+                      if (!name) {
+                        const h = document.querySelector('#account-name, ytd-active-account-header-renderer #channel-title');
+                        if (h) name = h.textContent?.trim() || '';
+                      }
+                      return { avatar, name, email };
+                    } catch (e) {
+                      return null;
+                    }
+                  })()
+                `).catch(() => null);
+
+                if (domInfo) {
+                  if (domInfo.name) name = domInfo.name;
+                  if (domInfo.email) email = domInfo.email;
+                  if (domInfo.avatar) avatar = domInfo.avatar;
+                }
+              }
+            } catch (e) {}
+
+            // Create Innertube instance to verify session & get details
+            try {
+              let Innertube;
+              try {
+                const mod = await import('youtubei.js');
+                Innertube = mod.Innertube;
+              } catch (e1) {
+                const { pathToFileURL } = require('url');
+                const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'youtubei.js', 'dist', 'src', 'platform', 'node.js');
+                const mod = await import(pathToFileURL(unpackedPath).href);
+                Innertube = mod.Innertube;
+              }
+
+              const testYt = await Innertube.create({
+                cookie: cookieString,
+                generate_session_locally: true
+              });
+
+              if (testYt && testYt.account) {
+                try {
+                  const accInfo = await testYt.account.getInfo().catch(() => null);
+                  if (accInfo) {
+                    if (accInfo.name || accInfo.account_name || accInfo.title) {
+                      name = accInfo.name || accInfo.account_name || accInfo.title;
+                    }
+                    if (accInfo.email || accInfo.account_email) {
+                      email = accInfo.email || accInfo.account_email;
+                    }
+                    if (accInfo.avatar?.[0]?.url) {
+                      avatar = accInfo.avatar[0].url;
+                    }
+                  }
+                } catch (accErr) {}
+              }
+
+              this.yt = testYt;
+            } catch (innertubeErr) {
+              console.warn('[YouTubeService] Innertube validation warning:', innertubeErr.message);
+            }
+
+            const accountObj = {
+              name,
+              email: email || name,
+              avatar,
+              signedIn: true,
+              source: 'google_web_login',
+              signedInAt: new Date().toISOString()
+            };
+
+            this.saveCustomAccount({
+              cookie: cookieString,
+              account: accountObj
+            });
+
+            this.clearDisconnectedFlag();
+
+            isResolved = true;
+            if (authWin && !authWin.isDestroyed()) {
+              authWin.close();
+            }
+
+            console.log(`[YouTubeService] Web login successful: ${accountObj.name} (${accountObj.email})`);
+            resolve({ success: true, account: accountObj });
+          } catch (err) {
+            console.error('[YouTubeService] checkAuthComplete error:', err);
+            checkingLogin = false;
+          }
+        };
+
+        authWin.webContents.on('did-navigate', (event, targetUrl) => {
+          checkAuthComplete(targetUrl);
+        });
+
+        authWin.webContents.on('did-finish-load', () => {
+          if (authWin && !authWin.isDestroyed()) {
+            checkAuthComplete(authWin.webContents.getURL());
+          }
+        });
+
+        authWin.on('closed', () => {
+          authWin = null;
+          if (!isResolved) {
+            isResolved = true;
+            resolve({ success: false, cancelled: true });
+          }
+        });
+
+      } catch (err) {
+        console.error('[YouTubeService] Failed to open web auth window:', err);
+        if (authWin && !authWin.isDestroyed()) authWin.close();
+        if (!isResolved) {
+          isResolved = true;
+          reject(err);
+        }
+      }
+    });
+  }
+
   async getAccountInfo() {
     try {
-      const yt = await this.init();
-      const savedCreds = this.loadSavedCredentials();
+      if (this.isExplicitlyDisconnected()) {
+        return { success: true, signedIn: false, account: null };
+      }
 
-      if ((yt && yt.session && yt.session.logged_in) || (savedCreds && (savedCreds.access_token || savedCreds.refresh_token))) {
+      // 1. Custom Google Web login account takes priority
+      const customAcc = this.loadCustomAccount();
+      if (customAcc && customAcc.account) {
+        return {
+          success: true,
+          signedIn: true,
+          account: customAcc.account
+        };
+      }
+
+      // 2. Saved OAuth credentials
+      const savedCreds = this.loadSavedCredentials();
+      const cleanCreds = this._sanitizeCreds(savedCreds);
+      if (cleanCreds && (cleanCreds.access_token || cleanCreds.refresh_token)) {
         let accountName = savedCreds?.accountInfo?.name || 'Google User';
         let accountEmail = savedCreds?.accountInfo?.email || 'Signed in via Google OAuth';
         let accountAvatar = savedCreds?.accountInfo?.avatar || 'https://lh3.googleusercontent.com/a/default-user=s96-c';
 
-        // 1. Fetch userinfo from Google directly if token is available
         if (savedCreds && savedCreds.access_token) {
           const googleUser = await this.fetchGoogleUserInfo(savedCreds.access_token);
           if (googleUser) {
             accountName = googleUser.name || accountName;
             accountEmail = googleUser.email || accountEmail;
             accountAvatar = googleUser.avatar || accountAvatar;
-
-            // Save refreshed info to credentials
-            this.saveCredentials({
-              ...savedCreds,
-              accountInfo: { name: accountName, email: accountEmail, avatar: accountAvatar }
-            });
-          }
-        }
-
-        // 2. Innertube fallback if accountName is still default
-        if ((!savedCreds?.accountInfo || accountName === 'Google User') && yt && yt.session && yt.session.logged_in) {
-          try {
-            const info = await yt.account.getInfo();
-            if (info) {
-              accountName = info.account_name || info.name || info.title || info.raw?.accountName?.text || accountName;
-              accountEmail = info.email || info.account_email || info.raw?.email?.text || accountEmail;
-              accountAvatar = info.avatar?.[0]?.url || info.photos?.[0]?.url || info.account_photo?.[0]?.url || accountAvatar;
-            }
-          } catch (infoErr) {
-            console.warn('[YouTubeService] getInfo warning:', infoErr.message);
           }
         }
 
@@ -797,30 +1213,80 @@ class YouTubeService {
           email: accountEmail,
           avatar: accountAvatar,
           signedIn: true,
+          source: 'youtube_oauth',
           signedInAt: new Date().toISOString()
         };
 
         return { success: true, signedIn: true, account };
       }
 
+      // 3. User is NOT signed in by default. Do NOT force MEEM account!
       return { success: true, signedIn: false, account: null };
     } catch (err) {
       return { success: false, signedIn: false, error: err.message };
     }
   }
 
+  async syncMeemAccount(customInfo = null) {
+    try {
+      this.clearDisconnectedFlag();
+      const meem = this._getMeemUser();
+      if (meem && meem.user && meem.user.email) {
+        const profileName = meem.profile?.name || meem.user.username || meem.user.user_metadata?.name || meem.user.email.split('@')[0] || 'Google User';
+        const profileAvatar = meem.profile?.avatar || meem.user.avatar_url || meem.user.user_metadata?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user=s96-c';
+
+        const accountObj = {
+          name: profileName,
+          email: meem.user.email,
+          avatar: profileAvatar,
+          signedIn: true,
+          source: 'meem_google',
+          isMeemAccount: true,
+          signedInAt: new Date().toISOString()
+        };
+
+        this.saveCustomAccount({
+          account: accountObj,
+          isMeemAccount: true
+        });
+
+        return { success: true, signedIn: true, account: accountObj };
+      }
+      return { success: false, error: 'No MEEM user found' };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
   async signOutGoogle() {
     try {
-      const yt = await this.init();
-      if (yt && yt.session && yt.session.logged_in) {
+      this.removeCustomAccount();
+      this.removeCredentials();
+      this.setDisconnectedFlag();
+
+      try {
+        const { session } = require('electron');
+        const webSession = session.fromPartition('persist:youtube_web_session');
+        await webSession.clearStorageData();
+      } catch (e) {}
+
+      if (this.yt && this.yt.session && this.yt.session.logged_in) {
         try {
-          await yt.session.signOut();
+          await this.yt.session.signOut();
         } catch (e) {}
       }
-      this.removeCredentials();
+
+      this.yt = null;
+      this._initPromise = null;
+      await this.init();
+
       return { success: true, signedIn: false };
     } catch (err) {
+      this.removeCustomAccount();
       this.removeCredentials();
+      this.setDisconnectedFlag();
+      this.yt = null;
+      this._initPromise = null;
       return { success: true, signedIn: false };
     }
   }
@@ -836,12 +1302,39 @@ class YouTubeService {
           try { await yt.session.signIn(savedCreds); } catch (e) {}
         }
       }
-      if (!yt.session?.logged_in) {
-        return { success: false, error: 'Not signed in to Google', videos: [] };
+
+      if (yt.session?.logged_in) {
+        try {
+          const feed = await yt.getSubscriptionsFeed();
+          const videos = this._extractVideosFromFeed(feed);
+          if (videos && videos.length > 0) {
+            return { success: true, videos };
+          }
+        } catch (subErr) {
+          console.warn('[YouTubeService] Subscriptions feed remote error:', subErr.message);
+        }
       }
-      const feed = await yt.getSubscriptionsFeed();
-      const videos = this._extractVideosFromFeed(feed);
-      return { success: true, videos };
+
+      // Check local subscriptions
+      const localSubs = this.loadSubscriptions();
+      if (localSubs && localSubs.length > 0) {
+        const subVideos = [];
+        for (const sub of localSubs.slice(0, 5)) {
+          const sRes = await yt.search(sub.name || sub.title, { type: 'video' }).catch(() => null);
+          const vids = this._extractVideosFromFeed(sRes);
+          if (vids && vids.length) subVideos.push(...vids.slice(0, 4));
+        }
+        if (subVideos.length > 0) {
+          return { success: true, videos: subVideos };
+        }
+      }
+
+      const acc = await this.getAccountInfo();
+      if (acc && acc.signedIn) {
+        return { success: true, videos: [], message: 'No subscriptions yet' };
+      }
+
+      return { success: false, error: 'Not signed in to Google', videos: [] };
     } catch (err) {
       console.error('[YouTubeService] getSubscriptionsFeed error:', err.message);
       return { success: false, error: err.message, videos: [] };
@@ -881,8 +1374,9 @@ class YouTubeService {
   async likeVideo(videoId) {
     try {
       const yt = await this.init();
-      if (!yt.session.logged_in) return { success: false, error: 'Must sign in to like videos' };
-      await yt.interact.like(videoId);
+      if (yt.session?.logged_in) {
+        await yt.interact.like(videoId).catch(() => null);
+      }
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
@@ -892,20 +1386,33 @@ class YouTubeService {
   async dislikeVideo(videoId) {
     try {
       const yt = await this.init();
-      if (!yt.session.logged_in) return { success: false, error: 'Must sign in to dislike videos' };
-      await yt.interact.dislike(videoId);
+      if (yt.session?.logged_in) {
+        await yt.interact.dislike(videoId).catch(() => null);
+      }
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
     }
   }
 
-  async subscribeChannel(channelId) {
+  async subscribeChannel(channel) {
     try {
-      const yt = await this.init();
-      if (!yt.session.logged_in) return { success: false, error: 'Must sign in to subscribe' };
-      await yt.interact.subscribe(channelId);
-      return { success: true };
+      if (!channel) return { success: false, error: 'Channel is required' };
+      const channelId = typeof channel === 'string' ? channel : (channel.id || channel.channelId);
+      const channelName = typeof channel === 'object' ? (channel.name || channel.title || 'Channel') : channelId;
+      const avatar = typeof channel === 'object' ? (channel.avatar || channel.thumbnail || '') : '';
+
+      const subs = this.loadSubscriptions();
+      if (!subs.some(s => s.id === channelId)) {
+        subs.push({ id: channelId, name: channelName, avatar, subscribedAt: new Date().toISOString() });
+        this.saveSubscriptions(subs);
+      }
+
+      const yt = await this.init().catch(() => null);
+      if (yt && yt.session?.logged_in) {
+        await yt.interact.subscribe(channelId).catch(() => null);
+      }
+      return { success: true, subscribed: true };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -913,10 +1420,16 @@ class YouTubeService {
 
   async unsubscribeChannel(channelId) {
     try {
-      const yt = await this.init();
-      if (!yt.session.logged_in) return { success: false, error: 'Must sign in to unsubscribe' };
-      await yt.interact.unsubscribe(channelId);
-      return { success: true };
+      if (!channelId) return { success: false, error: 'Channel ID is required' };
+      let subs = this.loadSubscriptions();
+      subs = subs.filter(s => s.id !== channelId);
+      this.saveSubscriptions(subs);
+
+      const yt = await this.init().catch(() => null);
+      if (yt && yt.session?.logged_in) {
+        await yt.interact.unsubscribe(channelId).catch(() => null);
+      }
+      return { success: true, subscribed: false };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -977,7 +1490,7 @@ class YouTubeService {
   // ─── WATCH HISTORY ──────────────────────────────────────────────────────
 
   _getHistoryFilePath() {
-    return path.join(app.getPath('userData'), 'youtube_watch_history.json');
+    return path.join(this._getUserDataDir(), 'youtube_watch_history.json');
   }
 
   async getWatchHistory() {

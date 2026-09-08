@@ -418,9 +418,11 @@ function setupUnifiedSkeleton(container, item) {
 
     const isKitsu = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || !!item.anime_id || !!item.mal_id || (item.id && (String(item.id).startsWith('kitsu:') || String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:') || String(item.id).startsWith('anilist:')));
     const isTV = window.checkIfTV(item);
-    const isTmdbActive = window.appData?.tmdbKey && window.appData?.tmdbEnabled !== false;
+    const isMetaActive = (typeof window.isMetadataProviderActive === 'function' && window.isMetadataProviderActive()) ||
+                         (window.appData?.tmdbKey && window.appData?.tmdbEnabled !== false) ||
+                         (window.appData?.installedAddons || []).some(a => (a.id || a.name || a.url || '').toLowerCase().includes('cinemeta'));
     const isLocalTV = isTV && item.episodes && item.episodes.length > 0;
-    const showTmdbNotice = isLocalTV && !isTmdbActive;
+    const showTmdbNotice = isLocalTV && !isMetaActive;
 
     container.innerHTML = `
         <div class="dd-container">
@@ -428,7 +430,7 @@ function setupUnifiedSkeleton(container, item) {
                 <i class="fas fa-eye"></i> Show UI
             </button>
             <div class="dd-backdrop-wrap">
-                <img src="${lowResBackdrop}" data-hi-res="${backdropUrl}" id="dd-backdrop-img" class="dd-backdrop-img dd-backdrop-loading">
+                <img src="${backdropUrl || lowResBackdrop}" data-hi-res="${backdropUrl}" id="dd-backdrop-img" class="dd-backdrop-img">
                 <div class="dd-backdrop-overlay"></div>
             </div>
 
@@ -489,21 +491,21 @@ function setupUnifiedSkeleton(container, item) {
                                 <i class="fas fa-magic" style="font-size: 18px; color: #ffffff;"></i>
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 3px; text-align: left;">
-                                <div style="font-size: 14px; font-weight: 800; color: #ffffff; letter-spacing: 0.3px;">Enhance Your TV Show Experience</div>
+                                <div style="font-size: 14px; font-weight: 800; color: #ffffff; letter-spacing: 0.3px;">Install Cinemeta or Add TMDB API Key</div>
                                 <div style="font-size: 12.5px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; font-weight: 500;">
-                                    Missing those episode posters? We can fix that! Simply add your TMDB API key in Settings, and we'll handle the rest.
+                                    Install the Cinemeta add-on or add your TMDB API key in Settings to automatically fetch episode posters and titles.
                                 </div>
                             </div>
                         </div>
                         <button class="btn-primary" style="background: #ffffff; border: none; color: #000000; padding: 10px 22px; font-size: 12px; font-weight: 800; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; box-shadow: 0 4px 20px rgba(255, 255, 255, 0.3); white-space: nowrap;" onclick="if(typeof window.closeUnifiedDetail === 'function') window.closeUnifiedDetail(); if(typeof window.switchView === 'function') window.switchView('settings');" onmouseover="this.style.background='#f4f4f5'; this.style.transform='translateY(-2px)';" onmouseout="this.style.background='#ffffff'; this.style.transform='none';">
-                            <i class="fas fa-cog" style="color: #000000;"></i> <span style="color: #000000; font-weight: 800;">GO TO SETTINGS</span>
+                            <i class="fas fa-cog" style="color: #000000;"></i> <span style="color: #000000; font-weight: 800;">SETTINGS / ADDONS</span>
                         </button>
                     </div>
                     ` : ''}
 
                     <!-- Trailer Actions -->
                     <div class="dd-trailer-actions" id="dd-trailer-actions" style="display: none; flex-direction: row; gap: 10px; margin-bottom: 15px;">
-                        <button class="dd-btn-main glass-premium dd-btn-square" id="dd-youtube-btn" type="button" title="Watch Trailer" style="display: none;"><i class="fab fa-youtube" style="color: #ff3333; font-size: 1.2rem;"></i></button>
+                        <button class="dd-btn-main glass-premium dd-btn-square" id="dd-youtube-btn" type="button" title="Watch Trailer" style="display: none;"><i class="fab fa-youtube" style="color: #ffffff; font-size: 1.2rem;"></i></button>
                         <button class="dd-btn-main glass-premium dd-btn-square" id="dd-audio-btn" type="button" title="Toggle Sound" style="display: none;"><i class="fas fa-volume-mute" style="font-size: 1.1rem;"></i></button>
                         <button class="dd-btn-main glass-premium dd-btn-square" id="dd-fullscreen-btn" type="button" title="Hide Overlays" style="display: none;"><i class="fas fa-eye-slash" style="font-size: 1.1rem;"></i></button>
                     </div>
@@ -584,6 +586,7 @@ function setupUnifiedSkeleton(container, item) {
         window.persist(true);
         updateWatchlistUI();
         if (typeof window.renderLibCustomLists === 'function') window.renderLibCustomLists();
+        if (typeof window.renderBentoWatchlist === 'function') window.renderBentoWatchlist();
         if (window.currentView === 'custom-list-detail') window.renderCustomListDetail(listId);
     };
     
@@ -623,7 +626,7 @@ function setupUnifiedSkeleton(container, item) {
         }
 
         // Check custom lists state
-        const customLists = profile?.custom_lists || [];
+        const customLists = (profile?.custom_lists || []).filter(l => l.type !== 'music');
         const activeCustomLists = customLists.filter(list =>
             list.items?.some(i => {
                 if (String(i.id) === String(item.id)) return true;
@@ -662,7 +665,7 @@ function setupUnifiedSkeleton(container, item) {
         const customListsContainer = document.getElementById('dd-custom-lists-container');
         if (customListsContainer && profile) {
             customListsContainer.innerHTML = '';
-            const customLists = profile.custom_lists || [];
+            const customLists = (profile.custom_lists || []).filter(l => l.type !== 'music');
 
             if (customLists.length > 0) {
                 const titleDiv = document.createElement('div');
@@ -815,6 +818,7 @@ function setupUnifiedSkeleton(container, item) {
         const hiRes = img.dataset.hiRes;
         if (!hiRes || img.src === hiRes) {
             img.classList.remove('dd-backdrop-loading');
+            img.style.filter = '';
             return;
         }
 
@@ -823,9 +827,11 @@ function setupUnifiedSkeleton(container, item) {
         loader.onload = () => {
             img.src = hiRes;
             img.classList.remove('dd-backdrop-loading');
+            img.style.filter = '';
         };
         loader.onerror = () => {
             img.classList.remove('dd-backdrop-loading');
+            img.style.filter = '';
             img.src = 'imgs/no-backdrop.png';
         };
     };
@@ -1106,21 +1112,22 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
             if (lowSrc) {
                 bdImg.src = lowSrc;
-                // Only apply blur if we have a high-res alternative coming
+                bdImg.style.filter = '';
+                bdImg.style.transform = '';
                 if (highSrc && highSrc !== lowSrc) {
-                    bdImg.style.transition = bdImg.style.transition || 'filter .45s ease, transform .45s ease, opacity .35s ease';
-                    bdImg.style.filter = 'blur(6px)';
-                    bdImg.style.transform = 'scale(1.02)';
-
+                    bdImg.style.transition = bdImg.style.transition || 'opacity .35s ease';
                     const high = new Image();
                     high.onload = () => {
                         bdImg.src = highSrc;
                         bdImg.style.filter = '';
                         bdImg.style.transform = '';
                     };
+                    high.onerror = () => {
+                        bdImg.style.filter = '';
+                        bdImg.style.transform = '';
+                    };
                     high.src = highSrc;
                 } else {
-                    // No high-res alternative or same URL, ensure no blur
                     bdImg.style.filter = '';
                     bdImg.style.transform = '';
                 }

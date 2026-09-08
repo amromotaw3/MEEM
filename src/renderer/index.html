@@ -51,6 +51,7 @@
   <link rel="stylesheet" href="css/mobile.css">
   <link rel="stylesheet" href="css/auth.css">
   <link rel="stylesheet" href="css/radio.css">
+  <link rel="stylesheet" href="css/music-player.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <style>
     /* Premium SubDL Checkbox Badges */
@@ -353,32 +354,24 @@
       box-shadow: 0 0 15px var(--accent-glow) !important;
     }
     
-    /* Hover Sidebar Text Transitions */
+    /* Sidebar Label & Text Default State */
     #sidebar .nav-btn span,
     #sidebar .sidebar-label,
-    #sidebar .nav-badge,
     #sidebar #vault-label,
     #sidebar .profile-name,
     #sidebar .profile-email,
     #sidebar .profile-sub {
-      opacity: 1;
-      transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s ease;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: none !important;
       white-space: nowrap;
     }
 
-    #sidebar:not(:hover) .nav-btn span,
-    #sidebar:not(:hover) .sidebar-label,
-    #sidebar:not(:hover) .nav-badge,
-    #sidebar:not(:hover) #vault-label,
-    #sidebar:not(:hover) .profile-name,
-    #sidebar:not(:hover) .profile-email,
-    #sidebar:not(:hover) .profile-sub {
-      opacity: 0;
-      pointer-events: none;
-      width: 0px;
-      margin: 0;
-      padding: 0;
-      transform: translateX(-15px);
+    #sidebar .nav-badge:empty,
+    #sidebar .nav-badge:not(.visible) {
+      display: none !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
     }
   </style>
   <link rel="stylesheet" href="css/space.css">
@@ -990,7 +983,7 @@
             <circle cx="6" cy="18" r="3" />
             <circle cx="18" cy="16" r="3" />
           </svg>
-          <span>Social & Music</span><span class="nav-badge" id="badge-social"></span>
+          <span>Social</span><span class="nav-badge" id="badge-social"></span>
         </button>
       </div>
 
@@ -1029,6 +1022,15 @@
             <line x1="3" y1="10" x2="21" y2="10" />
           </svg>
           <span>Anime Schedule</span>
+        </button>
+        <button class="nav-btn hidden" data-view="music" id="nav-music" style="display: none !important;">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
+          </svg>
+          <span>Music</span>
         </button>
         <div class="sidebar-flyout-wrap" id="nav-live-wrapper">
           <button class="nav-btn nav-flyout-btn" id="nav-live-channels">
@@ -1232,14 +1234,6 @@
           <button class="mobile-hamburger-nav-btn" title="Open Menu">
             <i class="fas fa-bars-staggered"></i>
           </button>
-          <div class="sub-tab-pills-row" style="margin: 0;">
-            <button class="sub-tab-pill active" onclick="switchSocialMusicSubTab('video')">
-              <i class="fas fa-video"></i> Video Clips
-            </button>
-            <button class="sub-tab-pill" onclick="switchSocialMusicSubTab('audio')">
-              <i class="fas fa-music"></i> Audio Tracks
-            </button>
-          </div>
           <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 220px;">
             <div class="search-box">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
@@ -1266,43 +1260,8 @@
         </div>
       </section>
 
-      <!-- Music -->
-      <section id="view-music" class="view">
-        <div class="view-header" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <button class="mobile-hamburger-nav-btn" title="Open Menu">
-            <i class="fas fa-bars-staggered"></i>
-          </button>
-          <div class="sub-tab-pills-row" style="margin: 0;">
-            <button class="sub-tab-pill" onclick="switchSocialMusicSubTab('video')">
-              <i class="fas fa-video"></i> Video Clips
-            </button>
-            <button class="sub-tab-pill active" onclick="switchSocialMusicSubTab('audio')">
-              <i class="fas fa-music"></i> Audio Tracks
-            </button>
-          </div>
-          <div class="view-header-left" style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 220px;">
-            <div class="search-box">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
-                style="margin-left: 15px; opacity: 0.5;">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <input type="text" id="search-music" placeholder="Search music..."
-                style="font-size: 16px; padding: 0 15px; width: 100%;">
-            </div>
-          </div>
-        </div>
-        <div class="card-grid" id="music-grid"></div>
-        <div class="empty-state" id="music-empty">
-          <div class="empty-icon"><svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="#B0B0B8"
-              stroke-width="1.5">
-              <path d="M18 56a8 8 0 100-16 8 8 0 000 16zM46 48a8 8 0 100-16 8 8 0 000 16zM26 48V8L56 4v40"
-                stroke="#B0B0B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg></div>
-          <h2>Music Library empty</h2>
-          <p>Files in your Profile <strong>Music</strong> folder appear here.</p>
-        </div>
-      </section>
+      <!-- Music (Spotify Discover & Player) -->
+      <section id="view-music" class="view"></section>
 
       <!-- Show Detail -->
       <section id="view-show-detail" class="view">
@@ -1496,17 +1455,18 @@
                     <div id="discover-continue-row" class="discover-row" style="gap:14px; overflow-x:auto; padding-bottom:8px;"></div>
                   </div>
 
-                  <!-- Integrated Media Controller Widget -->
-                  <div class="bento-card bento-card-right">
+                  <!-- Quick Watchlist Deck Widget -->
+                  <div class="bento-card bento-card-right" id="bento-watchlist-card">
                     <div class="bento-card-header">
-                      <div class="bento-card-title"><i class="fas fa-sliders"></i> Controller</div>
+                      <div class="bento-card-title"><i class="fas fa-bookmark"></i> Quick Watchlist</div>
+                      <button class="btn-clear-minimal" onclick="switchView('watchlist')" style="font-size:11px; padding:3px 8px; font-weight:700;">View All</button>
                     </div>
-                    <div class="bento-media-body">
-                      <div class="bento-media-track" id="bento-media-title">Media Vault Active</div>
-                      <div class="bento-media-controls">
-                        <button onclick="if(typeof bentoMediaControl === 'function') bentoMediaControl('prev');"><i class="fas fa-backward-step"></i></button>
-                        <button class="bento-play-main" onclick="if(typeof bentoMediaControl === 'function') bentoMediaControl('toggle');"><i class="fas fa-play"></i></button>
-                        <button onclick="if(typeof bentoMediaControl === 'function') bentoMediaControl('next');"><i class="fas fa-forward-step"></i></button>
+                    <div class="bento-watchlist-body">
+                      <div id="bento-watchlist-items" class="bento-watchlist-deck"></div>
+                      <div id="bento-watchlist-empty" class="bento-watchlist-empty">
+                        <i class="fas fa-bookmark" style="font-size:24px; opacity:0.3; margin-bottom:6px;"></i>
+                        <span style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.7);">Your Watchlist is Empty</span>
+                        <span style="font-size:10.5px; color:rgba(255,255,255,0.4);">Save movies or shows to access them here</span>
                       </div>
                     </div>
                   </div>
@@ -1958,6 +1918,7 @@
 
               <select id="addons-page-filter" style="padding: 8px 16px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; color: #fff; font-size: 0.85rem; font-weight: 600; outline: none; cursor: pointer; height: 38px;">
                 <option value="all" style="background-color: #16161e; color: #ffffff;">All Types</option>
+                <option value="music" style="background-color: #16161e; color: #ffffff;">Music & Audio</option>
                 <option value="movie" style="background-color: #16161e; color: #ffffff;">Movies & Series</option>
                 <option value="anime" style="background-color: #16161e; color: #ffffff;">Anime</option>
                 <option value="subtitles" style="background-color: #16161e; color: #ffffff;">Subtitles</option>
@@ -2468,26 +2429,22 @@
               </button>
             </div>
             <!-- Action Grid (Switch Profile, Adjust Banner, Reset Password, Log Out) -->
-            <div class="account-actions-grid" style="margin-top: 10px;">
-              <button id="account-page-switch-profile" class="account-square-btn">
-                <i class="fas fa-users" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
-                <span style="font-size: 12px; font-weight: 600;">Switch Profile</span>
+            <div class="account-actions-grid" style="margin-top: 12px;">
+              <button id="account-page-switch-profile" class="account-square-btn" type="button">
+                <i class="fas fa-users"></i>
+                <span>Switch Profile</span>
               </button>
-              <button id="account-btn-adjust-banner" class="account-square-btn">
-                <i class="fas fa-arrows-up-down-left-right" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
-                <span style="font-size: 12px; font-weight: 600;">Adjust Banner</span>
+              <button id="account-btn-adjust-banner" class="account-square-btn" type="button">
+                <i class="fas fa-arrows-up-down-left-right"></i>
+                <span>Adjust Banner</span>
               </button>
-              <button id="account-reset-password-btn" class="account-square-btn">
-                <i class="fas fa-key" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
-                <span style="font-size: 12px; font-weight: 600;">Reset Password</span>
+              <button id="account-reset-password-btn" class="account-square-btn" type="button">
+                <i class="fas fa-key"></i>
+                <span>Reset Password</span>
               </button>
-              <button id="account-qr-login-btn" class="account-square-btn" title="Quick Mobile Login via QR Code">
-                <i class="fas fa-qrcode" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
-                <span style="font-size: 12px; font-weight: 600;">Mobile Login (QR)</span>
-              </button>
-              <button id="account-page-logout" class="account-square-btn">
-                <i class="fas fa-sign-out-alt" style="font-size: 22px; margin-bottom: 8px; color: #ffffff;"></i>
-                <span style="font-size: 12px; font-weight: 600;">Log Out</span>
+              <button id="account-page-logout" class="account-square-btn" type="button">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Log Out</span>
               </button>
             </div>
 
@@ -4442,105 +4399,7 @@
     </div>
   </div>
 
-  <!-- Quick Mobile Login via QR Code Modal (PC side) -->
-  <div id="modal-qr-pc-login" class="modal-overlay" style="display: none; background: rgba(5, 5, 8, 0.88); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px); position: fixed; inset: 0; z-index: 99990; align-items: center; justify-content: center;">
-    <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
-      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
-      </svg>
-    </div>
 
-    <div class="modal" style="width: 460px; max-width: 92vw; position: relative; z-index: 2; background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 36px; padding: 36px 32px; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.85); text-align: center;">
-      <div style="margin-bottom: 16px; display: inline-flex; align-items: center; justify-content: center; width: 58px; height: 58px; border-radius: 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15);">
-        <i class="fas fa-qrcode" style="font-size: 26px; color: #ffffff;"></i>
-      </div>
-      <h2 style="margin: 0 0 8px; font-size: 1.5rem; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Fast Mobile Login</h2>
-      <p style="color: rgba(255, 255, 255, 0.65); font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5;">
-        Scan the QR code with your mobile camera from the login screen, or enter the 6-digit code.
-      </p>
-
-      <div id="qr-modal-content" style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
-        <div id="qr-code-img-wrap" style="position: relative; width: 230px; height: 230px; border-radius: 20px; background: #ffffff; padding: 10px; display: flex; align-items: center; justify-content: center; box-shadow: 0 16px 40px rgba(0,0,0,0.6);">
-          <img id="qr-code-img" src="" alt="QR Code" style="width: 100%; height: 100%; object-fit: contain; display: block;" />
-        </div>
-
-        <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 16px; padding: 12px 24px; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; box-sizing: border-box;">
-          <span style="font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Direct Login Code (Short Code)</span>
-          <span id="qr-short-code-display" style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #ffffff; font-family: monospace;">------</span>
-        </div>
-
-        <div id="qr-timer-status" style="font-size: 12px; color: rgba(255,255,255,0.6); display: flex; align-items: center; gap: 8px;">
-          <i class="fa-regular fa-clock"></i>
-          <span>Code expires in: <b id="qr-timer-countdown">05:00</b></span>
-        </div>
-
-        <div id="qr-status-badge" style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.7);">
-          <span class="auth-spinner" style="width: 12px; height: 12px; border-width: 2px;"></span>
-          <span id="qr-status-badge-text">Waiting for mobile QR scan...</span>
-        </div>
-      </div>
-
-      <div class="modal-actions" style="display: flex; gap: 14px; justify-content: center; margin-top: 20px;">
-        <button id="qr-modal-close-btn" class="btn-outline"
-          style="width: 100%; padding: 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); background: transparent; font-weight: 700; font-size: 0.95rem; cursor: pointer;">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- QR Scanner / Code Entry Modal (Mobile side) -->
-  <div id="modal-qr-mobile-scanner" class="modal-overlay" style="display: none; background: rgba(5, 5, 8, 0.92); backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px); position: fixed; inset: 0; z-index: 100000; align-items: center; justify-content: center; padding: 16px;">
-    <div class="modal" style="width: 440px; max-width: 95vw; background: rgba(20, 20, 28, 0.95); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 32px; padding: 28px 24px; box-shadow: 0 30px 80px rgba(0,0,0,0.9); text-align: center; color: #fff; position: relative;">
-      
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 42px; height: 42px; border-radius: 12px; background: rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: center;">
-            <i class="fas fa-qrcode" style="font-size: 20px; color: #fff;"></i>
-          </div>
-          <div style="text-align: right;">
-            <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0;">Fast Login</h3>
-            <span style="font-size: 0.78rem; color: rgba(255, 255, 255, 0.6);">Scan code or enter PIN</span>
-          </div>
-        </div>
-        <button id="qr-scanner-close-x" style="background: transparent; border: none; color: rgba(255,255,255,0.7); font-size: 22px; cursor: pointer; padding: 6px;">&times;</button>
-      </div>
-
-      <!-- Mode Switch Tabs -->
-      <div style="display: flex; background: rgba(255,255,255,0.06); border-radius: 14px; padding: 4px; margin-bottom: 18px; gap: 4px;">
-        <button id="tab-scanner-camera" class="btn" style="flex: 1; padding: 8px; border-radius: 10px; font-size: 12px; font-weight: 700; background: #fff; color: #000; border: none; cursor: pointer;">
-          <i class="fas fa-camera" style="margin-left: 5px;"></i> Camera (Scan)
-        </button>
-        <button id="tab-scanner-code" class="btn" style="flex: 1; padding: 8px; border-radius: 10px; font-size: 12px; font-weight: 700; background: transparent; color: #fff; border: none; cursor: pointer;">
-          <i class="fas fa-keyboard" style="margin-left: 5px;"></i> Enter Code (6 digits)
-        </button>
-      </div>
-
-      <!-- View 1: Camera Scanner -->
-      <div id="qr-view-camera" style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
-        <div style="position: relative; width: 260px; height: 260px; border-radius: 24px; overflow: hidden; background: #000; border: 2px solid rgba(255,255,255,0.2); box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
-          <video id="qr-video" playsinline muted style="width: 100%; height: 100%; object-fit: cover;"></video>
-          <canvas id="qr-canvas" style="display: none;"></canvas>
-          <div style="position: absolute; inset: 24px; border: 2px dashed rgba(255,255,255,0.7); border-radius: 16px; pointer-events: none;"></div>
-        </div>
-        <p id="qr-camera-msg" style="font-size: 12px; color: rgba(255,255,255,0.7); margin: 0; line-height: 1.4;">
-          Point your phone camera at the QR code shown in your PC account settings
-        </p>
-      </div>
-
-      <!-- View 2: 6-Digit Short Code Entry -->
-      <div id="qr-view-code" style="display: none; flex-direction: column; align-items: center; gap: 16px; padding: 12px 0;">
-        <p style="font-size: 13px; color: rgba(255,255,255,0.75); margin: 0; line-height: 1.5;">
-          Enter the 6-digit code shown on the PC screen:
-        </p>
-        <input type="text" id="qr-input-manual-code" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="••••••"
-          style="width: 220px; font-size: 30px; letter-spacing: 10px; text-align: center; font-family: monospace; font-weight: 800; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.25); color: #fff; outline: none;" />
-        <button id="qr-submit-manual-code" class="btn-primary" style="width: 100%; padding: 12px; border-radius: 14px; background: #ffffff; color: #000000; font-weight: 800; font-size: 14px; border: none; cursor: pointer; box-shadow: 0 4px 20px rgba(255,255,255,0.3);">
-          Confirm and Log in
-        </button>
-      </div>
-
-      <div id="qr-scanner-status" style="margin-top: 14px; font-size: 12px; min-height: 18px; color: #ef4444;"></div>
-    </div>
-  </div>
 
   <!-- Email Change OTP Modal -->
   <div id="modal-email-change-otp" class="modal-overlay"
@@ -4752,37 +4611,53 @@
       color: #eab308;
     }
     .btn-addon-install {
-      background: #6366f1;
-      color: #ffffff !important;
-      border: none;
-      font-size: 11px;
-      font-weight: 800;
-      padding: 6px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+      background: #ffffff !important;
+      color: #000000 !important;
+      border: 1px solid #ffffff !important;
+      font-size: 0.82rem !important;
+      font-weight: 800 !important;
+      padding: 7px 16px !important;
+      border-radius: 10px !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 7px !important;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+      box-shadow: 0 4px 14px rgba(255, 255, 255, 0.2) !important;
+    }
+    .btn-addon-install *,
+    .btn-addon-install i,
+    .btn-addon-install span {
+      color: #000000 !important;
+      fill: #000000 !important;
     }
     .btn-addon-install:hover {
-      background: #4f46e5;
-      transform: scale(1.05);
-      box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+      background: #f0f0f5 !important;
+      transform: translateY(-1px) scale(1.03) !important;
+      box-shadow: 0 6px 20px rgba(255, 255, 255, 0.35) !important;
+    }
+    .btn-addon-install:active {
+      transform: scale(0.97) !important;
     }
     .btn-addon-uninstall {
-      background: rgba(239, 68, 68, 0.1);
+      background: rgba(239, 68, 68, 0.12) !important;
       color: #ef4444 !important;
-      border: 1px solid rgba(239, 68, 68, 0.25);
-      font-size: 11px;
-      font-weight: 700;
-      padding: 5px 11px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s;
+      border: 1px solid rgba(239, 68, 68, 0.28) !important;
+      font-size: 0.8rem !important;
+      font-weight: 700 !important;
+      padding: 6px 14px !important;
+      border-radius: 10px !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      transition: all 0.2s ease !important;
     }
     .btn-addon-uninstall:hover {
-      background: rgba(239, 68, 68, 0.2);
-      border-color: rgba(239, 68, 68, 0.4);
-      transform: scale(1.05);
+      background: rgba(239, 68, 68, 0.22) !important;
+      border-color: rgba(239, 68, 68, 0.5) !important;
+      transform: translateY(-1px) scale(1.03) !important;
     }
   </style>
 
@@ -5093,7 +4968,6 @@
 
   <!-- UI Modules -->
   <script src="js/capabilities.js"></script>
-  <script src="js/jsqr.min.js"></script>
   <script src="modules/auth.js"></script>
   <script src="modules/ass-subtitles.js"></script>
   <script src="modules/disclaimer.js"></script>
@@ -5107,6 +4981,302 @@
   <script src="modules/anime.js"></script>
   <script src="modules/radio.js"></script>
   <script src="modules/settings.js"></script>
+  <script src="modules/music-player.js"></script>
+
+  <!-- Global Spotify Bottom Audio Player Bar -->
+  <div id="global-music-player-bar" class="hidden-bar">
+    <!-- Left: Track Details -->
+    <div class="music-bar-track-info">
+      <div class="music-bar-thumb" id="music-bar-thumb">
+        <img id="music-bar-thumb-img" src="https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=300&q=80" alt="Cover">
+      </div>
+      <div class="music-bar-meta">
+        <span class="music-bar-song-title" id="music-bar-title">Starboy</span>
+        <span class="music-bar-song-artist" id="music-bar-artist">The Weeknd</span>
+      </div>
+      <button class="music-bar-heart-btn" id="music-bar-heart-btn" title="Add to Playlist">
+        <i class="fas fa-plus"></i>
+      </button>
+    </div>
+
+    <!-- Center: Playback Controls & Progress Bar -->
+    <div class="music-bar-center">
+      <div class="music-bar-controls">
+        <button class="music-ctrl-btn" id="music-bar-shuffle-btn" title="Enable Shuffle">
+          <i class="fas fa-shuffle"></i>
+        </button>
+        <button class="music-ctrl-btn" id="music-bar-prev-btn" title="Previous Track">
+          <i class="fas fa-backward-step"></i>
+        </button>
+        <button class="music-play-pause-circle" id="music-bar-play-circle" title="Play / Pause">
+          <i class="fas fa-play" style="margin-left: 2px;"></i>
+        </button>
+        <button class="music-ctrl-btn" id="music-bar-next-btn" title="Next Track">
+          <i class="fas fa-forward-step"></i>
+        </button>
+        <button class="music-ctrl-btn" id="music-bar-repeat-btn" title="Repeat Track">
+          <i class="fas fa-repeat"></i>
+        </button>
+      </div>
+
+      <div class="music-bar-progress-row">
+        <span class="music-time-label" id="music-bar-current-time">0:00</span>
+        <div class="music-progress-bar-container" id="music-bar-progress-container">
+          <div class="music-progress-track">
+            <div class="music-progress-fill" id="music-bar-progress-fill"></div>
+          </div>
+        </div>
+        <span class="music-time-label" id="music-bar-duration">0:00</span>
+      </div>
+    </div>
+
+    <!-- Right: Lyrics, Queue, Sleep Timer, Offline Download, Volume, Fullscreen -->
+    <div class="music-bar-right">
+      <button class="music-tool-btn" id="music-bar-lyrics-btn" title="Lyrics">
+        <i class="fas fa-microphone-lines"></i>
+      </button>
+      <button class="music-tool-btn" id="music-bar-queue-btn" title="Play Queue">
+        <i class="fas fa-list-ul"></i>
+      </button>
+      <button class="music-tool-btn" id="music-bar-timer-btn" title="Sleep Timer">
+        <i class="fas fa-clock"></i>
+        <span class="music-timer-badge" id="music-timer-badge">15m</span>
+      </button>
+      <button class="music-tool-btn" id="music-bar-download-btn" title="Download for Offline Playback">
+        <i class="fas fa-download"></i>
+      </button>
+      <div class="music-vol-wrap">
+        <button class="music-tool-btn" style="padding:0;" title="Mute / Unmute">
+          <i class="fas fa-volume-high" id="music-bar-vol-icon"></i>
+        </button>
+        <input type="range" min="0" max="100" value="85" class="music-vol-slider" id="music-bar-vol-slider">
+      </div>
+      <button class="music-tool-btn" id="music-bar-fullscreen-btn" title="Expand Fullscreen Player">
+        <i class="fas fa-up-right-and-down-left-from-center"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Fullscreen MEEM Music Player & Lyrics Modal -->
+  <div id="fullscreen-music-modal">
+    <div class="fullscreen-music-backdrop" id="fs-music-backdrop"></div>
+    <div class="fullscreen-music-inner">
+      <div class="fullscreen-top-nav">
+        <button class="fullscreen-close-btn" id="fs-close-btn" title="Minimize Player">
+          <i class="fas fa-chevron-down"></i>
+        </button>
+        <div class="fullscreen-nav-pills">
+          <button class="fs-tab-btn active" id="fs-tab-artwork">
+            <i class="fas fa-compact-disc"></i> Now Playing
+          </button>
+          <button class="fs-tab-btn" id="fs-tab-lyrics">
+            <i class="fas fa-microphone-lines"></i> Lyrics
+          </button>
+          <button class="fs-tab-btn" id="fs-tab-queue">
+            <i class="fas fa-list-ul"></i> Queue
+          </button>
+        </div>
+        <div class="fs-top-right-actions">
+          <div class="fs-translate-menu-wrap" id="fs-translate-menu-wrap">
+            <button class="fs-translate-trigger-btn" id="fs-translate-trigger-btn" title="Lyrics Translation">
+              <i class="fas fa-language"></i>
+              <span id="fs-current-lang-text">العربية</span>
+              <i class="fas fa-chevron-down fs-chevron-icon" id="fs-translate-chevron"></i>
+            </button>
+            <div class="fs-translate-dropdown" id="fs-translate-dropdown" style="display: none;">
+              <div class="fs-translate-dropdown-header">
+                <i class="fas fa-language"></i> Translate Lyrics
+              </div>
+              <div class="fs-translate-options-list" id="fs-translate-options-list">
+                <button class="fs-lang-option" data-lang="off">
+                  <span>Original (No Translation)</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option active" data-lang="ar">
+                  <span>العربية (Arabic)</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="en">
+                  <span>English</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="fr">
+                  <span>Français</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="es">
+                  <span>Español</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="de">
+                  <span>Deutsch</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="tr">
+                  <span>Türkçe</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="ru">
+                  <span>Русский</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="ja">
+                  <span>日本語</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="ko">
+                  <span>한국어</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+                <button class="fs-lang-option" data-lang="it">
+                  <span>Italiano</span>
+                  <i class="fas fa-check fs-lang-check"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fullscreen-body" id="fs-body-container">
+        <!-- Tab 1: Artwork View -->
+        <div class="fullscreen-artwork-view" id="fs-artwork-view">
+          <div class="fs-large-cover">
+            <img id="fs-large-cover-img" src="https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&q=80" alt="Artwork">
+          </div>
+          <div class="fs-visualizer-container" id="fs-visualizer-container">
+            <canvas id="fs-audio-visualizer" class="fs-audio-visualizer"></canvas>
+          </div>
+          <div class="fs-track-info">
+            <h2 class="fs-track-title" id="fs-track-title">Loading Track...</h2>
+            <p class="fs-track-artist" id="fs-track-artist">Artist</p>
+          </div>
+        </div>
+
+        <!-- Tab 2: Lyrics View (Split or Full) -->
+        <div class="fullscreen-lyrics-view" id="fs-lyrics-view" style="display: none;">
+          <div class="fs-lyrics-sidebar">
+            <div class="fs-lyrics-cover-mini">
+              <img id="fs-lyrics-cover-img" src="https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=300&q=80" alt="Cover">
+            </div>
+            <div class="fs-lyrics-meta">
+              <h3 id="fs-lyrics-title">Track Title</h3>
+              <p id="fs-lyrics-artist">Artist Name</p>
+              <button class="music-bar-heart-btn" id="fs-lyrics-heart-btn" style="margin-top: 6px;" title="Add to Playlist">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+          </div>
+          <div class="fullscreen-lyrics-container" id="fs-lyrics-container"></div>
+        </div>
+
+        <!-- Tab 3: Queue View -->
+        <div class="fullscreen-queue-view" id="fs-queue-view" style="display: none;">
+          <div class="fs-queue-header">
+            <div class="fs-queue-header-left">
+              <h3><i class="fas fa-list-ul"></i> Play Queue</h3>
+              <span class="fs-queue-count" id="fs-queue-count">0 tracks</span>
+            </div>
+            <button id="btn-clear-queue" class="fs-queue-clear-btn" title="Clear upcoming queue">
+              <i class="fas fa-trash-can"></i> Clear Queue
+            </button>
+          </div>
+          <div class="fs-queue-list" id="fs-queue-list">
+            <!-- Dynamic queue list -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Fullscreen Bottom Controls (Spotify Standard) -->
+      <div class="fullscreen-bottom-bar">
+        <div class="fs-bar-row">
+          <!-- Left: Meta Info -->
+          <div class="fs-bar-left">
+            <div class="fs-bar-mini-thumb">
+              <img id="fs-bar-mini-thumb-img" src="https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=100&q=80" alt="Cover">
+            </div>
+            <div class="fs-bar-mini-meta">
+              <span class="fs-bar-mini-title" id="fs-bar-mini-title">Track Title</span>
+              <span class="fs-bar-mini-artist" id="fs-bar-mini-artist">Artist Name</span>
+            </div>
+            <button class="music-bar-heart-btn" id="fs-bar-heart-btn" title="Add to Playlist">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+
+          <!-- Center: Controls + Progress -->
+          <div class="fs-bar-center">
+            <div class="music-bar-controls">
+              <button class="music-ctrl-btn" id="fs-shuffle-btn" title="Shuffle">
+                <i class="fas fa-shuffle"></i>
+              </button>
+              <button class="music-ctrl-btn" id="fs-prev-btn" title="Previous">
+                <i class="fas fa-backward-step"></i>
+              </button>
+              <button class="music-play-pause-circle" id="fs-play-btn" title="Play/Pause">
+                <i class="fas fa-play" style="margin-left: 2px;"></i>
+              </button>
+              <button class="music-ctrl-btn" id="fs-next-btn" title="Next">
+                <i class="fas fa-forward-step"></i>
+              </button>
+              <button class="music-ctrl-btn" id="fs-repeat-btn" title="Repeat">
+                <i class="fas fa-repeat"></i>
+              </button>
+            </div>
+
+            <div class="music-bar-progress-row" style="width: 100%;">
+              <span class="music-time-label" id="fs-current-time">0:00</span>
+              <div class="music-progress-bar-container" id="fs-progress-container">
+                <div class="music-progress-track">
+                  <div class="music-progress-fill" id="fs-progress-fill"></div>
+                </div>
+              </div>
+              <span class="music-time-label" id="fs-duration">0:00</span>
+            </div>
+          </div>
+
+          <!-- Right: Tools + Volume -->
+          <div class="fs-bar-right">
+            <button class="music-tool-btn" id="fs-tool-lyrics-btn" title="Toggle Lyrics">
+              <i class="fas fa-microphone-lines"></i>
+            </button>
+            <button class="music-tool-btn" id="fs-tool-queue-btn" title="Play Queue">
+              <i class="fas fa-list-ul"></i>
+            </button>
+            <button class="music-tool-btn" id="fs-tool-timer-btn" title="Sleep Timer">
+              <i class="fas fa-clock"></i>
+            </button>
+            <button class="music-tool-btn" id="fs-tool-dl-btn" title="Download Offline">
+              <i class="fas fa-arrow-down-to-line"></i>
+            </button>
+            <div class="music-vol-wrap">
+              <button class="music-tool-btn" id="fs-vol-icon-btn" style="padding:0;" title="Mute">
+                <i class="fas fa-volume-high" id="fs-vol-icon"></i>
+              </button>
+              <input type="range" min="0" max="100" value="85" class="music-vol-slider" id="fs-vol-slider">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sleep Timer Modal -->
+  <div id="music-sleep-timer-modal">
+    <div class="timer-modal-card">
+      <h3><i class="fas fa-clock"></i> Sleep Timer</h3>
+      <p>Audio playback will fade out smoothly and pause after the selected time.</p>
+      <div class="timer-presets-list">
+        <button class="timer-option-btn" data-mins="5"><span>5 Minutes</span> <i class="fas fa-chevron-right" style="font-size: 11px;"></i></button>
+        <button class="timer-option-btn" data-mins="15"><span>15 Minutes</span> <i class="fas fa-chevron-right" style="font-size: 11px;"></i></button>
+        <button class="timer-option-btn" data-mins="30"><span>30 Minutes</span> <i class="fas fa-chevron-right" style="font-size: 11px;"></i></button>
+        <button class="timer-option-btn" data-mins="45"><span>45 Minutes</span> <i class="fas fa-chevron-right" style="font-size: 11px;"></i></button>
+        <button class="timer-option-btn" data-mins="60"><span>1 Hour</span> <i class="fas fa-chevron-right" style="font-size: 11px;"></i></button>
+        <button class="timer-option-btn" data-mins="0" style="color: rgba(239, 68, 68, 0.9);"><span>Turn Off Timer</span> <i class="fas fa-xmark"></i></button>
+      </div>
+      <button class="music-hero-sec-btn" id="timer-close-btn" style="width: 100%; justify-content: center;">Close</button>
+    </div>
+  </div>
   
   <!-- YouTube Addon Settings & Account Modal -->
   <div id="youtube-settings-modal" class="modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(5, 5, 8, 0.88); backdrop-filter:blur(35px); -webkit-backdrop-filter:blur(35px); z-index:99990; align-items:center; justify-content:center; padding:20px;">
@@ -5346,6 +5516,70 @@
           <i class="fas fa-arrow-right" style="font-size:13px; color:#000000;"></i>
         </button>
         <span style="font-size:11.5px; color:rgba(255,255,255,0.5);">Opens our official Gumroad checkout in your browser</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Subscription Management Modal (Manage / Cancel VIP) -->
+  <div id="modal-subscription-management" class="modal-overlay" style="display:none; position:fixed; inset:0; z-index:99990; background:rgba(5, 5, 8, 0.88); backdrop-filter:blur(35px); -webkit-backdrop-filter:blur(35px); align-items:center; justify-content:center; padding:20px;">
+    <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+      <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+        <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+      </svg>
+    </div>
+
+    <div class="modal" style="width:540px; max-width:92vw; max-height:88vh; overflow-y:auto; position:relative; z-index:2; background:rgba(18, 18, 24, 0.95); border:1px solid rgba(255,255,255,0.14); border-radius:28px; box-shadow:0 30px 80px rgba(0,0,0,0.85); text-align:center; color:#ffffff; display:flex; flex-direction:column; gap:18px; padding:32px 28px;">
+      <button id="btn-close-sub-mgmt-modal" style="position:absolute; top:20px; right:20px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#fff; width:34px; height:34px; border-radius:50%; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s;"><i class="fas fa-times"></i></button>
+
+      <div style="text-align:center;">
+        <div style="width:56px; height:56px; border-radius:50%; background:rgba(16, 185, 129, 0.15); border:1.5px solid rgba(16, 185, 129, 0.35); display:inline-flex; align-items:center; justify-content:center; margin-bottom:12px; color:#10b981; font-size:24px; box-shadow:0 0 25px rgba(16, 185, 129, 0.25);">
+          <i class="fas fa-crown"></i>
+        </div>
+        <h2 style="font-size:22px; font-weight:800; margin:0 0 6px 0; color:#ffffff; letter-spacing:-0.4px;">Manage MEEM VIP Subscription</h2>
+        <p style="color:rgba(255,255,255,0.65); font-size:13.5px; margin:0 auto; line-height:1.5;">You have an active MEEM VIP subscription. You can manage renewals, cancel, or update your payment details anytime.</p>
+      </div>
+
+      <!-- Active Subscription Summary Card -->
+      <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.12); border-radius:18px; padding:18px 20px; text-align:left; display:flex; flex-direction:column; gap:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px;">
+          <span style="font-size:13px; color:rgba(255,255,255,0.5);">Subscription Status</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; background:rgba(16, 185, 129, 0.15); color:#34d399; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; border:1px solid rgba(16, 185, 129, 0.3);">
+            <i class="fas fa-check-circle"></i> Active VIP
+          </span>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px;">
+          <span style="font-size:13px; color:rgba(255,255,255,0.5);">Expires On</span>
+          <span id="sub-mgmt-expires-text" style="font-size:13.5px; font-weight:700; color:#ffffff;">-</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:13px; color:rgba(255,255,255,0.5);">Account</span>
+          <span id="sub-mgmt-email-text" style="font-size:12.5px; color:rgba(255,255,255,0.85); font-family:monospace;">-</span>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <!-- Open Gumroad Customer Portal Button -->
+        <button id="btn-sub-mgmt-open-portal" style="width:100%; height:48px; background:#ffffff; color:#000000; border:none; border-radius:14px; font-weight:800; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; box-shadow:0 6px 20px rgba(255,255,255,0.25); transition:transform 0.15s, box-shadow 0.15s;" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 8px 25px rgba(255,255,255,0.35)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 20px rgba(255,255,255,0.25)';">
+          <i class="fas fa-external-link-alt"></i>
+          <span>Manage or Cancel on Gumroad</span>
+        </button>
+        <span style="font-size:11.5px; color:rgba(255,255,255,0.5); line-height:1.4;">Opens your official Gumroad customer library to manage billing or cancel auto-renewal.</span>
+
+        <div style="display:flex; gap:10px; margin-top:6px;">
+          <!-- Enter New License Key -->
+          <button id="btn-sub-mgmt-switch-key" style="flex:1; padding:10px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); border-radius:12px; color:#ffffff; font-size:12.5px; font-weight:600; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
+            <i class="fas fa-key"></i>
+            <span>Change License Key</span>
+          </button>
+          <!-- Disconnect / Logout Subscription -->
+          <button id="btn-sub-mgmt-disconnect" style="flex:1; padding:10px 14px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); border-radius:12px; color:#fca5a5; font-size:12.5px; font-weight:600; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
+            <i class="fas fa-unlink"></i>
+            <span>Disconnect License</span>
+          </button>
+        </div>
       </div>
 
     </div>

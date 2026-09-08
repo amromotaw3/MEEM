@@ -243,7 +243,7 @@ async function fetchNormalizedProfileData(client, profileId) {
   // 4. Fetch custom_lists and list_items
   const { data: listsData, error: clError } = await client
     .from('custom_lists')
-    .select('id, profile_id, list_name, theme_color, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id)')
+    .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
     .eq('profile_id', profileId);
   if (clError) {
     console.error('[STORE] load custom lists error:', clError.message);
@@ -265,7 +265,7 @@ async function fetchNormalizedProfileData(client, profileId) {
         const sharedListIds = memberRefs.map(m => m.list_id);
         const { data: fetchedShared, error: sharedError } = await client
           .from('custom_lists')
-          .select('id, profile_id, list_name, theme_color, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id)')
+          .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
           .in('id', sharedListIds);
         if (!sharedError && fetchedShared) {
           sharedLists = fetchedShared;
@@ -323,22 +323,42 @@ async function fetchNormalizedProfileData(client, profileId) {
     id: row.id,
     profile_id: row.profile_id,
     name: row.list_name,
+    type: row.type || 'media',
     theme_color: row.theme_color || '#6366f1',
-    items: (row.list_items || []).map(item => ({
-      id: item.media_id,
-      title: item.title || '',
-      type: item.type || '',
-      media_type: item.type || '',
-      poster: item.poster_path || '',
-      backdrop: item.backdrop_path || '',
-      release_date: item.release_date || '',
-      vote_average: item.vote_average ? Number(item.vote_average) : 0,
-      overview: item.overview || '',
-      source: item.source || null,
-      mal_id: item.mal_id || null,
-      malId: item.mal_id || null,
-      anime_id: item.anime_id || null
-    }))
+    items: (row.list_items || []).map(item => {
+      const itemData = item.item_data || {};
+      const isMusic = (item.type === 'music') || (row.type === 'music') || !!itemData.artist || (item.source === 'music');
+      if (isMusic) {
+        return {
+          id: item.media_id || item.id,
+          type: 'music',
+          title: item.title || itemData.title || '',
+          artist: itemData.artist || item.overview || '',
+          album: itemData.album || '',
+          thumbnail: item.poster_path || itemData.thumbnail || item.backdrop_path || '',
+          poster: item.poster_path || itemData.thumbnail || '',
+          duration: itemData.duration || 0,
+          durationFormatted: itemData.durationFormatted || item.release_date || '0:00',
+          added_at: item.added_at || itemData.added_at || new Date().toISOString(),
+          added_by: itemData.added_by || null
+        };
+      }
+      return {
+        id: item.media_id,
+        title: item.title || '',
+        type: item.type || '',
+        media_type: item.type || '',
+        poster: item.poster_path || '',
+        backdrop: item.backdrop_path || '',
+        release_date: item.release_date || '',
+        vote_average: item.vote_average ? Number(item.vote_average) : 0,
+        overview: item.overview || '',
+        source: item.source || null,
+        mal_id: item.mal_id || null,
+        malId: item.mal_id || null,
+        anime_id: item.anime_id || null
+      };
+    })
   }));
 
   return { watchlist, playback, lockedItems, custom_lists };
@@ -415,22 +435,42 @@ async function fetchNormalizedProfileDataByHardware(hardwareId, profileId) {
       id: row.id,
       profile_id: row.profile_id,
       name: row.list_name,
+      type: row.type || 'media',
       theme_color: row.theme_color || '#6366f1',
-      items: (row.list_items || []).map(item => ({
-        id: item.media_id,
-        title: item.title || '',
-        type: item.type || '',
-        media_type: item.type || '',
-        poster: item.poster_path || '',
-        backdrop: item.backdrop_path || '',
-        release_date: item.release_date || '',
-        vote_average: item.vote_average ? Number(item.vote_average) : 0,
-        overview: item.overview || '',
-        source: item.source || null,
-        mal_id: item.mal_id || null,
-        malId: item.mal_id || null,
-        anime_id: item.anime_id || null
-      }))
+      items: (row.list_items || []).map(item => {
+        const itemData = item.item_data || {};
+        const isMusic = (item.type === 'music') || (row.type === 'music') || !!itemData.artist || (item.source === 'music');
+        if (isMusic) {
+          return {
+            id: item.media_id || item.id,
+            type: 'music',
+            title: item.title || itemData.title || '',
+            artist: itemData.artist || item.overview || '',
+            album: itemData.album || '',
+            thumbnail: item.poster_path || itemData.thumbnail || item.backdrop_path || '',
+            poster: item.poster_path || itemData.thumbnail || '',
+            duration: itemData.duration || 0,
+            durationFormatted: itemData.durationFormatted || item.release_date || '0:00',
+            added_at: item.added_at || itemData.added_at || new Date().toISOString(),
+            added_by: itemData.added_by || null
+          };
+        }
+        return {
+          id: item.media_id,
+          title: item.title || '',
+          type: item.type || '',
+          media_type: item.type || '',
+          poster: item.poster_path || '',
+          backdrop: item.backdrop_path || '',
+          release_date: item.release_date || '',
+          vote_average: item.vote_average ? Number(item.vote_average) : 0,
+          overview: item.overview || '',
+          source: item.source || null,
+          mal_id: item.mal_id || null,
+          malId: item.mal_id || null,
+          anime_id: item.anime_id || null
+        };
+      })
     }));
 
     return { watchlist, playback, lockedItems, custom_lists };
@@ -1025,6 +1065,7 @@ async function saveData(data, session = null) {
               const upsertData = {
                 profile_id: profile.id,
                 list_name: localList.name || 'Unnamed List',
+                type: localList.type || 'media',
                 theme_color: localList.theme_color || '#6366f1'
               };
               const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(localList.id);
@@ -1082,20 +1123,37 @@ async function saveData(data, session = null) {
             }
 
             if (localItems.length > 0) {
-              const itemRows = localItems.map(item => ({
-                list_id: listId,
-                media_id: String(item.id || item),
-                type: item.type || item.media_type || '',
-                title: item.title || item.name || '',
-                poster_path: item.poster || item.poster_path || '',
-                backdrop_path: item.backdrop || item.backdrop_path || '',
-                release_date: item.release_date || '',
-                vote_average: item.vote_average ? Number(item.vote_average) : 0,
-                overview: item.overview || '',
-                source: item.source || null,
-                mal_id: item.mal_id ? String(item.mal_id) : (item.malId ? String(item.malId) : null),
-                anime_id: item.anime_id ? String(item.anime_id) : null
-              }));
+              const itemRows = localItems.map(item => {
+                const isMusicItem = (item.type === 'music') || (localList.type === 'music') || !!item.artist;
+                const itemData = isMusicItem ? {
+                  id: String(item.id || item),
+                  title: item.title || item.name || '',
+                  artist: item.artist || '',
+                  album: item.album || '',
+                  thumbnail: item.thumbnail || item.poster || item.poster_path || '',
+                  duration: item.duration || 0,
+                  durationFormatted: item.durationFormatted || '',
+                  added_at: item.added_at || new Date().toISOString(),
+                  added_by: item.added_by || null,
+                  type: 'music'
+                } : (item.item_data || null);
+
+                return {
+                  list_id: listId,
+                  media_id: String(item.id || item),
+                  type: isMusicItem ? 'music' : (item.type || item.media_type || ''),
+                  title: item.title || item.name || '',
+                  poster_path: item.poster || item.poster_path || item.thumbnail || '',
+                  backdrop_path: item.backdrop || item.backdrop_path || item.thumbnail || '',
+                  release_date: item.release_date || (isMusicItem ? (item.durationFormatted || '') : ''),
+                  vote_average: item.vote_average ? Number(item.vote_average) : 0,
+                  overview: item.overview || (isMusicItem ? (item.artist || '') : ''),
+                  source: item.source || (isMusicItem ? 'music' : null),
+                  mal_id: item.mal_id ? String(item.mal_id) : (item.malId ? String(item.malId) : null),
+                  anime_id: item.anime_id ? String(item.anime_id) : null,
+                  item_data: itemData
+                };
+              });
               const { error: upsertItemsError } = await client
                 .from('list_items')
                 .upsert(itemRows, { onConflict: 'list_id,media_id' });
@@ -1551,76 +1609,6 @@ function initStoreIpc(ipcMain) {
     }
   });
 
-  ipcMain.handle('cloud-create-qr-session', async (e) => {
-    try {
-      const client = await getAuthenticatedClient();
-      const local = readLocalAppData() || {};
-      const session = _cachedSupabaseSession || local._supabaseSession;
-      const refreshToken = session?.refresh_token;
-      const userId = local.user?.id || session?.user?.id;
-      if (!refreshToken) {
-        return { error: 'No active session found to generate QR code' };
-      }
-      const accessToken = session?.access_token;
-      const targetClient = client || require('../shared/supabaseClient').getClient();
-      const { data, error } = await targetClient.rpc('create_qr_session', {
-        p_refresh_token: refreshToken,
-        p_user_id: userId || null,
-        p_access_token: accessToken || null
-      });
-      if (error) throw error;
-      if (data && data.error) return data;
-
-      const QRCode = require('qrcode');
-      const payload = JSON.stringify({
-        meem_qr: true,
-        ticket_id: data.ticket_id,
-        short_code: data.short_code
-      });
-      const qrDataUrl = await QRCode.toDataURL(payload, {
-        width: 320,
-        margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
-        }
-      });
-
-      return { ...data, qrDataUrl };
-    } catch (err) {
-      console.error('[STORE] cloud-create-qr-session error:', err);
-      return { error: err.message || String(err) };
-    }
-  });
-
-  ipcMain.handle('cloud-check-qr-status', async (e, { ticketId }) => {
-    try {
-      const { getClient } = require('../shared/supabaseClient');
-      const client = getClient();
-      const { data, error } = await client.rpc('check_qr_session_status', { p_ticket_id: ticketId });
-      if (error) throw error;
-      return data;
-    } catch (err) {
-      return { error: err.message || String(err) };
-    }
-  });
-
-  ipcMain.handle('claim-qr-session', async (e, { ticketId, shortCode }) => {
-    try {
-      const { getClient } = require('../shared/supabaseClient');
-      const client = getClient();
-      const hwId = getHardwareId();
-      const { data, error } = await client.rpc('claim_qr_session', {
-        p_ticket_id: ticketId || null,
-        p_short_code: shortCode || null,
-        p_hardware_id: hwId
-      });
-      if (error) throw error;
-      return data;
-    } catch (err) {
-      return { error: err.message || String(err) };
-    }
-  });
 
   ipcMain.handle('cloud-discord-login', async (e, { userId }) => {
     return { error: 'cloud-discord-login is deprecated. Use cloud-sync-user-session instead.' };
@@ -2063,7 +2051,7 @@ function initStoreIpc(ipcMain) {
       // 1. Fetch owned lists
       const { data: listsData, error: clError } = await client
         .from('custom_lists')
-        .select('id, profile_id, list_name, theme_color, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id)')
+        .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
         .eq('profile_id', profileId);
       if (clError) throw clError;
       
@@ -2081,7 +2069,7 @@ function initStoreIpc(ipcMain) {
         const fetchShared = async (dbClient) => {
           const { data, error } = await dbClient
             .from('custom_lists')
-            .select('id, profile_id, list_name, theme_color, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id)')
+            .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
             .in('id', sharedListIds);
           if (error) throw error;
           return data;
@@ -2742,12 +2730,27 @@ function initStoreIpc(ipcMain) {
 
       // Insert media share as special message type
       const runQuery = async (dbClient) => {
+        const shareObj = {
+          id: media.id,
+          mediaId: media.id,
+          title: media.title || media.name || '',
+          posterUrl: media.posterUrl || media.poster || media.poster_path || media.thumbnail || '',
+          poster: media.posterUrl || media.poster || media.poster_path || media.thumbnail || '',
+          thumbnail: media.thumbnail || media.posterUrl || media.poster || '',
+          mediaType: media.mediaType || media.type || (media.media_type) || 'movie',
+          type: media.type || media.mediaType || (media.media_type) || 'movie',
+          artist: media.artist || '',
+          album: media.album || '',
+          duration: media.duration || 0,
+          durationFormatted: media.durationFormatted || ''
+        };
+
         const { data: resData, error: insertErr } = await dbClient
           .from('collection_messages')
           .insert({
             list_id: listId,
             profile_id: profileId,
-            message_text: `[MEDIA_SHARE]:${JSON.stringify({mediaId: media.id, title: media.title, posterUrl: media.poster, mediaType: media.type})}`
+            message_text: `[MEDIA_SHARE]:${JSON.stringify(shareObj)}`
           })
           .select()
           .single();

@@ -49,7 +49,11 @@ async function checkHardwareBan(hardwareId) {
   try {
     const { data, error } = await getClient().rpc('check_hardware_ban', { hardware_id: cleanHardwareId });
     if (error) throw error;
-    if (data && Array.isArray(data) && data.length > 0) return data[0];
+    if (data && Array.isArray(data) && data.length > 0) {
+      const row = data[0];
+      if (row.banned === false || row.is_banned === false) return null;
+      return row;
+    }
     return null;
   } catch (err) {
     console.warn('[CLOUD_AUTH] checkHardwareBan RPC failed:', err.message);
@@ -101,42 +105,78 @@ async function loginUser(email, password, hardwareId) {
     return { error: 'Email and password are required' };
   }
 
-  // Use a default hardware ID for mobile devices if not provided
   if (!cleanHardwareId) {
     cleanHardwareId = 'mobile-device-default';
   }
 
+  // 1. Check if device is banned
+  const ban = await checkHardwareBan(cleanHardwareId);
+  if (ban) {
+    return { error: 'HARDWARE_BANNED', message: ban.reason || 'This device has been banned.' };
+  }
+
+  const client = getClient();
   try {
-    const rpcResult = await tryAuthRpc('handle_secure_login', {
+    // 2. Standard Supabase Auth sign-in
+    const { data, error } = await client.auth.signInWithPassword({
       email: cleanEmail,
-      password,
-      hardware_id: cleanHardwareId
+      password: password
     });
-    
-    if (rpcResult) {
-      if (rpcResult.error) return rpcResult;
-      if (rpcResult.success) {
+
+    if (error) {
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('email not confirmed')) {
+        return { error: 'EMAIL_NOT_CONFIRMED', message: 'Email not confirmed' };
+      }
+      // Fallback: Check if user exists in custom users_accounts with legacy password
+      const rpcResult = await tryAuthRpc('handle_secure_login', {
+        email: cleanEmail,
+        password,
+        hardware_id: cleanHardwareId
+      });
+      if (rpcResult && rpcResult.success) {
         return {
           ...rpcResult,
           user: rpcResult.user ? sanitizeUser(rpcResult.user) : rpcResult.user
         };
       }
-      return rpcResult;
+      return { error: 'INVALID_CREDENTIALS', message: 'Invalid email or password' };
     }
-    return { error: 'Login RPC not available. Please ensure database migrations are applied.' };
+
+    if (!data?.user) {
+      return { error: 'Login failed', message: 'User data not returned' };
+    }
+
+    // 3. Sync user session & bind hardware
+    const syncRes = await syncUserSession(
+      data.user.id,
+      data.user.email,
+      data.user.user_metadata?.username || data.user.user_metadata?.name || '',
+      cleanHardwareId
+    );
+
+    if (syncRes && syncRes.error) {
+      return syncRes;
+    }
+
+    return {
+      success: true,
+      user: sanitizeUser(syncRes?.user || data.user),
+      profiles: syncRes?.profiles || [],
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      }
+    };
   } catch (err) {
     return { error: 'Login failed', details: err.message };
   }
 }
 
 /**
- * Register a new user by calling the registration RPC.
- * 
- * @param {string} email - The registration email address.
- * @param {string} password - The password (must be at least 6 characters).
- * @returns {Promise<Object>} Object containing registration status, or error details.
+ * Register a new user using Supabase Auth.
  */
-async function registerUser(email, password, hardwareId) {
+async function registerUser(email, password, hardwareId, username = '') {
   const cleanEmail = String(email || '').toLowerCase().trim();
   let cleanHardwareId = String(hardwareId || '').trim();
 
@@ -151,12 +191,90 @@ async function registerUser(email, password, hardwareId) {
     cleanHardwareId = 'mobile-device-default';
   }
 
+  const ban = await checkHardwareBan(cleanHardwareId);
+  if (ban) {
+    return { error: 'HARDWARE_BANNED', message: ban.reason || 'This device has been banned.' };
+  }
+
+  const client = getClient();
   try {
-    const rpcResult = await tryAuthRpc('handle_register', { email: cleanEmail, password, hardware_id: cleanHardwareId });
-    if (rpcResult) return rpcResult;
-    return { error: 'Register RPC not available. Please ensure database migrations are applied.' };
+    const { data, error } = await client.auth.signUp({
+      email: cleanEmail,
+      password: password,
+      options: {
+        data: { username: username || cleanEmail.split('@')[0] }
+      }
+    });
+
+    if (error) {
+      return { error: error.message || 'Registration failed' };
+    }
+
+    const needsConfirmation = !data.session && (!data.user?.confirmed_at);
+    return {
+      success: true,
+      needsConfirmation: needsConfirmation,
+      user: sanitizeUser(data.user),
+      session: data.session ? {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      } : null
+    };
   } catch (err) {
     return { error: 'Registration failed', details: err.message };
+  }
+}
+
+/**
+ * Verify email OTP code for a user.
+ */
+async function verifyOtpUser(email, token, hardwareId) {
+  const cleanEmail = String(email || '').toLowerCase().trim();
+  const cleanToken = String(token || '').trim();
+  let cleanHardwareId = String(hardwareId || '').trim() || 'mobile-device-default';
+
+  const client = getClient();
+  try {
+    let verifyRes = await client.auth.verifyOtp({
+      email: cleanEmail,
+      token: cleanToken,
+      type: 'signup'
+    });
+
+    if (verifyRes.error) {
+      // Fallback to 'email' type
+      verifyRes = await client.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanToken,
+        type: 'email'
+      });
+    }
+
+    if (verifyRes.error) throw verifyRes.error;
+    const data = verifyRes.data;
+
+    if (!data?.user || !data?.session) {
+      return { error: 'Verification failed - no session returned' };
+    }
+
+    const syncRes = await syncUserSession(
+      data.user.id,
+      data.user.email,
+      data.user.user_metadata?.username || '',
+      cleanHardwareId
+    );
+
+    return {
+      success: true,
+      user: sanitizeUser(syncRes?.user || data.user),
+      profiles: syncRes?.profiles || [],
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      }
+    };
+  } catch (err) {
+    return { error: err.message || 'OTP verification failed' };
   }
 }
 
@@ -210,6 +328,7 @@ module.exports = {
   getDeviceSessionWithRpcFallback,
   loginUser,
   registerUser,
+  verifyOtpUser,
   unwrapRpcRow,
   syncUserSession
 };

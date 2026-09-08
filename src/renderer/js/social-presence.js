@@ -18,6 +18,16 @@
   let _offlineLoggedPlaybackPins = false;
   let _offlineLoggedEpisodePresence = false;
 
+  function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   // Initialize styling dynamically to ensure seamless aesthetic presentation
   const style = document.createElement('style');
   style.textContent = `
@@ -26,20 +36,21 @@
       display: none !important;
     }
 
-    /* ── Chat Drawer (Docked & Resizable) ── */
+    /* ── Chat Drawer (Solid Pure Black & Docked) ── */
     .vault-chat-drawer {
       position: fixed;
       top: 0; right: 0;
       width: 380px; height: 100vh;
-      background: rgba(13, 14, 22, 0.97);
-      border-left: 1px solid rgba(255, 255, 255, 0.08);
+      background: #000000 !important;
+      border-left: 1px solid #141418 !important;
       z-index: 9999;
       display: flex; flex-direction: column;
-      box-shadow: -10px 0 40px rgba(0, 0, 0, 0.5);
+      box-shadow: none !important;
       transform: translateX(100%);
       transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-      backdrop-filter: blur(32px);
-      -webkit-backdrop-filter: blur(32px);
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      border-radius: 0 !important;
     }
     .vault-chat-drawer.active { transform: translateX(0); }
     .vault-chat-drawer.fullscreen {
@@ -49,7 +60,8 @@
       height: 100vh;
       right: 0;
       border-radius: 0;
-      box-shadow: none;
+      border-left: none !important;
+      box-shadow: none !important;
       transform: none !important;
     }
     .vault-chat-drawer.is-resizing {
@@ -75,13 +87,13 @@
       transition: background 0.2s ease;
     }
     .vault-chat-resizer:hover, .vault-chat-drawer.is-resizing .vault-chat-resizer {
-      background: rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.2);
     }
 
     /* ── Scrollbar ── */
     .vault-chat-messages::-webkit-scrollbar { width: 4px; }
     .vault-chat-messages::-webkit-scrollbar-track { background: transparent; }
-    .vault-chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 2px; }
+    .vault-chat-messages::-webkit-scrollbar-thumb { background: #222228; border-radius: 2px; }
 
     /* ── Unread Badge ── */
     .chat-unread-badge {
@@ -90,141 +102,118 @@
       color: #000000; font-size: 9px; font-weight: 900;
       min-width: 17px; height: 17px; border-radius: 10px;
       padding: 0 4px; margin-left: 6px;
-      box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
       vertical-align: middle; letter-spacing: 0.3px;
     }
 
     /* ── Header ── */
     .vault-chat-header {
-      padding: 20px 22px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 16px 20px;
+      border-bottom: 1px solid #141418 !important;
       display: flex; align-items: center; justify-content: space-between;
-      background: rgba(255, 255, 255, 0.02);
+      background: #000000 !important;
       flex-shrink: 0;
     }
     .vault-chat-drawer.fullscreen .vault-chat-header {
-      padding: 25px 30px;
+      padding: 20px 28px;
     }
     .vault-chat-header-left {
       display: flex; align-items: center; gap: 12px;
     }
     .vault-chat-header-icon {
-      width: 42px; height: 42px; border-radius: 12px;
-      background: #ffffff;
+      width: 38px; height: 38px; border-radius: 10px;
+      background: #111114;
+      border: 1px solid #222228;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px; color: #000000; font-weight: 800;
-      box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25);
+      font-size: 15px; color: #ffffff; font-weight: 800;
+      box-shadow: none;
     }
     .vault-chat-header-title {
-      font-size: 16px; font-weight: 800; color: #ffffff; letter-spacing: -0.3px;
+      font-size: 15px; font-weight: 700; color: #ffffff; letter-spacing: -0.2px;
     }
     .vault-chat-header-sub {
-      font-size: 11px; color: rgba(255, 255, 255, 0.6); margin-top: 2px; font-weight: 500;
+      font-size: 11px; color: rgba(255, 255, 255, 0.5); margin-top: 2px; font-weight: 400;
     }
     .vault-chat-header-actions {
-      display: flex; gap: 8px; align-items: center;
+      display: flex; gap: 6px; align-items: center;
     }
-    .vault-chat-fullscreen-btn {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      width: 36px; height: 36px;
+    .vault-chat-fullscreen-btn,
+    .vault-chat-close,
+    .vault-chat-color-picker-btn,
+    .vault-chat-members-btn {
+      background: #111114;
+      border: 1px solid #202026;
+      border-radius: 8px;
+      width: 32px; height: 32px;
       color: rgba(255, 255, 255, 0.7);
-      cursor: pointer; font-size: 14px;
+      cursor: pointer; font-size: 13px;
       display: flex; align-items: center; justify-content: center;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
     }
-    .vault-chat-fullscreen-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      border-color: rgba(255, 255, 255, 0.4);
+    .vault-chat-fullscreen-btn:hover,
+    .vault-chat-color-picker-btn:hover,
+    .vault-chat-members-btn:hover {
+      background: #1a1a20;
+      border-color: #33333e;
       color: #ffffff;
-    }
-    .vault-chat-close {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      width: 36px; height: 36px;
-      color: rgba(255, 255, 255, 0.7);
-      cursor: pointer; font-size: 14px;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.2s ease;
     }
     .vault-chat-close:hover { 
-      background: rgba(239, 68, 68, 0.2); 
-      border-color: rgba(239, 68, 68, 0.5); 
+      background: rgba(239, 68, 68, 0.15); 
+      border-color: rgba(239, 68, 68, 0.4); 
       color: #ff4757; 
-    }
-    
-    /* ── Color Picker Button ── */
-    .vault-chat-color-picker-btn {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      width: 36px; height: 36px;
-      color: rgba(255, 255, 255, 0.7);
-      cursor: pointer; font-size: 14px;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.2s ease;
-    }
-    .vault-chat-color-picker-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      border-color: rgba(255, 255, 255, 0.4);
-      color: #ffffff;
     }
 
     /* ── Color Picker Modal ── */
     .vault-chat-color-picker-modal {
       position: absolute; top: 60px; right: 8px;
-      background: rgba(13, 14, 22, 0.98);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 14px;
-      padding: 16px;
-      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.7);
-      backdrop-filter: blur(32px);
+      background: #0a0a0d;
+      border: 1px solid #1c1c24;
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.8);
       z-index: 10000;
       min-width: 200px;
     }
     .color-picker-content {
-      display: flex; flex-direction: column; gap: 12px;
+      display: flex; flex-direction: column; gap: 10px;
     }
     .color-picker-title {
-      font-size: 12px; font-weight: 700; color: rgba(255, 255, 255, 0.7);
+      font-size: 11px; font-weight: 700; color: rgba(255, 255, 255, 0.6);
       text-transform: uppercase; letter-spacing: 0.5px;
     }
     .color-picker-grid {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
     }
     .color-picker-item {
-      width: 32px; height: 32px;
-      border-radius: 8px;
+      width: 30px; height: 30px;
+      border-radius: 6px;
       border: 2px solid transparent;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
       flex-shrink: 0;
     }
     .color-picker-item:hover {
-      transform: scale(1.1);
+      transform: scale(1.08);
       border-color: rgba(255, 255, 255, 0.5);
     }
     .color-picker-item.active {
       border-color: #fff;
-      box-shadow: 0 0 10px currentColor;
     }
     .custom-color-input {
       width: 100%;
-      height: 36px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 8px;
+      height: 32px;
+      border: 1px solid #202028;
+      border-radius: 6px;
+      background: #111114;
       cursor: pointer;
     }
 
     /* ── Messages List ── */
     .vault-chat-messages {
       flex: 1; overflow-y: auto;
-      padding: 18px 16px;
+      padding: 16px 18px;
       display: flex; flex-direction: column;
       gap: 12px;
-      background: transparent;
+      background: #000000 !important;
     }
     .vault-chat-drawer.fullscreen .vault-chat-messages {
       padding: 24px 28px;
@@ -232,34 +221,32 @@
     }
     .vault-chat-message-row {
       display: flex; gap: 10px; align-items: flex-end;
-      animation: msg-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      animation: msg-in 0.2s ease-out both;
     }
     @keyframes msg-in {
-      from { opacity: 0; transform: translateY(12px) scale(0.9); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     .vault-chat-message-row.own { flex-direction: row-reverse; }
 
     /* ── Avatar ── */
     .vault-chat-avatar {
-      width: 34px; height: 34px; flex-shrink: 0;
+      width: 32px; height: 32px; flex-shrink: 0;
       border-radius: 50%;
       background-size: cover; background-position: center;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
     }
     .vault-chat-message-row.own .vault-chat-avatar {
       border-color: #ffffff;
-      box-shadow: 0 4px 15px rgba(255, 255, 255, 0.3);
     }
 
     /* ── Bubble ── */
     .vault-chat-bubble {
-      max-width: 72%;
+      max-width: 76%;
       display: flex; flex-direction: column;
-      gap: 5px;
+      gap: 4px;
     }
-    .vault-drawer.fullscreen .vault-chat-bubble {
+    .vault-chat-drawer.fullscreen .vault-chat-bubble {
       max-width: 60%;
     }
     .vault-chat-bubble-header {
@@ -267,49 +254,49 @@
       gap: 8px; padding: 0 2px;
     }
     .vault-chat-msg-sender {
-      font-size: 12px; font-weight: 700; color: rgba(255, 255, 255, 0.85);
+      font-size: 11.5px; font-weight: 600; color: rgba(255, 255, 255, 0.75);
       white-space: nowrap;
       text-transform: capitalize;
     }
     .vault-chat-message-row.own .vault-chat-msg-sender { color: #ffffff; }
     .vault-chat-msg-time {
-      font-size: 10px; color: rgba(255, 255, 255, 0.4); white-space: nowrap;
+      font-size: 10px; color: rgba(255, 255, 255, 0.35); white-space: nowrap;
     }
     .vault-chat-msg-body {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 18px 18px 18px 6px;
-      padding: 11px 16px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-      backdrop-filter: blur(12px);
+      background: #111114;
+      border: 1px solid #1c1c22;
+      border-radius: 14px 14px 14px 4px;
+      padding: 10px 14px;
+      box-shadow: none;
     }
     .vault-chat-message-row.own .vault-chat-msg-body {
       background: #ffffff;
       border: 1px solid #ffffff;
-      border-radius: 18px 18px 6px 18px;
-      box-shadow: 0 4px 20px rgba(255, 255, 255, 0.25);
+      border-radius: 14px 14px 4px 14px;
+      box-shadow: none;
     }
     .vault-chat-msg-text {
-      font-size: 13.5px; color: rgba(255, 255, 255, 0.95);
-      line-height: 1.48; word-break: break-word;
+      font-size: 13px; color: rgba(255, 255, 255, 0.92);
+      line-height: 1.45; word-break: break-word;
     }
-    .vault-chat-message-row.own .vault-chat-msg-text { color: #000000; font-weight: 600; }
+    .vault-chat-message-row.own .vault-chat-msg-text { color: #000000; font-weight: 500; }
 
     /* ── Typing Indicator ── */
     .vault-chat-typing-container {
       padding: 0 14px;
       display: flex; align-items: center; gap: 7px;
       opacity: 0; max-height: 0; overflow: hidden;
-      transition: opacity 0.3s ease, max-height 0.3s ease, padding 0.3s ease;
-      font-size: 11.5px; color: rgba(255, 255, 255, 0.6); font-style: italic;
+      transition: opacity 0.2s ease, max-height 0.2s ease, padding 0.2s ease;
+      font-size: 11px; color: rgba(255, 255, 255, 0.5); font-style: italic;
+      background: #000000;
     }
     .vault-chat-typing-container.active {
-      opacity: 1; max-height: 36px;
-      padding: 6px 14px 8px;
+      opacity: 1; max-height: 32px;
+      padding: 4px 14px 6px;
     }
     .typing-dots { display: flex; gap: 3px; align-items: center; }
     .typing-dots span {
-      width: 5px; height: 5px; border-radius: 50%;
+      width: 4px; height: 4px; border-radius: 50%;
       background: #ffffff;
       animation: typing-bounce 1.4s infinite both;
     }
@@ -322,74 +309,151 @@
 
     /* ── Input Area ── */
     .vault-chat-input-area {
-      padding: 14px 16px 18px;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(13, 14, 22, 0.98);
-      display: flex; gap: 10px; align-items: center;
+      padding: 12px 16px 14px;
+      border-top: 1px solid #141418 !important;
+      background: #000000 !important;
+      display: flex; gap: 8px; align-items: center;
       flex-shrink: 0;
     }
     .vault-chat-drawer.fullscreen .vault-chat-input-area {
-      padding: 18px 28px 24px;
-      gap: 14px;
+      padding: 16px 28px 20px;
+      gap: 12px;
     }
     .vault-chat-input-wrapper {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
       flex: 1;
     }
     .vault-chat-attachment-btn {
-      width: 40px; height: 40px; flex-shrink: 0;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: rgba(255, 255, 255, 0.8); 
+      width: 36px; height: 36px; flex-shrink: 0;
+      border-radius: 8px;
+      background: #111114;
+      border: 1px solid #1c1c22;
+      color: rgba(255, 255, 255, 0.7); 
       cursor: pointer; 
-      font-size: 16px;
+      font-size: 14px;
       display: flex; align-items: center; justify-content: center;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
     }
     .vault-chat-attachment-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      border-color: rgba(255, 255, 255, 0.4);
+      background: #18181f;
+      border-color: #2e2e38;
       color: #ffffff;
-      transform: translateY(-2px);
     }
     .vault-chat-input {
       flex: 1;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 12px;
-      padding: 11px 18px;
-      color: #ffffff; font-size: 14px; font-family: inherit;
+      background: #0c0c10;
+      border: 1px solid #1c1c22;
+      border-radius: 8px;
+      padding: 9px 14px;
+      color: #ffffff; font-size: 13.5px; font-family: inherit;
       outline: none;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+      transition: border-color 0.15s ease, background 0.15s ease;
       line-height: 1.4;
     }
-    .vault-chat-input::placeholder { color: rgba(255, 255, 255, 0.35); }
+    .vault-chat-input::placeholder { color: rgba(255, 255, 255, 0.3); }
     .vault-chat-input:focus {
-      border-color: rgba(255, 255, 255, 0.4);
-      background: rgba(255, 255, 255, 0.08);
-      box-shadow: 0 0 15px rgba(255, 255, 255, 0.15);
+      border-color: #333340;
+      background: #101015;
     }
     .vault-chat-send-btn {
-      width: 44px; height: 44px; flex-shrink: 0;
-      border-radius: 12px;
+      width: 36px; height: 36px; flex-shrink: 0;
+      border-radius: 8px;
       background: #ffffff;
       border: none; color: #000000; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px;
-      box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25);
-      transition: all 0.2s ease;
-      font-weight: 800;
+      font-size: 14px;
+      box-shadow: none;
+      transition: all 0.15s ease;
+      font-weight: 700;
     }
     .vault-chat-send-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(255, 255, 255, 0.4);
-      background: #ffffff;
+      background: #e6e6e6;
     }
     .vault-chat-send-btn:active { 
       transform: translateY(0);
+    }
+
+    /* ── Members Panel ── */
+    .vault-chat-members-panel {
+      position: absolute;
+      top: 56px; left: 0; right: 0; bottom: 0;
+      background: #050507 !important;
+      border-top: 1px solid #141418;
+      z-index: 100;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transform: translateY(100%);
+      transition: transform 0.25s ease;
+    }
+    .vault-chat-members-panel.active {
+      transform: translateY(0);
+    }
+    .vault-chat-member-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #0d0d12;
+      border: 1px solid #1a1a22;
+    }
+    .vault-chat-member-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .vault-chat-member-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1.5px solid #818cf8;
+      background-size: cover;
+      background-position: center;
+    }
+    .vault-chat-member-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    /* ── Social Presence Badges ── */
+    .social-presence-badge {
+      position: absolute; top: 8px; right: 8px;
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 2px solid #10b981;
+      box-shadow: 0 0 10px rgba(16,185,129,0.6);
+      background-size: cover; background-position: center;
+      z-index: 10;
+      animation: pulse-glow 2s infinite alternate;
+    }
+    .social-presence-badge.watching {
+      border-color: #818cf8;
+      box-shadow: 0 0 12px rgba(129,140,248,0.8);
+    }
+    .ep-row-presence-container {
+      display: inline-flex; align-items: center; gap: 4px;
+      margin-left: auto; padding-right: 12px;
+    }
+    .ep-row-presence-avatar {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 1.5px solid #818cf8;
+      box-shadow: 0 0 6px rgba(129,140,248,0.4);
+      background-size: cover; background-position: center;
+      position: relative;
+    }
+    .ep-row-presence-avatar::after {
+      content: ''; position: absolute;
+      bottom: -1px; right: -1px;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #10b981; border: 1px solid #000;
+    }
+    @keyframes pulse-glow {
+      0% { transform: scale(1); box-shadow: 0 0 6px rgba(129,140,248,0.4); }
+      100% { transform: scale(1.06); box-shadow: 0 0 14px rgba(129,140,248,0.9); }
     }
 
     /* ── Social Presence Badges ── */
@@ -653,7 +717,12 @@
 
     sendBtn.onclick = () => sendChatMessage();
     inputField.onkeydown = (e) => {
-      if (e.key === 'Enter') sendChatMessage();
+      if (e.key === 'Enter') {
+        if (window.ChatSlashCommands && typeof window.ChatSlashCommands.isActive === 'function' && window.ChatSlashCommands.isActive()) {
+          return;
+        }
+        sendChatMessage();
+      }
     };
 
     // Detach Chat toggle
@@ -790,22 +859,74 @@
       }, 2500);
     };
 
-    // Initialize slash commands for media search
+    // Initialize slash commands for media / music search
     if (typeof initSlashCommands === 'function') {
       const searchMedia = async (query) => {
         try {
           console.log('[Chat] Searching for:', query);
+
+          // If current collection is a music playlist or in music view, search music catalog
+          const currentListId = activeListId || window._activeChatListId || window.activeCustomListId;
+          const activeList = window.currentProfile?.custom_lists?.find(l => String(l.id) === String(currentListId)) || (window._currentCustomList && String(window._currentCustomList.id) === String(currentListId) ? window._currentCustomList : null);
+          const isMusic = (activeList && activeList.type === 'music') || 
+                          (window.currentView === 'music') || 
+                          (window.currentView === 'custom-list-detail' && (document.querySelector('.music-playlist-active-wrapper, .spotify-playlist-container, .music-track-row') || activeList?.type === 'music')) ||
+                          (window.activeCustomList?.type === 'music');
+
+          if (isMusic) {
+            let mRes = null;
+            if (window.api && typeof window.api.searchMusic === 'function') {
+              mRes = await window.api.searchMusic(query);
+            } else if (window.api && typeof window.api.invoke === 'function') {
+              mRes = await window.api.invoke('music-search', query);
+            }
+            if (mRes && mRes.success && Array.isArray(mRes.results)) {
+              return mRes.results.slice(0, 10).map(item => ({
+                id: item.id,
+                title: item.title,
+                name: item.title,
+                type: 'music',
+                media_type: 'music',
+                mediaType: 'music',
+                artist: item.artist || '',
+                album: item.album || '',
+                poster: item.thumbnail,
+                poster_path: item.thumbnail,
+                posterUrl: item.thumbnail,
+                thumbnail: item.thumbnail,
+                duration: item.duration || 0,
+                durationFormatted: item.durationFormatted || '',
+                release_date: item.durationFormatted || ''
+              }));
+            }
+            return [];
+          }
+
           const res = await window.api.invoke('unified-search', query);
           console.log('[Chat] Search response:', res);
           
           let results = [];
           if (res && res.results && Array.isArray(res.results)) {
-            results = res.results.map(item => ({
+            const mapped = res.results.map(item => ({
               ...item,
               poster_path: item.poster || '',
               release_date: item.releaseYear ? `${item.releaseYear}-01-01` : '',
               posterUrl: item.poster || ''
-            })).slice(0, 8);
+            }));
+
+            // Separate movies and TV series
+            const movies = mapped.filter(item => item.type === 'movie');
+            const series = mapped.filter(item => item.type === 'tv' || item.type === 'series' || item.media_type === 'tv');
+            
+            // Interleave movies and series so both types appear in chat suggestions
+            const interleaved = [];
+            const maxLen = Math.max(movies.length, series.length);
+            for (let i = 0; i < maxLen; i++) {
+              if (i < movies.length) interleaved.push(movies[i]);
+              if (i < series.length) interleaved.push(series[i]);
+            }
+
+            results = interleaved.slice(0, 10);
           }
           
           console.log('[Chat] Returning results:', results);
@@ -824,10 +945,11 @@
         // Store the selected media globally for sending
         window._selectedMediaForChat = media;
         
+        const titleText = media.title || media.name || '';
         if (lastSlashIndex !== -1) {
-          inputField.value = text.substring(0, lastSlashIndex) + media.title;
+          inputField.value = text.substring(0, lastSlashIndex) + titleText;
         } else {
-          inputField.value = media.title;
+          inputField.value = titleText;
         }
         
         // Send the rich media message immediately
@@ -1035,6 +1157,7 @@
       activeChatChannel = null;
     }
     activeListId = listId;
+    window._activeChatListId = listId;
     unreadCount = 0;
     updateUnreadBadge();
 
@@ -1223,6 +1346,14 @@
           media: selectedMedia
         });
         if (!res.success) throw new Error(res.error || 'Failed to send media');
+        if (res.data) {
+          appendMessageToUI({
+            ...res.data,
+            profile_name: currentProfile.name || 'You',
+            profile_avatar: currentProfile.avatar || 'imgs/avatars/default.png',
+            avatar_border_color: currentProfile.avatar_border_color || 'rgba(129,140,248,0.6)'
+          });
+        }
       } else {
         // Send regular text message
         const res = await window.api.invoke('cloud-send-chat-message', {
@@ -1231,6 +1362,14 @@
           text: messageText
         });
         if (!res.success) throw new Error(res.error || 'Failed to send message');
+        if (res.data) {
+          appendMessageToUI({
+            ...res.data,
+            profile_name: currentProfile.name || 'You',
+            profile_avatar: currentProfile.avatar || 'imgs/avatars/default.png',
+            avatar_border_color: currentProfile.avatar_border_color || 'rgba(129,140,248,0.6)'
+          });
+        }
       }
     } catch (e) {
       console.error('[Chat] Failed to send message:', e);
@@ -1432,16 +1571,19 @@
         
         const shareMsg = {
           type: 'media_share',
-          mediaId: mediaData.mediaId,
-          title: mediaData.title,
-          posterUrl: mediaData.posterUrl,
-          mediaType: mediaData.mediaType
+          ...mediaData
         };
         
         if (window.ChatMediaRenderer && typeof window.ChatMediaRenderer.render === 'function') {
           const renderedEl = window.ChatMediaRenderer.render(shareMsg, (data) => {
+            if (data.mediaType === 'music' || data.type === 'music') {
+              if (window.MeemAudioPlayer) {
+                window.MeemAudioPlayer.playTrack(data);
+              }
+              return;
+            }
             const item = {
-              id: data.mediaId,
+              id: data.mediaId || data.id,
               title: data.title,
               type: data.mediaType === 'series' || data.mediaType === 'tv' ? 'series' : 'movie',
               poster: data.posterUrl,
@@ -1449,7 +1591,7 @@
               media_type: data.mediaType === 'series' || data.mediaType === 'tv' ? 'tv' : 'movie'
             };
             
-            const isOnline = data.mediaId && (data.mediaId.startsWith('tmdb:') || data.mediaId.startsWith('tt'));
+            const isOnline = item.id && (String(item.id).startsWith('tmdb:') || String(item.id).startsWith('tt'));
             
             if (isOnline && typeof window.renderUnifiedDetail === 'function') {
               window.renderUnifiedDetail(item);

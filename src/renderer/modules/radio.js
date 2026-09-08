@@ -221,12 +221,31 @@
       card.className = `radio-card ${isCurrentPlaying ? 'playing' : ''}`;
       card.dataset.stationId = station.id;
 
+      window._deadFaviconUrls = window._deadFaviconUrls || new Set([
+        'https://www.phantomsw.com/assets/img/apple-touch-icon.png',
+        'https://cdn.raddio.net/storage/photos/229793/dd4r5adb3503ef462370861608_100x100.webp',
+        'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRLDeG4UfceNKx39_KEr8RQhM3QX5kSdpK6zQ&usqp=CAU',
+        'https://www.radiosfax.tn/wp-content/themes/mycms.1.0.0/favicon.png',
+        'https://www.radiokef.tn/wp-content/themes/mycms.1.0.0/favicon.png'
+      ]);
+
       let faviconUrl = (station.favicon || '').trim();
       if (faviconUrl && faviconUrl !== 'null' && faviconUrl !== 'undefined') {
         if (faviconUrl.startsWith('//')) {
           faviconUrl = 'https:' + faviconUrl;
         } else if (!faviconUrl.startsWith('http://') && !faviconUrl.startsWith('https://') && !faviconUrl.startsWith('data:')) {
           faviconUrl = 'https://' + faviconUrl;
+        }
+        // Block known broken or unreachable domains
+        if (
+          window._deadFaviconUrls.has(faviconUrl) ||
+          faviconUrl.includes('phantomsw.com') ||
+          faviconUrl.includes('cdn.raddio.net') ||
+          faviconUrl.includes('radiosfax.tn') ||
+          faviconUrl.includes('radiokef.tn') ||
+          faviconUrl.includes('ANd9GcRLDeG4UfceNKx39_KEr8RQhM3QX5kSdpK6zQ')
+        ) {
+          faviconUrl = '';
         }
       } else {
         faviconUrl = '';
@@ -241,7 +260,7 @@
       card.innerHTML = `
         <div class="radio-card-top">
           <div class="radio-favicon-wrap">
-            ${faviconUrl ? `<img src="${escapeAttr(faviconUrl)}" class="radio-favicon-img" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';"><div class="radio-favicon-fallback" style="display:none;"><i class="fas fa-broadcast-tower"></i></div>` : `<div class="radio-favicon-fallback"><i class="fas fa-broadcast-tower"></i></div>`}
+            ${faviconUrl ? `<img src="${escapeAttr(faviconUrl)}" class="radio-favicon-img" loading="lazy" onerror="if(window._deadFaviconUrls) window._deadFaviconUrls.add(this.src); this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';"><div class="radio-favicon-fallback" style="display:none;"><i class="fas fa-broadcast-tower"></i></div>` : `<div class="radio-favicon-fallback"><i class="fas fa-broadcast-tower"></i></div>`}
           </div>
           <div class="radio-badges-col">
             <button class="radio-fav-btn ${isFav ? 'active' : ''}" type="button" title="${isFav ? 'Remove from My List' : 'Add to My List'}">
@@ -412,28 +431,40 @@
     }
   }
 
-  // Toggle play/pause state
-  function toggleRadioPlayback() {
-    if (!audioElement || !currentStation) return;
-    if (isPlaying) {
-      audioElement.pause();
-    } else {
-      audioElement.play().catch(e => {
+  let radioTogglePending = false;
+  async function toggleRadioPlayback() {
+    if (!audioElement || !currentStation || radioTogglePending) return;
+    radioTogglePending = true;
+    try {
+      if (isPlaying) {
+        audioElement.pause();
+      } else {
+        await audioElement.play();
+      }
+    } catch (e) {
+      if (e && e.name !== 'AbortError' && !e.message?.includes('interrupted')) {
         console.warn('[Radio View] Toggle play failed:', e);
-      });
+      }
+    } finally {
+      radioTogglePending = false;
     }
   }
 
   // Stop playback completely
   function stopRadioPlayback() {
     if (radioHlsInstance) {
-      try { radioHlsInstance.destroy(); } catch (e) {}
+      try {
+        radioHlsInstance.detachMedia();
+        radioHlsInstance.destroy();
+      } catch (e) {}
       radioHlsInstance = null;
     }
     if (audioElement) {
-      audioElement.pause();
-      audioElement.removeAttribute('src');
-      audioElement.load();
+      try {
+        audioElement.pause();
+        audioElement.src = '';
+        audioElement.removeAttribute('src');
+      } catch (e) {}
     }
     isPlaying = false;
     currentStation = null;
@@ -461,12 +492,17 @@
 
     if (titleEl) titleEl.textContent = currentStation.name || 'Radio Stream';
 
+    if (typeof window.updateBentoController === 'function' && currentStation) {
+      window.updateBentoController(currentStation.name, isPlaying);
+    }
+
     if (thumbEl) {
       let fav = (currentStation.favicon || '').trim();
-      if (fav && fav !== 'null' && fav !== 'undefined') {
+      const isDead = !fav || fav === 'null' || fav === 'undefined' || (window._deadFaviconUrls && window._deadFaviconUrls.has(fav)) || fav.includes('phantomsw.com') || fav.includes('cdn.raddio.net') || fav.includes('radiosfax.tn') || fav.includes('radiokef.tn') || fav.includes('ANd9GcRLDeG4UfceNKx39_KEr8RQhM3QX5kSdpK6zQ');
+      if (!isDead) {
         if (fav.startsWith('//')) fav = 'https:' + fav;
         else if (!fav.startsWith('http://') && !fav.startsWith('https://') && !fav.startsWith('data:')) fav = 'https://' + fav;
-        thumbEl.innerHTML = `<img src="${escapeAttr(fav)}" alt="station" onerror="this.outerHTML='<i class=\\'fas fa-broadcast-tower\\'></i>'">`;
+        thumbEl.innerHTML = `<img src="${escapeAttr(fav)}" alt="station" loading="lazy" onerror="if(window._deadFaviconUrls) window._deadFaviconUrls.add(this.src); this.outerHTML='<i class=\\'fas fa-broadcast-tower\\'></i>'">`;
       } else {
         thumbEl.innerHTML = `<i class="fas fa-broadcast-tower"></i>`;
       }

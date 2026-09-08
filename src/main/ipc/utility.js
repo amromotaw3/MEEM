@@ -104,6 +104,16 @@ function initUtilityIpc(ipcMain) {
       }
     });
   }
+
+  ipcMain.handle('show-native-notification', (_e, { title, body }) => {
+    try {
+      const { showToastNotification } = require('../windowManager');
+      showToastNotification(title, body);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  });
 }
 
 module.exports = { initUtilityIpc };

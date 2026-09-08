@@ -20,7 +20,7 @@ body.mv-chat-window #content {
   overflow: hidden !important;
   margin: 0 !important;
   padding: 0 !important;
-  background: #0d0d18 !important;
+  background: #000000 !important;
 }
 
 body.mv-chat-window .vault-chat-backdrop {
@@ -40,7 +40,7 @@ body.mv-chat-window .vault-chat-drawer {
   box-shadow: none !important;
   display: flex !important;
   flex-direction: column !important;
-  background: linear-gradient(135deg, #0d0d18 0%, #080810 100%) !important;
+  background: #000000 !important;
 }
 
 body.mv-chat-window .vault-chat-fullscreen-btn {

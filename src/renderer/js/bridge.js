@@ -175,7 +175,7 @@
         // 4. Fetch custom_lists and list_items
         const { data: listsData, error: clError } = await client
             .from('custom_lists')
-            .select('id, profile_id, list_name, theme_color, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id)')
+            .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
             .eq('profile_id', profileId);
         if (clError) {
             console.error('[Bridge] load custom lists error:', clError.message);
@@ -196,7 +196,7 @@
                     const sharedListIds = memberRefs.map(m => m.list_id);
                     const { data: fetchedShared, error: sharedError } = await client
                         .from('custom_lists')
-                        .select('id, profile_id, list_name, theme_color, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id)')
+                        .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
                         .in('id', sharedListIds);
                     if (!sharedError && fetchedShared) {
                         sharedLists = fetchedShared;
@@ -235,22 +235,42 @@
             id: row.id,
             profile_id: row.profile_id,
             name: row.list_name,
+            type: row.type || 'media',
             theme_color: row.theme_color || '#6366f1',
-            items: (row.list_items || []).map(item => ({
-                id: item.media_id,
-                title: item.title || '',
-                type: item.type || '',
-                media_type: item.type || '',
-                poster: item.poster_path || '',
-                backdrop: item.backdrop_path || '',
-                release_date: item.release_date || '',
-                vote_average: item.vote_average ? Number(item.vote_average) : 0,
-                overview: item.overview || '',
-                source: item.source || null,
-                mal_id: item.mal_id || null,
-                malId: item.mal_id || null,
-                anime_id: item.anime_id || null
-            }))
+            items: (row.list_items || []).map(item => {
+                const itemData = item.item_data || {};
+                const isMusic = (item.type === 'music') || (row.type === 'music') || !!itemData.artist || (item.source === 'music');
+                if (isMusic) {
+                    return {
+                        id: item.media_id || item.id,
+                        type: 'music',
+                        title: item.title || itemData.title || '',
+                        artist: itemData.artist || item.overview || '',
+                        album: itemData.album || '',
+                        thumbnail: item.poster_path || itemData.thumbnail || item.backdrop_path || '',
+                        poster: item.poster_path || itemData.thumbnail || '',
+                        duration: itemData.duration || 0,
+                        durationFormatted: itemData.durationFormatted || item.release_date || '0:00',
+                        added_at: item.added_at || itemData.added_at || new Date().toISOString(),
+                        added_by: itemData.added_by || null
+                    };
+                }
+                return {
+                    id: item.media_id,
+                    title: item.title || '',
+                    type: item.type || '',
+                    media_type: item.type || '',
+                    poster: item.poster_path || '',
+                    backdrop: item.backdrop_path || '',
+                    release_date: item.release_date || '',
+                    vote_average: item.vote_average ? Number(item.vote_average) : 0,
+                    overview: item.overview || '',
+                    source: item.source || null,
+                    mal_id: item.mal_id || null,
+                    malId: item.mal_id || null,
+                    anime_id: item.anime_id || null
+                };
+            })
         }));
 
         return { watchlist, playback, lockedItems, custom_lists };
@@ -1262,6 +1282,7 @@
                                             const upsertData = {
                                                 profile_id: profile.id,
                                                 list_name: localList.name,
+                                                type: localList.type || 'media',
                                                 theme_color: localList.theme_color || '#6366f1'
                                             };
                                             const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(localList.id);
@@ -1319,20 +1340,37 @@
                                         }
 
                                         if (localItems.length > 0) {
-                                            const itemRows = localItems.map(item => ({
-                                                list_id: listId,
-                                                media_id: String(item.id || item),
-                                                type: item.type || item.media_type || '',
-                                                title: item.title || item.name || '',
-                                                poster_path: item.poster || item.poster_path || '',
-                                                backdrop_path: item.backdrop || item.backdrop_path || '',
-                                                release_date: item.release_date || '',
-                                                vote_average: item.vote_average ? Number(item.vote_average) : 0,
-                                                overview: item.overview || '',
-                                                source: item.source || null,
-                                                mal_id: item.mal_id ? String(item.mal_id) : (item.malId ? String(item.malId) : null),
-                                                anime_id: item.anime_id ? String(item.anime_id) : null
-                                            }));
+                                            const itemRows = localItems.map(item => {
+                                                const isMusicItem = (item.type === 'music') || (localList.type === 'music') || !!item.artist;
+                                                const itemData = isMusicItem ? {
+                                                    id: String(item.id || item),
+                                                    title: item.title || item.name || '',
+                                                    artist: item.artist || '',
+                                                    album: item.album || '',
+                                                    thumbnail: item.thumbnail || item.poster || item.poster_path || '',
+                                                    duration: item.duration || 0,
+                                                    durationFormatted: item.durationFormatted || '',
+                                                    added_at: item.added_at || new Date().toISOString(),
+                                                    added_by: item.added_by || null,
+                                                    type: 'music'
+                                                } : (item.item_data || null);
+
+                                                return {
+                                                    list_id: listId,
+                                                    media_id: String(item.id || item),
+                                                    type: isMusicItem ? 'music' : (item.type || item.media_type || ''),
+                                                    title: item.title || item.name || '',
+                                                    poster_path: item.poster || item.poster_path || item.thumbnail || '',
+                                                    backdrop_path: item.backdrop || item.backdrop_path || item.thumbnail || '',
+                                                    release_date: item.release_date || (isMusicItem ? (item.durationFormatted || '') : ''),
+                                                    vote_average: item.vote_average ? Number(item.vote_average) : 0,
+                                                    overview: item.overview || (isMusicItem ? (item.artist || '') : ''),
+                                                    source: item.source || (isMusicItem ? 'music' : null),
+                                                    mal_id: item.mal_id ? String(item.mal_id) : (item.malId ? String(item.malId) : null),
+                                                    anime_id: item.anime_id ? String(item.anime_id) : null,
+                                                    item_data: itemData
+                                                };
+                                            });
                                             const { error: upsertItemsError } = await client
                                                 .from('list_items')
                                                 .upsert(itemRows, { onConflict: 'list_id,media_id' });
@@ -1616,73 +1654,6 @@
             } catch (err) {
                 console.error('[Bridge] cloudVerifyOtp error:', err.message);
                 return { error: err.message || 'OTP verification failed' };
-            }
-        },
-
-        claimQrSession: async (ticketId, shortCode) => {
-            const hwId = await getHardwareId();
-            try {
-                const rpcRes = unwrapRpcRow(await supabaseRpc('claim_qr_session', {
-                    p_ticket_id: ticketId || null,
-                    p_short_code: shortCode || null,
-                    p_hardware_id: hwId
-                }));
-
-                if (!rpcRes || rpcRes.error) {
-                    return { error: rpcRes?.message || rpcRes?.error || 'Failed to claim QR code session' };
-                }
-
-                const refreshToken = rpcRes.refresh_token;
-                if (!refreshToken) {
-                    return { error: 'No refresh token received from QR claim' };
-                }
-
-                const client = getSupabaseClient();
-                const { data: sessionData, error: refreshError } = await client.auth.refreshSession({
-                    refresh_token: refreshToken
-                });
-
-                if (refreshError) throw refreshError;
-
-                const session = sessionData.session;
-                const user = sessionData.user || rpcRes.user;
-
-                const result = {
-                    success: true,
-                    user: user,
-                    profiles: rpcRes.profiles || [],
-                    session: session
-                };
-
-                cloudSession = {
-                    user: result.user,
-                    profiles: result.profiles || [],
-                    activeProfileId: result.profiles?.[0]?.id || null,
-                    authenticated: true,
-                    hardwareId: hwId
-                };
-                window.cloudSession = cloudSession;
-
-                const toSave = {
-                    authenticated: true,
-                    user: result.user,
-                    profiles: result.profiles || [],
-                    activeProfileId: result.profiles?.[0]?.id || null,
-                    hardwareId: hwId
-                };
-                await storageSet(STORAGE_KEY, JSON.stringify(toSave));
-
-                if (session) {
-                    await storageSet('mediavault_supabase_session', JSON.stringify({
-                        access_token: session.access_token,
-                        refresh_token: session.refresh_token
-                    }));
-                }
-
-                return result;
-            } catch (e) {
-                console.error('[Bridge] claimQrSession error:', e);
-                return { error: e.message || 'Failed to confirm QR code' };
             }
         },
 
@@ -2730,17 +2701,6 @@
             if (channel === 'cloud-login') return window.api.cloudLogin(args[0]?.email, args[0]?.password);
             if (channel === 'cloud-register') return window.api.cloudRegister(args[0]?.email, args[0]?.password, args[0]?.username);
             if (channel === 'cloud-verify-otp') return window.api.cloudVerifyOtp(args[0]?.email, args[0]?.token);
-            if (channel === 'claim-qr-session') return window.api.claimQrSession(args[0]?.ticketId, args[0]?.shortCode);
-            if (channel === 'cloud-create-qr-session') {
-                const sessionRaw = await storageGet('mediavault_supabase_session');
-                const session = sessionRaw ? JSON.parse(sessionRaw) : null;
-                const refreshToken = session?.refresh_token;
-                if (!refreshToken) return { error: 'No active session found to generate QR code' };
-                return unwrapRpcRow(await supabaseRpc('create_qr_session', { p_refresh_token: refreshToken }));
-            }
-            if (channel === 'cloud-check-qr-status') {
-                return unwrapRpcRow(await supabaseRpc('check_qr_session_status', { p_ticket_id: args[0]?.ticketId }));
-            }
             if (channel === 'cloud-sync-user-session') return window.api.cloudSyncUserSession(args[0]?.userId, args[0]?.email, args[0]?.username, args[0]?.session);
             if (channel === 'clear-session') {
                 // Log out across ALL storage layers (memory + localStorage + Preferences),

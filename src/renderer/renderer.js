@@ -104,7 +104,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Helper: Convert a local file path to a protocol URL that works with webSecurity=true
   // Returns the original value if it's already a URL (http/https/data:)
-  const APP_VERSION = '29.4.7'; // Sync with package.json
+  const APP_VERSION = '3.9.1'; // Sync with package.json
   function getSafeId(itemId) {
     try {
       const utf8Bytes = new TextEncoder().encode(String(itemId));
@@ -127,22 +127,29 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       return 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg==';
     }
 
+    let cleanP = p.trim();
+    if (cleanP.startsWith('//')) {
+      cleanP = 'https:' + cleanP;
+    } else if (cleanP.startsWith('www.')) {
+      cleanP = 'https://' + cleanP;
+    }
+
 
     // Check localStorage cache for remote banners/images
-    if (p.startsWith('http')) {
-      const cached = localStorage.getItem('cache_banner_' + p);
+    if (cleanP.startsWith('http')) {
+      const cached = localStorage.getItem('cache_banner_' + cleanP);
       if (cached) {
         return cached;
       }
       // Trigger background cache download if running in Electron
       if (window.api && window.api.downloadImage) {
-        const cacheKey = 'cache_banner_' + p;
+        const cacheKey = 'cache_banner_' + cleanP;
         if (!window._downloadingBanners) window._downloadingBanners = new Set();
-        if (!window._downloadingBanners.has(p)) {
-          window._downloadingBanners.add(p);
-          const safeId = getSafeId(p);
-          window.api.downloadImage(p, safeId).then(localPath => {
-            window._downloadingBanners.delete(p);
+        if (!window._downloadingBanners.has(cleanP)) {
+          window._downloadingBanners.add(cleanP);
+          const safeId = getSafeId(cleanP);
+          window.api.downloadImage(cleanP, safeId).then(localPath => {
+            window._downloadingBanners.delete(cleanP);
             if (localPath) {
               let safePath = localPath.replace(/\\/g, "/");
               let localUrl;
@@ -165,7 +172,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               const activeView = $('#view-account');
               if (activeView && activeView.style.display !== 'none') {
                 const bannerContainer = activeView.querySelector('#account-banner-container');
-                if (bannerContainer && bannerContainer.style.backgroundImage.includes(p)) {
+                if (bannerContainer && bannerContainer.style.backgroundImage.includes(cleanP)) {
                   bannerContainer.style.backgroundImage = `url('${localUrl}')`;
                 }
               }
@@ -175,15 +182,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               }
             }
           }).catch(err => {
-            window._downloadingBanners.delete(p);
+            window._downloadingBanners.delete(cleanP);
             console.warn('[CACHE] Failed to cache banner:', err);
           });
         }
       }
-      return p;
+      return cleanP;
     }
 
-    let finalUrl = p;
+    let finalUrl = cleanP;
     if (p.includes('.metahub.space')) {
       return p.replace(/(live|episodes)\.metahub\.space/gi, 'images.metahub.space');
     }
@@ -542,12 +549,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   }
 
   function isAgeAllowed(item) {
-    if (!item) return true;
-    const maxAge = currentProfile && typeof currentProfile.max_age_rating !== 'undefined'
-      ? parseInt(currentProfile.max_age_rating, 10)
-      : 18;
-    const itemAge = getItemAgeRating(item);
-    return itemAge <= maxAge;
+    return true;
   }
 
   function getTraktOrImdbPoster(item, imgElement, cardElement = null) {
@@ -575,32 +577,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const canFetchRemote = hasMetadataAddon || hasTmdbKey;
     // ─────────────────────────────────────────────────────────────────────────
 
-    const maxAge = currentProfile && typeof currentProfile.max_age_rating !== 'undefined'
-      ? parseInt(currentProfile.max_age_rating, 10)
-      : 18;
-
-    const checkAgeAndHide = (certVal) => {
-      if (certVal) {
-        const itemAge = certificationToAge(certVal);
-        if (itemAge > maxAge) {
-          if (cardElement) {
-            cardElement.style.display = 'none';
-            console.log(`[Age Filtering] Hiding restricted card for "${item.title || id}" (Age: ${itemAge} > Max: ${maxAge})`);
-            // Check if card is child of a grid or row to handle empty states
-            const parent = cardElement.parentElement;
-            if (parent) {
-              const visibleCards = Array.from(parent.children).filter(c => c.style.display !== 'none');
-              if (visibleCards.length === 0) {
-                const emptyEl = parent.parentElement?.querySelector('.empty-state') || parent.querySelector('.empty-state');
-                if (emptyEl) emptyEl.style.display = 'flex';
-              }
-            }
-          }
-          return true;
-        }
-      }
-      return false;
-    };
+    const checkAgeAndHide = (certVal) => false;
 
     // Check direct property or cached metadata immediately
     const directCert = item.certification || item.contentRating || item.content_rating;
@@ -1415,6 +1392,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
 
   function initSidebarHoverTrigger() {
+    const isMobileClientCheck = !!(window.Capacitor || (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile()) || /android|iphone|ipad|ipod/i.test(navigator.userAgent || ''));
+    if (isMobileClientCheck) return; // Never bind mouseenter hover triggers on mobile touch screens
+
     const wrapper = document.querySelector('.sidebar-wrapper');
     const sidebarNav = $('#sidebar');
     if (wrapper && sidebarNav) {
@@ -1960,7 +1940,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   window.positionContextMenu = function(e) {
     const cm = $('#context-menu');
     if (!cm) return;
-    cm.style.display = 'block';
+    cm.style.display = 'flex';
     const menuWidth = cm.offsetWidth || 200;
     const menuHeight = cm.offsetHeight || 300;
     let left = e.clientX;
@@ -1984,6 +1964,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Capture phase listener to reliably dismiss context menu on any pointer click outside
   window.addEventListener('pointerdown', e => {
+    const cm = $('#context-menu');
+    if (cm && cm.style.display !== 'none' && !cm.contains(e.target)) {
+      cm.style.display = 'none';
+    }
+  }, true);
+
+  window.addEventListener('touchstart', e => {
     const cm = $('#context-menu');
     if (cm && cm.style.display !== 'none' && !cm.contains(e.target)) {
       cm.style.display = 'none';
@@ -2156,33 +2143,42 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       xBtn.onclick = (e) => { e.stopPropagation(); _advanceQueue(); };
     }
 
-    // Determine Type & Icon
-    let icon = 'fa-info-circle';
+    // Determine Type & Icon & Theme Class
+    let icon = 'fa-circle-info';
     let label = 'Notification';
+    let typeClass = 'toast-info';
 
-    if (msg.includes('✓') || msg.includes('Success') || msg.includes('Complete') || msg.includes('Done')) {
-      icon = 'fa-check-circle';
+    if (msg.includes('✓') || msg.includes('Success') || msg.includes('Complete') || msg.includes('Done') || msg.includes('saved') || msg.includes('copied')) {
+      icon = 'fa-circle-check';
       label = 'Success';
-    } else if (msg.includes('Error') || msg.includes('Failed') || msg.includes('❌') || msg.includes('Incorrect')) {
-      icon = 'fa-exclamation-circle';
+      typeClass = 'toast-success';
+    } else if (msg.includes('Error') || msg.includes('Failed') || msg.includes('❌') || msg.includes('Incorrect') || msg.includes('failed')) {
+      icon = 'fa-circle-xmark';
       label = 'Error';
-    } else if (msg.includes('⚠️') || msg.includes('Note') || msg.includes('Warning')) {
+      typeClass = 'toast-error';
+    } else if (msg.includes('⚠️') || msg.includes('Note') || msg.includes('Warning') || msg.includes('restricted')) {
       icon = 'fa-triangle-exclamation';
       label = 'Warning';
+      typeClass = 'toast-warning';
     } else if (msg.includes('الترفيه متعة')) {
       icon = 'fa-heart-pulse';
       label = 'MEEM';
+      typeClass = 'toast-info';
     }
+
+    // Reset and apply morphing theme classes
+    toast.classList.remove('toast-success', 'toast-error', 'toast-warning', 'toast-info', 'gooey-morph-bounce');
+    toast.classList.add(typeClass);
 
     if (title) title.textContent = label;
     if (iconContainer) iconContainer.innerHTML = `<i class="fa-solid ${icon}"></i>`;
     const cleanedMsg = msg.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200d✅❌⚠️✓]/gu, '').trim();
     desc.textContent = cleanedMsg;
 
-    // NOTE: Toasts are NOT logged to the Notification Center to avoid spam.
-    // Only meaningful events (invitations, friend messages, downloads) add notifications.
-
-    toast.classList.add('active');
+    // Trigger Gooey Spring Bounce
+    requestAnimationFrame(() => {
+      toast.classList.add('active', 'gooey-morph-bounce');
+    });
 
     if (duration > 0) {
       setTimeout(_advanceQueue, duration);
@@ -2190,9 +2186,46 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     // If duration <= 0, toast stays until user manually closes it
   }
 
-  window.showToast = function (msg, duration = 3200) {
+  const _recentToastsMap = new Map();
+
+  window.showToast = function (msg, duration) {
     if (isNativePlayerWindow()) return;
-    _toastQueue.push({ msg, duration });
+    if (!msg || typeof msg !== 'string') return;
+
+    // Suppress useless / spammy background notifications
+    const suppressedPatterns = [
+      /library ready/i,
+      /refreshing library/i,
+      /searching for local files/i,
+      /welcome back/i,
+      /sync complete/i,
+      /syncing/i,
+      /data may not be saved/i,
+      /drag in any direction/i,
+      /library refresh complete/i
+    ];
+    if (suppressedPatterns.some(pat => pat.test(msg))) {
+      console.log('[Toast Suppressed]:', msg);
+      return;
+    }
+
+    // Deduplicate identical toasts within 5 seconds
+    const now = Date.now();
+    const lastTime = _recentToastsMap.get(msg) || 0;
+    if (now - lastTime < 5000) {
+      return;
+    }
+    _recentToastsMap.set(msg, now);
+
+    const isMobileClientCheck = !!(window.Capacitor || (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile()) || /android|iphone|ipad|ipod/i.test(navigator.userAgent || ''));
+    const actualDuration = duration !== undefined ? duration : (isMobileClientCheck ? 2200 : 2800);
+
+    // Limit queue size so notifications don't pile up endlessly
+    if (_toastQueue.length >= 2) {
+      _toastQueue.shift();
+    }
+
+    _toastQueue.push({ msg, duration: actualDuration });
     _processToastQueue();
   };
 
@@ -2340,15 +2373,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     window.isTransitioningAway = false;
   }
 
-  function applyProfilePickerBackdrop(url) {
+  function applyProfilePickerBackdrop(url, customPos) {
     const picker = $('#profile-picker');
     if (!picker) return;
     if (url) {
+      const activeProf = (appData.profiles && appData.activeProfileId) ? appData.profiles.find(p => p.id === appData.activeProfileId) : (appData.profiles ? appData.profiles[0] : null);
+      const pos = customPos || (activeProf && activeProf.bannerPosition) || appData.profileBannerPosition || 'center top';
       const imgUrl = localImg(url);
       const bg = `linear-gradient(to bottom, rgba(5,5,8,0.35) 0%, rgba(5,5,8,0.75) 60%, rgba(5,5,8,0.97) 100%), url('${imgUrl}')`;
       picker.style.setProperty('background-image', bg, 'important');
       picker.style.setProperty('background-size', 'cover', 'important');
-      picker.style.setProperty('background-position', 'center top', 'important');
+      picker.style.setProperty('background-position', pos, 'important');
       picker.style.setProperty('background-repeat', 'no-repeat', 'important');
       picker.style.setProperty('background-color', '#050508', 'important');
     } else {
@@ -2442,9 +2477,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             if (pbData) {
               currentProfile.playback = currentProfile.playback || {};
               for (const k in pbData) {
+                const local = currentProfile.playback[k] || {};
+                const cloud = pbData[k] || {};
+                const time = Math.max(local.time || 0, cloud.time || 0);
+                const duration = Math.max(local.duration || 0, cloud.duration || 0);
+                const lastWatched = Math.max(local.lastWatched || 0, cloud.lastWatched || 0);
                 currentProfile.playback[k] = {
-                  ...currentProfile.playback[k],
-                  ...pbData[k]
+                  ...local,
+                  ...cloud,
+                  time,
+                  duration,
+                  lastWatched,
+                  meta: {
+                    ...(local.meta || {}),
+                    ...(cloud.meta || {})
+                  }
                 };
               }
             }
@@ -2496,6 +2543,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         if (currentView !== 'player') {
           switchView('discover');
           renderContinueWatchingDiscover();
+          renderBentoWatchlist();
         }
 
         // Hide splash screen now that everything is rendered and loaded
@@ -2504,6 +2552,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         initStremioAddonsUI();
         if (typeof initGlobalNotifications === 'function') {
           initGlobalNotifications();
+        }
+        if (typeof window.checkFollowedAnimeEpisodes === 'function') {
+          setTimeout(window.checkFollowedAnimeEpisodes, 2500);
         }
         if (typeof initSubdlUI === 'function') {
           initSubdlUI();
@@ -2633,6 +2684,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     });
   }
   function openProfileModal(id = null) {
+    // VIP gate: more than 1 profile requires active subscription
+    if (!id && appData.profiles && appData.profiles.length >= 1) {
+      if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+        showToast('👑 Creating multiple profiles is available exclusively for MEEM VIP members!');
+        if (typeof window.openSubscriptionModal === 'function') window.openSubscriptionModal('Multiple Profiles');
+        return;
+      }
+    }
     editingProfileId = id;
     const profile = id ? appData.profiles.find(p => p.id === id) : null;
 
@@ -4000,11 +4059,167 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   }
 
+  const floatTriggerBtn = $('#btn-float-trigger');
+  const floatContainer = $('#edit-profiles-container');
+  if (floatTriggerBtn && floatContainer) {
+    floatTriggerBtn.onclick = (e) => {
+      e.stopPropagation();
+      floatContainer.classList.toggle('open');
+    };
+    document.addEventListener('click', (e) => {
+      if (floatContainer && !floatContainer.contains(e.target)) {
+        floatContainer.classList.remove('open');
+      }
+    });
+  }
+
   const globalBannerBtn = $('#btn-fav-banner');
   if (globalBannerBtn) {
     const canBanner = window.AppCapabilities ? window.AppCapabilities.can('banner-search') : true;
     globalBannerBtn.style.display = canBanner ? 'flex' : 'none';
     globalBannerBtn.onclick = () => openFavoritesAvatarModal('banner');
+  }
+
+  const adjustBannerBtn = $('#btn-adjust-banner-pos');
+  if (adjustBannerBtn) {
+    adjustBannerBtn.onclick = (e) => {
+      e.stopPropagation();
+      window.isAdjustingBannerPos = !window.isAdjustingBannerPos;
+      
+      const label = adjustBannerBtn.querySelector('.btn-label');
+      const icon = adjustBannerBtn.querySelector('i');
+      
+      if (window.isAdjustingBannerPos) {
+        // Active Drag Mode ON
+        adjustBannerBtn.classList.add('editing-active');
+        if (label) label.textContent = 'Save Position';
+        if (icon) icon.className = 'fas fa-check';
+        if (typeof window.showToast === 'function') {
+          window.showToast('📱 Drag in any direction (up/down/left/right) to adjust banner', 3000);
+        }
+      } else {
+        // Save & Exit Active Mode
+        adjustBannerBtn.classList.remove('editing-active');
+        if (label) label.textContent = 'Banner Position';
+        if (icon) icon.className = 'fas fa-arrows-alt';
+        
+        const picker = $('#profile-picker');
+        if (picker) {
+          const stylePos = picker.style.getPropertyValue('background-position');
+          if (stylePos) {
+            const activeProf = (appData.profiles && appData.activeProfileId) ? appData.profiles.find(p => p.id === appData.activeProfileId) : (appData.profiles ? appData.profiles[0] : null);
+            if (activeProf) activeProf.bannerPosition = stylePos;
+            appData.profileBannerPosition = stylePos;
+            persist();
+          }
+        }
+        if (typeof window.showToast === 'function') {
+          window.showToast('✅ Banner position saved!', 2000);
+        }
+      }
+    };
+  }
+
+  // Interactive 2D Dragging on Profile Picker Background (Touch & Mouse - X% & Y%)
+  let touchStartBannerX = 0;
+  let touchStartBannerY = 0;
+  let isDraggingBannerPos = false;
+  let initialBannerPosX = 50;
+  let initialBannerPosY = 0;
+  const pickerContainer = $('#profile-picker');
+
+  if (pickerContainer) {
+    const parsePos = (posStr) => {
+      let x = 50, y = 0;
+      if (!posStr) return { x, y };
+      const matches = posStr.match(/(\d+)%\s+(\d+)%/);
+      if (matches) {
+        x = parseInt(matches[1]);
+        y = parseInt(matches[2]);
+      } else {
+        if (posStr.includes('left')) x = 0;
+        else if (posStr.includes('right')) x = 100;
+        else x = 50;
+
+        if (posStr.includes('top')) y = 0;
+        else if (posStr.includes('bottom')) y = 100;
+        else y = 50;
+      }
+      return { x, y };
+    };
+
+    const handleDragStart = (clientX, clientY) => {
+      if (window.isAdjustingBannerPos || window.isEditingProfiles) {
+        touchStartBannerX = clientX;
+        touchStartBannerY = clientY;
+        isDraggingBannerPos = true;
+        const picker = $('#profile-picker');
+        const currentPos = (picker && picker.style.getPropertyValue('background-position')) || '50% 0%';
+        const parsed = parsePos(currentPos);
+        initialBannerPosX = parsed.x;
+        initialBannerPosY = parsed.y;
+      }
+    };
+
+    const handleDragMove = (clientX, clientY) => {
+      if (!isDraggingBannerPos) return;
+      const deltaX = clientX - touchStartBannerX;
+      const deltaY = clientY - touchStartBannerY;
+      
+      const percentDeltaX = Math.round((deltaX / window.innerWidth) * 100);
+      const percentDeltaY = Math.round((deltaY / window.innerHeight) * 100);
+      
+      let newPercentX = Math.max(0, Math.min(100, initialBannerPosX - percentDeltaX));
+      let newPercentY = Math.max(0, Math.min(100, initialBannerPosY - percentDeltaY));
+      
+      const newPos = `${newPercentX}% ${newPercentY}%`;
+      
+      const activeProf = (appData.profiles && appData.activeProfileId) ? appData.profiles.find(p => p.id === appData.activeProfileId) : (appData.profiles ? appData.profiles[0] : null);
+      const currentBanner = (activeProf && activeProf.banner) || appData.globalBanner || null;
+      if (typeof window.applyProfilePickerBackdrop === 'function') {
+        window.applyProfilePickerBackdrop(currentBanner, newPos);
+      } else if (typeof applyProfilePickerBackdrop === 'function') {
+        applyProfilePickerBackdrop(currentBanner, newPos);
+      }
+    };
+
+    const handleDragEnd = () => {
+      if (isDraggingBannerPos) {
+        isDraggingBannerPos = false;
+        const picker = $('#profile-picker');
+        if (picker) {
+          const stylePos = picker.style.getPropertyValue('background-position');
+          if (stylePos) {
+            const activeProf = (appData.profiles && appData.activeProfileId) ? appData.profiles.find(p => p.id === appData.activeProfileId) : (appData.profiles ? appData.profiles[0] : null);
+            if (activeProf) activeProf.bannerPosition = stylePos;
+            appData.profileBannerPosition = stylePos;
+            persist();
+          }
+        }
+      }
+    };
+
+    // Touch events
+    pickerContainer.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    pickerContainer.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && isDraggingBannerPos) handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    pickerContainer.addEventListener('touchend', handleDragEnd);
+
+    // Mouse drag support for desktop preview
+    pickerContainer.addEventListener('mousedown', (e) => {
+      if (window.isAdjustingBannerPos) handleDragStart(e.clientX, e.clientY);
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (isDraggingBannerPos) handleDragMove(e.clientX, e.clientY);
+    });
+
+    window.addEventListener('mouseup', handleDragEnd);
   }
   const btnToggleEdit = $('#btn-toggle-edit-profiles');
   if (btnToggleEdit) {
@@ -4084,8 +4299,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
     try {
-      const maxAgeRating = parseInt($('#profile-age-input')?.value || '18', 10);
-
       if (editingProfileId) {
         const profile = appData.profiles.find(p => p.id === editingProfileId);
         if (profile) {
@@ -4096,7 +4309,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           }
           profile.name = name;
           profile.avatar = selectedAvatar;
-          profile.max_age_rating = maxAgeRating;
           if (!profile.banner && appData.globalBanner) profile.banner = appData.globalBanner;
           if (profile.id === appData.activeProfileId) {
             currentProfile = profile;
@@ -4109,7 +4321,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           id: newId,
           name: name,
           avatar: selectedAvatar,
-          max_age_rating: maxAgeRating,
           banner: appData.globalBanner || null,
           playback: {},
           watchlist: [],
@@ -4177,6 +4388,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     sync: $('#view-sync'),
     radio: $('#view-radio'),
     addons: $('#view-addons'),
+    'anime-schedule': $('#view-anime-schedule'),
     'custom-list-detail': $('#view-custom-list-detail'),
     iptv: $('#view-iptv')
   };
@@ -4277,15 +4489,97 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     };
   }
 
-  $$('.nav-btn[data-view]').forEach(btn => {
-    btn.onclick = () => switchView(btn.dataset.view);
+  // Mobile Sidebar Drawer logic
+  function toggleMobileDrawer(open) {
+    const wrapper = $('.sidebar-wrapper');
+    const sidebar = $('#sidebar');
+    const backdrop = $('#mobile-drawer-backdrop');
+    if (!wrapper) return;
+    
+    let bd = backdrop;
+    if (!bd) {
+      bd = document.createElement('div');
+      bd.id = 'mobile-drawer-backdrop';
+      bd.style.cssText = 'position:fixed; inset:0; background:rgba(5,5,8,0.78); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); z-index:999999; opacity:0; visibility:hidden; transition:opacity 0.28s cubic-bezier(0.16,1,0.3,1), visibility 0.28s cubic-bezier(0.16,1,0.3,1); pointer-events:none;';
+      wrapper.parentNode.appendChild(bd);
+      bd.onclick = () => toggleMobileDrawer(false);
+    }
+    
+    const targetState = open !== undefined ? open : !wrapper.classList.contains('drawer-open');
+    if (targetState) {
+      wrapper.classList.add('drawer-open');
+      if (sidebar) sidebar.classList.add('drawer-open');
+      document.body.classList.add('mobile-drawer-active');
+      document.body.style.overflow = 'hidden';
+      bd.classList.add('active');
+      bd.style.pointerEvents = 'auto';
+      bd.style.opacity = '1';
+      bd.style.visibility = 'visible';
+    } else {
+      wrapper.classList.remove('drawer-open');
+      if (sidebar) sidebar.classList.remove('drawer-open');
+      document.body.classList.remove('mobile-drawer-active');
+      document.body.style.overflow = '';
+      bd.classList.remove('active');
+      bd.style.pointerEvents = 'none';
+      bd.style.opacity = '0';
+      bd.style.visibility = 'hidden';
+    }
+  }
+  window.toggleMobileDrawer = toggleMobileDrawer;
+
+  // Delegated click listener for mobile drawer and elements
+  document.addEventListener('click', (e) => {
+    // Mobile Drawer Close button
+    const closeBtn = e.target.closest('#mobile-drawer-close-btn, .drawer-close-btn');
+    if (closeBtn) {
+      e.stopPropagation();
+      console.log('[Mobile Drawer] Close button clicked');
+      toggleMobileDrawer(false);
+      return;
+    }
+
+    // Hamburger button click
+    const ham = e.target.closest('#mobile-hamburger-btn, .mobile-hamburger-nav-btn');
+    if (ham) {
+      e.stopPropagation();
+      console.log('[Mobile Drawer] Hamburger menu clicked');
+      toggleMobileDrawer(true);
+      return;
+    }
+
+    // Sidebar navigation buttons
+    const navBtn = e.target.closest('#sidebar .nav-btn[data-view]');
+    if (navBtn) {
+      const view = navBtn.dataset.view;
+      console.log('[Mobile Drawer] Sidebar nav-btn clicked:', view);
+      switchView(view);
+      toggleMobileDrawer(false);
+      return;
+    }
+
+    // Flyout submenu items (e.g. IPTV, Radio)
+    const flyoutItem = e.target.closest('#sidebar .flyout-item');
+    if (flyoutItem) {
+      toggleMobileDrawer(false);
+      return;
+    }
+
+    // Backdrop click
+    const backdrop = e.target.closest('#mobile-drawer-backdrop');
+    if (backdrop) {
+      console.log('[Mobile Drawer] Backdrop clicked, closing');
+      toggleMobileDrawer(false);
+      return;
+    }
   });
 
-  // Floating Search Button Handler
-  const floatingSearchBtn = $('#floating-search-btn');
-  if (floatingSearchBtn) {
-    floatingSearchBtn.onclick = () => switchView('search');
-  }
+  // Close drawer on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('mobile-drawer-active')) {
+      toggleMobileDrawer(false);
+    }
+  });
 
   // Profiles dropdown: render and handlers
   function toggleProfilesDropdown() {
@@ -4679,141 +4973,65 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   let addonsActiveTab = 'store'; // 'store' or 'installed'
 
   const resolveAddonLogo = (addon) => {
-    const isDeadDomain = (url) => {
-      if (!url || typeof url !== 'string') return true;
-      const dead = ['knightcrawler.elfhosted.com', 'subdl.strem.fun', 'mediafusion.elfhosted.com', 'cyberflix.elfhosted.com', 'anime-kitsu.strem.fun'];
-      return dead.some(d => url.includes(d));
-    };
-
-    if (addon.icon && typeof addon.icon === 'string' && !isDeadDomain(addon.icon) && (addon.icon.startsWith('http') || addon.icon.startsWith('data:'))) {
-      return addon.icon;
-    }
-    if (addon.logo && typeof addon.logo === 'string' && !isDeadDomain(addon.logo) && (addon.logo.startsWith('http') || addon.logo.startsWith('data:'))) {
-      return addon.logo;
-    }
     const u = (addon.url || addon.manifestUrl || '').toLowerCase();
     const name = (addon.name || '').toLowerCase();
-    if (u.includes('cinemeta') || name.includes('cinemeta')) return 'https://v3-cinemeta.strem.io/logo.png';
-    if (u.includes('torrentio') || name.includes('torrentio')) return 'https://torrentio.strem.fun/logo.png';
-    if (u.includes('comet') || name.includes('comet')) return 'https://comet.feels.legal/logo.png';
-    if (u.includes('tmdb') || name.includes('tmdb')) return 'https://94c8cb9f702d-tmdb-addon.baby-beamup.club/logo.png';
-    if (u.includes('subtitles') || name.includes('opensubtitles')) return 'https://subtitles.strem.io/logo.png';
-    if (u.includes('trakt') || name.includes('trakt')) return 'https://walter-2.trakt.tv/images/shows/000/001/390/posters/thumb/93df9e2172.jpg';
+    if (u.includes('anime.schedule') || u.includes('anime-schedule') || name.includes('anime schedule') || name.includes('anime release schedule')) {
+      return 'imgs/jikan-logo.png';
+    }
+    if (u.includes('vidsrc') || name.includes('vidsrc')) return 'imgs/vidsrc-logo.svg';
+    if (u.includes('cinemeta') || name.includes('cinemeta')) return 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/stremio.png';
+    if (u.includes('torrentio') || name.includes('torrentio')) return 'https://torrentio.strem.fun/images/logo_v1.png';
+    if (u.includes('comet') || name.includes('comet')) return 'https://raw.githubusercontent.com/g0ldyy/comet/refs/heads/main/comet/assets/icon.png';
+    if (u.includes('peario') || name.includes('peario')) return 'https://addon.peario.xyz/public/icon.png';
+    if (u.includes('tmdb') || name.includes('tmdb') || name.includes('the movie database')) return 'https://94c8cb9f702d-tmdb-addon.baby-beamup.club/logo.png';
+    if (u.includes('mytrakt') || name.includes('trakt')) return 'https://mytrakt.elfhosted.com/logo.png';
+    if (u.includes('youtube') || name.includes('youtube')) return 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/120px-YouTube_full-color_icon_%282017%29.svg.png';
+    if (u.includes('music') || name.includes('music') || name.includes('spotify') || (addon.id && addon.id.includes('music'))) return 'imgs/appicon.png';
+
+    if (addon.icon && typeof addon.icon === 'string') {
+      return addon.icon;
+    }
+    if (addon.logo && typeof addon.logo === 'string') {
+      return addon.logo;
+    }
     return null;
   };
 
   const DEFAULT_COMMUNITY_ADDONS = [
     {
-      id: 'org.stremio.cinemeta',
-      name: 'Cinemeta',
-      version: '3.0.12',
-      description: 'Official metadata provider for Movies and TV Series with synopsis, cast, release dates, and posters.',
-      url: 'https://v3-cinemeta.strem.io',
-      manifestUrl: 'https://v3-cinemeta.strem.io/manifest.json',
-      icon: 'https://v3-cinemeta.strem.io/logo.png',
-      types: ['movie', 'series'],
-      category: 'catalogs'
+      id: 'com.meem.music.player',
+      name: 'MEEM Music',
+      version: '1.0.0',
+      description: 'Ultra high-fidelity Music & Audio streaming with Discover dashboard, Lyrics, Offline Downloads, and Playlists.',
+      url: 'local://addon-music-player',
+      manifestUrl: 'local://addon-music-player/manifest.json',
+      icon: 'imgs/appicon.png',
+      iconClass: 'fas fa-music',
+      iconColor: '#ffffff',
+      types: ['music', 'audio', 'lyrics'],
+      category: 'music'
     },
     {
-      id: 'com.stremio.torrentio.lite',
-      name: 'Torrentio (Lite)',
-      version: '1.0.8',
-      description: 'Ultra-fast torrent stream provider scraping high quality 4K, 1080p, 720p streams for Movies & TV Series.',
-      url: 'https://torrentio.strem.fun/lite',
-      manifestUrl: 'https://torrentio.strem.fun/lite/manifest.json',
-      icon: 'https://torrentio.strem.fun/logo.png',
-      types: ['movie', 'series'],
-      category: 'movie'
-    },
-    {
-      id: 'com.feels.comet',
-      name: 'Comet',
-      version: '1.2.0',
-      description: 'High-performance Stremio addon providing real-time torrent stream links with debrid & P2P support.',
-      url: 'https://comet.feels.legal',
-      manifestUrl: 'https://comet.feels.legal/manifest.json',
-      icon: 'https://comet.feels.legal/logo.png',
-      types: ['movie', 'series'],
-      category: 'movie'
-    },
-    {
-      id: 'com.elfhosted.tmdb-addon',
-      name: 'ElfHosted TMDB Addon',
-      version: '2.1.0',
-      description: 'Provides official TMDB movie & show catalogs and direct TMDB CDN posters without requiring API keys.',
-      url: 'https://94c8cb9f702d-tmdb-addon.baby-beamup.club',
-      manifestUrl: 'https://94c8cb9f702d-tmdb-addon.baby-beamup.club/manifest.json',
-      icon: 'https://94c8cb9f702d-tmdb-addon.baby-beamup.club/logo.png',
-      types: ['movie', 'series'],
-      category: 'catalogs'
-    },
-    {
-      id: 'com.knightcrawler.addon',
-      name: 'KnightCrawler',
-      version: '1.1.4',
-      description: 'Reliable community torrent scraper for movies and TV series streams with high seed count filtering.',
-      url: 'https://main.knightcrawler.elfhosted.com',
-      manifestUrl: 'https://main.knightcrawler.elfhosted.com/manifest.json',
-      icon: null,
-      iconClass: 'fas fa-[#10b981] fa-shield-alt',
-      types: ['movie', 'series'],
-      category: 'movie'
-    },
-    {
-      id: 'com.cyberflix.catalog',
-      name: 'CyberFlix Catalog',
-      version: '1.4.2',
-      description: 'Adds streaming service catalogs (Netflix, Disney+, Apple TV+, HBO Max, Prime) directly to Discover.',
-      url: 'https://cyberflix.elfhosted.com',
-      manifestUrl: 'https://cyberflix.elfhosted.com/manifest.json',
-      icon: null,
-      iconClass: 'fas fa-tv',
-      types: ['movie', 'series'],
-      category: 'catalogs'
-    },
-    {
-      id: 'com.stremio.subtitles.official',
-      name: 'OpenSubtitles v3',
-      version: '3.0.0',
-      description: 'Official OpenSubtitles add-on fetching Arabic, English, and multi-language subtitles for any video.',
-      url: 'https://subtitles.strem.io',
-      manifestUrl: 'https://subtitles.strem.io/manifest.json',
-      icon: 'https://subtitles.strem.io/logo.png',
-      types: ['subtitles'],
-      category: 'subtitles'
-    },
-    {
-      id: 'com.subdl.stremio',
-      name: 'SubDL Subtitles',
-      version: '1.0.5',
-      description: 'Dedicated SubDL subtitles provider for Arabic and global movie & series subtitles.',
-      url: 'https://subdl.strem.fun',
-      manifestUrl: 'https://subdl.strem.fun/manifest.json',
-      icon: 'https://subdl.strem.fun/logo.png',
-      types: ['subtitles'],
-      category: 'subtitles'
-    },
-    {
-      id: 'com.kitsu.anime',
-      name: 'Anime Kitsu',
-      version: '2.0.1',
-      description: 'Anime metadata and episode discovery catalog powered by Kitsu.',
-      url: 'https://anime-kitsu.strem.fun',
-      manifestUrl: 'https://anime-kitsu.strem.fun/manifest.json',
-      icon: 'https://anime-kitsu.strem.fun/logo.png',
-      types: ['anime'],
+      id: 'com.meem.anime.schedule',
+      name: 'Anime Release Schedule',
+      version: '1.0.0',
+      description: 'Weekly anime release schedule calendar updated in real-time via Jikan & AniList APIs. Adds a dedicated Anime Schedule tab & page to the app.',
+      url: 'internal://anime-schedule',
+      manifestUrl: 'internal://anime-schedule/manifest.json',
+      icon: 'imgs/jikan-logo.png',
+      types: ['anime', 'catalog'],
       category: 'anime'
     },
     {
-      id: 'com.mediafusion.addon',
-      name: 'MediaFusion',
-      version: '3.2.0',
-      description: 'Live TV channels, sports streams, and international media catalogs.',
-      url: 'https://mediafusion.elfhosted.com',
-      manifestUrl: 'https://mediafusion.elfhosted.com/manifest.json',
-      icon: 'https://mediafusion.elfhosted.com/logo.png',
-      types: ['movie', 'series', 'tv'],
-      category: 'catalogs'
+      id: 'com.vidsrc.sbs',
+      name: 'VidSrc',
+      version: '1.0.0',
+      description: 'Direct stream provider for Movies & TV Series with 1080p instant playback and multi-source fallbacks.',
+      url: 'https://vidsrc.sbs',
+      manifestUrl: 'https://vidsrc.sbs/manifest.json',
+      icon: 'imgs/vidsrc-logo.svg',
+      types: ['movie', 'series', 'anime'],
+      category: 'movie'
     },
     {
       id: 'com.mediavault.youtube',
@@ -4838,19 +5056,44 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const { data, error } = await client.from('stremio_addons').select('*');
           if (!error && Array.isArray(data) && data.length > 0) {
             console.log('[AddonStore] Loaded', data.length, 'addons from Supabase stremio_addons table');
-            supabaseAddonsCatalog = data.map(item => ({
-              id: item.id || item.addon_id || item.url,
-              name: item.name || item.title || 'Add-on',
-              version: item.version || '1.0.0',
-              description: item.description || '',
-              url: item.url || item.manifest_url,
-              manifestUrl: item.manifest_url || item.url,
-              icon: item.icon || item.logo,
-              iconClass: item.iconClass || 'fas fa-puzzle-piece',
-              iconColor: item.iconColor || 'var(--accent)',
-              types: Array.isArray(item.types) ? item.types : (typeof item.types === 'string' ? JSON.parse(item.types) : ['movie', 'series']),
-              category: item.category || 'movie'
-            }));
+            supabaseAddonsCatalog = data.map(item => {
+              const manifestUrl = item.manifest_url || item.url || '';
+              const iconUrl = item.icon || item.logo || '';
+              const urlLower = manifestUrl.toLowerCase();
+              const nameLower = (item.name || '').toLowerCase();
+              let category = item.category || 'movie';
+              let types = item.types;
+              if (!Array.isArray(types)) {
+                if (typeof types === 'string') {
+                  try { types = JSON.parse(types); } catch { types = null; }
+                } else {
+                  types = null;
+                }
+              }
+              if (!types) {
+                if (nameLower.includes('catalog') || nameLower.includes('trakt') || nameLower.includes('tmdb') || nameLower.includes('cinemeta')) {
+                  types = ['movie', 'series'];
+                  category = 'catalogs';
+                } else {
+                  types = ['movie', 'series'];
+                  category = 'movie';
+                }
+              }
+
+              return {
+                id: item.id || manifestUrl,
+                name: item.name || 'Add-on',
+                version: item.version || '1.0.0',
+                description: item.description || '',
+                url: manifestUrl,
+                manifestUrl: manifestUrl,
+                icon: iconUrl,
+                iconClass: item.iconClass || 'fas fa-puzzle-piece',
+                iconColor: item.iconColor || 'var(--accent)',
+                types,
+                category
+              };
+            });
           }
         }
       }
@@ -4889,27 +5132,40 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       pageGrid.innerHTML = '';
 
       const installedNormalized = new Set((appData.installedAddons || []).map(a => normalizeAddonUrl(a.url)));
-      // Always include built-in addons (YouTube, YouTube Music, etc.) even when Supabase catalog is loaded
-      let baseCatalog = supabaseAddonsCatalog.length > 0 ? [...supabaseAddonsCatalog] : [...DEFAULT_COMMUNITY_ADDONS];
-      if (supabaseAddonsCatalog.length > 0) {
-        // Only append internal app addons (like local YouTube addon) when Supabase catalog is loaded
-        DEFAULT_COMMUNITY_ADDONS.forEach(builtIn => {
-          if (builtIn.url && builtIn.url.startsWith('local://')) {
-            const alreadyIn = baseCatalog.some(a => normalizeAddonUrl(a.url) === normalizeAddonUrl(builtIn.url) || a.id === builtIn.id);
-            if (!alreadyIn) baseCatalog.push(builtIn);
-          }
-        });
+      
+      // Exclude SubDL, OpenSubtitles, and Anime Kitsu per user instruction
+      const REMOVED_PATTERNS = ['subdl', 'opensubtitles', 'subtitles.strem.io', 'subtitles.official', 'kitsu'];
+      const isExcluded = (addon) => {
+        const id = (addon.id || '').toLowerCase();
+        const name = (addon.name || '').toLowerCase();
+        const url = (addon.url || addon.manifestUrl || '').toLowerCase();
+        return REMOVED_PATTERNS.some(p => id.includes(p) || name.includes(p) || url.includes(p));
+      };
+
+      if (Array.isArray(appData.installedAddons)) {
+        appData.installedAddons = appData.installedAddons.filter(a => !isExcluded(a));
       }
 
+      // Merge Supabase addons + built-in addons (Anime Schedule, VidSrc, YouTube)
+      let baseCatalog = [...supabaseAddonsCatalog];
+      DEFAULT_COMMUNITY_ADDONS.forEach(builtIn => {
+        const alreadyIn = baseCatalog.some(a =>
+          (a.url && builtIn.url && normalizeAddonUrl(a.url) === normalizeAddonUrl(builtIn.url)) ||
+          (a.id && builtIn.id && a.id === builtIn.id) ||
+          (a.name && builtIn.name && a.name.toLowerCase() === builtIn.name.toLowerCase())
+        );
+        if (!alreadyIn) baseCatalog.unshift(builtIn);
+      });
+      baseCatalog = baseCatalog.filter(a => !isExcluded(a));
 
       let itemsToRender = [];
       if (addonsActiveTab === 'installed') {
         itemsToRender = [...(appData.installedAddons || [])];
       } else {
-        // 'store': Available Addons catalog
+        // 'store': Supabase catalog + built-in community addons
         itemsToRender = [...baseCatalog];
         (appData.installedAddons || []).forEach(inst => {
-          if (!itemsToRender.some(c => normalizeAddonUrl(c.url) === normalizeAddonUrl(inst.url))) {
+          if (inst.isCustom && !itemsToRender.some(c => normalizeAddonUrl(c.url) === normalizeAddonUrl(inst.url))) {
             itemsToRender.push(inst);
           }
         });
@@ -4927,6 +5183,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         if (filter !== 'all') {
           const cat = (addon.category || '').toLowerCase();
           const types = (addon.types || []).map(t => String(t).toLowerCase());
+          if (filter === 'music') {
+            return cat === 'music' || types.some(t => t.includes('music') || t.includes('audio') || t.includes('lyrics'));
+          }
           if (filter === 'movie') {
             return cat === 'movie' || types.some(t => t.includes('movie') || t.includes('series') || t.includes('tv'));
           }
@@ -4959,22 +5218,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       filtered.forEach(addon => {
         const isInstalled = installedNormalized.has(normalizeAddonUrl(addon.url));
         const card = document.createElement('div');
-        card.className = 'addon-card';
+        card.className = 'addon-card' + (isInstalled ? ' is-installed' : '');
         card.style.cssText = `
-          background: rgba(255, 255, 255, 0.025);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-          border: 1px solid ${isInstalled ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.08)'};
-          border-radius: 14px;
-          padding: 14px;
+          background: rgba(16, 16, 20, 0.92);
+          backdrop-filter: blur(28px) saturate(180%);
+          -webkit-backdrop-filter: blur(28px) saturate(180%);
+          border: 1px solid ${isInstalled ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.09)'};
+          border-radius: 18px;
+          padding: 16px;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          gap: 10px;
+          gap: 12px;
           min-height: auto;
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
           position: relative;
           box-sizing: border-box;
+          box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
           width: 100%;
         `;
 
@@ -4982,31 +5242,30 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         const logoUrl = resolveAddonLogo(addon);
         let iconHtml = '';
         if (logoUrl) {
-          iconHtml = `<div class="addon-card-icon" style="width: 44px; height: 44px; border-radius: 10px; overflow: hidden; flex-shrink: 0; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; padding: 2px; box-sizing: border-box;"><img src="${escapeHTML(logoUrl)}" style="width:100%; height:100%; object-fit:contain; border-radius: 8px;" onerror="this.onerror=null; this.parentNode.innerHTML='<i class=\\'fas fa-puzzle-piece\\' style=\\'color: var(--accent); font-size: 20px;\\'></i>';"></div>`;
+          iconHtml = `<div class="addon-card-icon" style="width: 44px; height: 44px; border-radius: 12px; overflow: hidden; flex-shrink: 0; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center; padding: 4px; box-sizing: border-box;"><img src="${escapeHTML(logoUrl)}" style="width:100%; height:100%; object-fit:contain; border-radius: 8px;" onerror="this.onerror=null; this.parentNode.innerHTML='<i class=\\'fas fa-puzzle-piece\\' style=\\'color: #ffffff; font-size: 18px;\\'></i>';"></div>`;
         } else {
           const iconClass = addon.iconClass || 'fas fa-puzzle-piece';
-          const iconColor = addon.iconColor || 'var(--accent)';
-          iconHtml = `<div class="addon-card-icon" style="font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; flex-shrink: 0;"><i class="${iconClass}" style="color: ${iconColor};"></i></div>`;
+          iconHtml = `<div class="addon-card-icon" style="font-size: 18px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; flex-shrink: 0; color: #ffffff;"><i class="${iconClass}"></i></div>`;
         }
 
         // Action Column: Gear button + Install/Uninstall
         let actionColumnHtml = '';
         if (isInstalled) {
           actionColumnHtml = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <button class="btn-addon-configure" style="width: 32px; height: 32px; border-radius: 50%; background: #10b981; border: none; color: #fff; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); transition: transform 0.2s;" title="Configure Add-on">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button class="btn-addon-configure" style="width: 34px; height: 34px; border-radius: 10px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14); color: #fff; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" title="Configure Add-on">
                 <i class="fas fa-cog"></i>
               </button>
-              <button class="btn-addon-uninstall" data-url="${addon.url}" style="background: transparent; border: none; color: rgba(239, 68, 68, 0.85); font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: color 0.2s;" title="Uninstall Add-on">
+              <button class="btn-addon-uninstall" data-url="${addon.url}" title="Uninstall Add-on">
                 Uninstall
               </button>
             </div>
           `;
         } else {
           actionColumnHtml = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <button class="btn-addon-install btn-primary" data-url="${addon.url}" style="padding: 6px 14px; border-radius: 16px; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                <i class="fas fa-plus-circle"></i> Install
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button class="btn-addon-install" data-url="${addon.url}">
+                <i class="fas fa-download" style="font-size: 12px;"></i> Install
               </button>
             </div>
           `;
@@ -5058,9 +5317,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 switchView('discover');
                 showToast('📺 YouTube Add-on Settings');
               }
-            } else if (addon.id === 'com.mediavault.ytmusic') {
+            } else if (addon.id === 'com.meem.music.player' || addon.id === 'com.mediavault.ytmusic') {
               switchView('music');
-              showToast('🎵 YouTube Music is active — it appears in Music search & playback!');
+              showToast('MEEM Music is active');
             }
             return;
           }
@@ -5110,6 +5369,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
       appData.installedAddons.push(entry);
       await persist();
+      if (window.AppCapabilities && typeof window.AppCapabilities.refresh === 'function') {
+        window.AppCapabilities.refresh();
+      }
       updateSubdlVisibility();
       renderAddonsCatalog();
       if (typeof updateModGatedViews === 'function') updateModGatedViews();
@@ -5129,12 +5391,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const uninstallAddon = async (url) => {
       if (!appData.installedAddons) return;
       const normTarget = normalizeAddonUrl(url);
-      const idx = appData.installedAddons.findIndex(a => normalizeAddonUrl(a.url) === normTarget);
+      const targetStr = String(url || '').toLowerCase();
+      const idx = appData.installedAddons.findIndex(a => {
+        const normAUrl = normalizeAddonUrl(a.url || a.manifestUrl || '');
+        const aId = String(a.id || '').toLowerCase();
+        return (normAUrl && normAUrl === normTarget) || (aId && targetStr && (aId === targetStr || normTarget.includes(aId) || targetStr.includes(aId)));
+      });
       if (idx !== -1) {
         const name = appData.installedAddons[idx].name;
         showToast(`🗑 Uninstalling ${name}...`);
         appData.installedAddons.splice(idx, 1);
         await persist();
+        if (window.AppCapabilities && typeof window.AppCapabilities.refresh === 'function') {
+          window.AppCapabilities.refresh();
+        }
         updateSubdlVisibility();
         renderAddonsCatalog();
         if (typeof updateModGatedViews === 'function') updateModGatedViews();
@@ -6190,13 +6460,73 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       musicPoster.style.display = 'none';
     };
   }
-  $('#btn-skip-back').onclick = () => { engine.seekRelative(-10); };
-  $('#btn-skip-forward').onclick = () => { engine.seekRelative(10); };
+  if ($('#btn-skip-back')) $('#btn-skip-back').onclick = () => { engine.seekRelative(-10); };
+  if ($('#btn-skip-forward')) $('#btn-skip-forward').onclick = () => { engine.seekRelative(10); };
   if ($('#btn-fullscreen')) $('#btn-fullscreen').onclick = toggleFullscreen;
-  $('#btn-pip').onclick = async () => { try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); } catch (e) { console.warn('[PiP] Picture-in-Picture failed:', e.message); showToast('PiP not supported on this video'); } };
-  video.addEventListener('enterpictureinpicture', () => $('#btn-pip').classList.add('subtitle-on'));
-  video.addEventListener('leavepictureinpicture', () => $('#btn-pip').classList.remove('subtitle-on'));
-  $('#btn-mute').onclick = () => { engine.setMute(!engine.muted); updateVolumeIcon(); };
+  if ($('#btn-pip')) {
+    $('#btn-pip').onclick = async () => { try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); } catch (e) { console.warn('[PiP] Picture-in-Picture failed:', e.message); showToast('PiP not supported on this video'); } };
+    video.addEventListener('enterpictureinpicture', () => $('#btn-pip').classList.add('subtitle-on'));
+    video.addEventListener('leavepictureinpicture', () => $('#btn-pip').classList.remove('subtitle-on'));
+  }
+  if ($('#btn-mute')) $('#btn-mute').onclick = () => { engine.setMute(!engine.muted); updateVolumeIcon(); };
+
+  // Bottom volume slider
+  const bottomVolBar = $('.volume-bar-bottom');
+  if (bottomVolBar) {
+    bottomVolBar.oninput = () => {
+      const val = parseFloat(bottomVolBar.value) / 100;
+      video.volume = val;
+      video.muted = false;
+      updateVolumeIcon();
+    };
+  }
+
+  // Player Settings & More Dropdowns
+  const btnSettings = $('#btn-player-settings');
+  const dropdownSettings = $('#player-settings-dropdown');
+  const btnMore = $('#btn-player-more');
+  const dropdownMore = $('#player-more-dropdown');
+
+  if (btnSettings && dropdownSettings) {
+    btnSettings.onclick = (e) => {
+      e.stopPropagation();
+      if (dropdownMore) dropdownMore.style.display = 'none';
+      dropdownSettings.style.display = dropdownSettings.style.display === 'none' ? 'flex' : 'none';
+    };
+  }
+  if (btnMore && dropdownMore) {
+    btnMore.onclick = (e) => {
+      e.stopPropagation();
+      if (dropdownSettings) dropdownSettings.style.display = 'none';
+      dropdownMore.style.display = dropdownMore.style.display === 'none' ? 'flex' : 'none';
+    };
+  }
+  document.addEventListener('click', (e) => {
+    if (dropdownSettings && !dropdownSettings.contains(e.target) && e.target !== btnSettings) {
+      dropdownSettings.style.display = 'none';
+    }
+    if (dropdownMore && !dropdownMore.contains(e.target) && e.target !== btnMore) {
+      dropdownMore.style.display = 'none';
+    }
+  });
+
+  // Settings Dropdown Options
+  document.querySelectorAll('.psd-speed-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const spd = parseFloat(btn.dataset.speed || '1');
+      video.playbackRate = spd;
+      document.querySelectorAll('.psd-speed-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      showToast(`Speed: ${spd === 1 ? 'Normal' : spd + 'x'}`);
+    };
+  });
+  if ($('#psd-btn-subtitle')) $('#psd-btn-subtitle').onclick = () => { $('#btn-subtitle')?.click(); if (dropdownSettings) dropdownSettings.style.display = 'none'; };
+  if ($('#psd-btn-subdl')) $('#psd-btn-subdl').onclick = () => { $('#btn-player-subdl')?.click(); if (dropdownSettings) dropdownSettings.style.display = 'none'; };
+  if ($('#psd-btn-eq')) $('#psd-btn-eq').onclick = () => { $('#btn-eq')?.click(); if (dropdownSettings) dropdownSettings.style.display = 'none'; };
+  if ($('#psd-btn-transcode')) $('#psd-btn-transcode').onclick = () => { $('#btn-transcode-audio')?.click(); if (dropdownSettings) dropdownSettings.style.display = 'none'; };
+  if ($('#psd-btn-pip')) $('#psd-btn-pip').onclick = () => { $('#btn-pip')?.click(); if (dropdownSettings) dropdownSettings.style.display = 'none'; };
+  if ($('#psd-btn-minimize')) $('#psd-btn-minimize').onclick = () => { $('#btn-player-minimize')?.click(); if (dropdownMore) dropdownMore.style.display = 'none'; };
   if ($('#btn-back-shows')) $('#btn-back-shows').onclick = () => switchView('shows');
   if ($('#btn-back-discover')) {
     $('#btn-back-discover').onclick = () => {
@@ -6222,51 +6552,53 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // Long-press helper for subtitles
   let subLongPressTimer;
   let wasLongPress = false;
-  const subBtn = $('#btn-subtitle');
+  const subBtn = $('#btn-subtitle') || $('#psd-btn-subtitle');
 
-  subBtn.onmousedown = subBtn.ontouchstart = (e) => {
-    wasLongPress = false;
-    if (!subtitlesEnabled) return;
-    subLongPressTimer = setTimeout(() => {
-      // Long press detected: Turn OFF subtitles
-      wasLongPress = true;
-      if (engine.isUsingMpv) switchSubtitleTrack('no');
-      else {
-        Array.from(video.textTracks).forEach(track => {
-          track.mode = 'hidden';
-          track.mode = 'disabled';
-        });
-        video.querySelectorAll('track').forEach(t => { if (t.src && t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch (_) {} } t.remove(); });
-        try { removeSubtitleOverlay(); } catch (e) { }
-        subtitlesEnabled = false;
-        window.activeSubtitlePath = null;
-        window.activeSubtitleUrl = null;
-        renderPlayerSubLibrary();
-        subBtn.classList.remove('subtitle-on');
-        subBtn.classList.add('subtitle-off');
-      }
-      showToast('Subtitles Off');
-      subLongPressTimer = null;
-    }, 800); // 800ms for long press
-  };
-
-  subBtn.onmouseup = subBtn.onmouseleave = subBtn.ontouchend = () => {
-    if (subLongPressTimer) {
-      clearTimeout(subLongPressTimer);
-      subLongPressTimer = null;
-    }
-  };
-
-  subBtn.addEventListener('click', () => {
-    // If we just finished a long press, don't trigger click
-    if (wasLongPress) {
+  if (subBtn) {
+    subBtn.onmousedown = subBtn.ontouchstart = (e) => {
       wasLongPress = false;
-      return;
-    }
+      if (!subtitlesEnabled) return;
+      subLongPressTimer = setTimeout(() => {
+        // Long press detected: Turn OFF subtitles
+        wasLongPress = true;
+        if (engine.isUsingMpv) switchSubtitleTrack('no');
+        else {
+          Array.from(video.textTracks).forEach(track => {
+            track.mode = 'hidden';
+            track.mode = 'disabled';
+          });
+          video.querySelectorAll('track').forEach(t => { if (t.src && t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch (_) {} } t.remove(); });
+          try { removeSubtitleOverlay(); } catch (e) { }
+          subtitlesEnabled = false;
+          window.activeSubtitlePath = null;
+          window.activeSubtitleUrl = null;
+          renderPlayerSubLibrary();
+          subBtn.classList.remove('subtitle-on');
+          subBtn.classList.add('subtitle-off');
+        }
+        showToast('Subtitles Off');
+        subLongPressTimer = null;
+      }, 800); // 800ms for long press
+    };
 
-    renderPlayerSubLibrary();
-    openPanel('#player-subs-panel');
-  });
+    subBtn.onmouseup = subBtn.onmouseleave = subBtn.ontouchend = () => {
+      if (subLongPressTimer) {
+        clearTimeout(subLongPressTimer);
+        subLongPressTimer = null;
+      }
+    };
+
+    subBtn.addEventListener('click', () => {
+      // If we just finished a long press, don't trigger click
+      if (wasLongPress) {
+        wasLongPress = false;
+        return;
+      }
+
+      renderPlayerSubLibrary();
+      openPanel('#player-subs-panel');
+    });
+  }
   $('#btn-toggle-playlist')?.addEventListener('click', () => openPanel('#player-side-panel'));
   $('#btn-close-panel')?.addEventListener('click', closeSidePanel);
 
@@ -6586,9 +6918,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       btnExternalPlayer.style.display = 'flex';
       btnExternalPlayer.onclick = async () => {
         if (!currentItem) return;
-        showToast('Opening in MEEM Player...');
+        showToast('Opening in external player...');
         const pathUrl = currentItem.path || currentItem.url;
-        const res = await window.api.invoke('open-in-meem-player', {
+        const res = await window.api.invoke('play-media', {
           path: pathUrl,
           fileIdx: currentItem.fileIdx,
           startTime: video.currentTime
@@ -6597,7 +6929,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           engine.pause();
           exitPlayer(true, true);
         } else {
-          showToast('Failed to open in MEEM Player: ' + (res?.error || 'Unknown error'));
+          showToast('Failed to open player: ' + (res?.error || 'Unknown error'));
         }
       };
     } else {
@@ -6640,11 +6972,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (vlcBtn) {
       if (window.api && window.api.isElectron && currentItem) {
         vlcBtn.style.display = 'inline-block';
-        vlcBtn.textContent = 'Open in MEEM Player';
+        vlcBtn.textContent = 'Retry with Built-in Player';
         vlcBtn.onclick = async () => {
-          showToast('Opening in MEEM Player...');
+          showToast('Retrying playback...');
           const pathUrl = currentItem.path || currentItem.url;
-          await window.api.invoke('open-in-meem-player', {
+          await window.api.invoke('play-media', {
             path: pathUrl,
             fileIdx: currentItem.fileIdx,
             startTime: video.currentTime
@@ -8143,7 +8475,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const isMovie = meta.type === 'movie' || !key.includes('_E');
 
       if (isMovie) {
-        const item = (appData.movies || []).find(m => m.id === pb.id || m.id === key || m.imdb_id === meta.imdb_id);
+        let item = (appData.movies || []).find(m => m.id === pb.id || m.id === key || m.imdb_id === meta.imdb_id || m.path === key || m.path === meta.path);
+        if (!item && meta) item = { ...meta, id: key, path: meta.path || (key.includes(':\\') || key.includes(':/') ? key : null) };
         if (item) {
           continueItems.push({
             item,
@@ -8154,7 +8487,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       } else {
         // Show episode! Key format: [ShowID]_S[Season]E[Episode]
         const showId = key.split('_S')[0];
-        const show = (appData.shows || []).find(s => s.id === showId || s.imdb_id === meta.imdb_id);
+        let show = (appData.shows || []).find(s => s.id === showId || s.imdb_id === meta.imdb_id || (meta.showTitle && s.title === meta.showTitle));
+        if (!show && meta) show = { ...meta, id: showId || key };
         if (show) {
           // If we already added this show, keep only the most recently watched episode
           const existing = continueItems.find(x => x.item.id === show.id);
@@ -8200,6 +8534,29 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
         // Clicking the card in Continue Watching plays/opens the specific episode directly
         card.onclick = () => {
+          const resumeTime = (pb && pb.time > 2 && !pb.watched) ? pb.time : 0;
+          let rawPath = item.path || pb.path || pb.meta?.path || item.url || pb.meta?.url;
+          if (!rawPath && typeof key === 'string' && (key.includes(':\\') || key.includes(':/') || key.startsWith('/'))) {
+            rawPath = key;
+          }
+          if (!rawPath && window.appData) {
+            if (Array.isArray(appData.shows)) {
+              for (const s of appData.shows) {
+                const ep = (s.episodes || []).find(e => e.path && (e.path === item.path || e.path === key || key.includes(e.path)));
+                if (ep && ep.path) { rawPath = ep.path; break; }
+              }
+            }
+            if (!rawPath && Array.isArray(appData.movies)) {
+              const m = appData.movies.find(mv => mv.path && (mv.path === item.path || mv.path === key || key.includes(mv.path)));
+              if (m && m.path) rawPath = m.path;
+            }
+          }
+
+          if (rawPath && typeof playVideo === 'function') {
+            playVideo({ ...item, path: rawPath, startTime: resumeTime }, null, { startTime: resumeTime });
+            return;
+          }
+
           if (pb.meta && pb.meta.type === 'tv') {
             openDiscoverDetail(item).then(() => {
               if (typeof window.selectUnifiedEpisode === 'function') {
@@ -8214,7 +8571,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         row.appendChild(card);
       });
     } else {
-      section.style.display = 'none';
+      section.style.display = 'block';
+      row.innerHTML = `
+        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 36px 20px; background: rgba(255,255,255,0.03); border-radius: 16px; border: 1px dashed rgba(255,255,255,0.15); margin: 0 10px; text-align: center;">
+          <div style="width: 48px; height: 48px; background: rgba(255,255,255,0.06); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.1);">
+             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" style="opacity: 0.85;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </div>
+          <h3 style="font-size: 16px; margin: 0; opacity: 0.95; font-weight: 800; color: #fff;">Start Watching Now!</h3>
+          <p style="font-size: 12px; margin: 5px 0 0; opacity: 0.45;">Your in-progress library items will appear here automatically.</p>
+        </div>
+      `;
     }
   }
 
@@ -8256,7 +8622,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     });
   }
 
-  let activeCustomListId = null;
+  var activeCustomListId = null;
   let customListRealtimeChannel = null;
   let customListSourceView = 'watchlist';
 
@@ -8368,21 +8734,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         };
 
         const count = list.items?.length || 0;
+        const isMusic = list.type === 'music';
         let visualContent = '';
 
         if (count > 0) {
-          const itemsWithPoster = list.items.filter(i => i.poster || i.poster_path).slice(0, 3);
+          const itemsWithPoster = list.items.filter(i => isMusic ? (i.thumbnail || i.poster) : (i.poster || i.poster_path)).slice(0, 3);
           if (itemsWithPoster.length > 0) {
             visualContent = `<div class="collection-poster-stack" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; top: -20px;">`;
             itemsWithPoster.forEach((item, idx) => {
-              const poster = item.poster || item.poster_path;
-              const posterUrl = localImg(poster);
+              const poster = isMusic ? (item.thumbnail || item.poster) : (item.poster || item.poster_path);
+              const posterUrl = isMusic ? poster : localImg(poster);
               const rotation = (idx - (itemsWithPoster.length - 1) / 2) * 12;
               const offset = (idx - (itemsWithPoster.length - 1) / 2) * 15;
               visualContent += `
                 <img src="${posterUrl}" onerror="this.src='imgs/no-backdrop.png'" style="
-                  width: 90px;
-                  height: 130px;
+                  width: ${isMusic ? '100px' : '90px'};
+                  height: ${isMusic ? '100px' : '130px'};
                   object-fit: cover;
                   border-radius: 12px;
                   box-shadow: 0 10px 25px rgba(0,0,0,0.5);
@@ -8396,14 +8763,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             visualContent += `</div>`;
           } else {
             visualContent = `
-              <div style="position: absolute; inset: 0; top: -20px; display: flex; align-items: center; justify-content: center; color: var(--accent); opacity: 0.6;">
-                <i class="fas fa-folder-open" style="font-size: 70px;"></i>
+              <div style="position: absolute; inset: 0; top: -20px; display: flex; align-items: center; justify-content: center; color: ${isMusic ? '#10b981' : 'var(--accent)'}; opacity: 0.6;">
+                <i class="fas ${isMusic ? 'fa-music' : 'fa-folder-open'}" style="font-size: 70px;"></i>
               </div>`;
           }
         } else {
           visualContent = `
-            <div style="position: absolute; inset: 0; top: -20px; display: flex; align-items: center; justify-content: center; color: var(--accent); opacity: 0.4;">
-              <i class="fas fa-folder" style="font-size: 70px;"></i>
+            <div style="position: absolute; inset: 0; top: -20px; display: flex; align-items: center; justify-content: center; color: ${isMusic ? '#10b981' : 'var(--accent)'}; opacity: 0.4;">
+              <i class="fas ${isMusic ? 'fa-music' : 'fa-folder'}" style="font-size: 70px;"></i>
             </div>`;
         }
 
@@ -8413,7 +8780,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           <div style="position: relative; z-index: 20; padding: 20px; display: flex; flex-direction: column; gap: 4px; text-align: left;">
             <div style="font-weight: 800; font-size: 16px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.2px;">${escapeHTML(list.name)}</div>
             <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; display: flex; align-items: center; gap: 6px;">
-              <i class="fas fa-video" style="font-size: 10px; color: var(--accent);"></i> ${count} ${count === 1 ? 'item' : 'items'}
+              <i class="fas ${isMusic ? 'fa-music' : 'fa-video'}" style="font-size: 10px; color: ${isMusic ? '#10b981' : 'var(--accent)'};"></i> ${count} ${count === 1 ? (isMusic ? 'track' : 'item') : (isMusic ? 'tracks' : 'items')}
             </div>
           </div>
         `;
@@ -8594,6 +8961,158 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       listCountEl.style.display = 'inline-block';
     }
 
+    if (list.type === 'music') {
+      grid.className = 'music-playlist-active-wrapper';
+      grid.style.cssText = 'display: block !important; width: 100% !important; max-width: 100% !important; margin-top: 20px; box-sizing: border-box;';
+      if (items.length === 0) {
+        empty.style.display = 'flex';
+        empty.innerHTML = `
+          <div style="text-align:center;padding:50px 20px;color:rgba(255,255,255,0.6);width:100%;">
+            <i class="fas fa-music" style="font-size:44px;color:rgba(255,255,255,0.3);margin-bottom:14px;display:block;"></i>
+            <h3 style="margin:0 0 8px 0;font-size:1.3rem;font-weight:800;color:#fff;">This playlist is empty</h3>
+            <p style="margin:0 0 20px 0;font-size:0.9rem;color:rgba(255,255,255,0.6);">Search and add songs from the Music tab or use the chat sidebar.</p>
+            <button id="btn-goto-music-discover" class="btn-primary" style="padding:10px 22px;border-radius:12px;background:#ffffff;color:#000000;font-weight:800;cursor:pointer;border:none;">
+              <i class="fas fa-compass"></i> Discover Music
+            </button>
+          </div>
+        `;
+        document.getElementById('btn-goto-music-discover')?.addEventListener('click', () => {
+          switchView('music-player');
+        });
+        return;
+      }
+
+      empty.style.display = 'none';
+      const firstTrackThumb = items[0]?.thumbnail || '';
+
+      const tableHtml = `
+        <div class="spotify-playlist-container">
+          <div class="spotify-playlist-header">
+            <div class="spotify-pl-cover-wrap">
+              ${firstTrackThumb ? `<img src="${firstTrackThumb}" class="spotify-pl-cover-img" onerror="this.src='imgs/appicon.png'">` : `<div class="spotify-pl-cover-placeholder"><i class="fas fa-music"></i></div>`}
+            </div>
+            <div class="spotify-pl-meta">
+              <span class="spotify-pl-type-badge">PLAYLIST</span>
+              <h1 class="spotify-pl-title">${escapeHTML(list.name)}</h1>
+              <div class="spotify-pl-submeta">
+                <span class="spotify-pl-owner">${escapeHTML(currentProfile.name)}</span>
+                <span class="spotify-pl-dot">•</span>
+                <span>${items.length} ${items.length === 1 ? 'track' : 'tracks'}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="spotify-pl-action-bar">
+            <button id="btn-play-all-playlist" class="spotify-pl-play-all-btn" title="Play Playlist">
+              <i class="fas fa-play"></i>
+            </button>
+          </div>
+
+          <div class="spotify-table-wrapper">
+            <table class="spotify-track-table">
+              <thead>
+                <tr>
+                  <th class="col-num">#</th>
+                  <th class="col-title">Title</th>
+                  <th class="col-album">Album</th>
+                  <th class="col-added-by">Added by</th>
+                  <th class="col-date">Date added</th>
+                  <th class="col-dur"><i class="far fa-clock"></i></th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items.map((item, idx) => `
+                  <tr class="spotify-track-row" data-track-id="${item.id}" data-index="${idx}">
+                    <td class="col-num" style="text-align: center;">
+                      <span class="track-index-num">${idx + 1}</span>
+                      <button class="track-row-play-btn" title="Play"><i class="fas fa-play"></i></button>
+                    </td>
+                    <td class="col-title">
+                      <div class="track-title-cell">
+                        <img src="${item.thumbnail || 'imgs/appicon.png'}" class="track-cell-thumb" onerror="this.src='imgs/appicon.png'">
+                        <div class="track-cell-meta">
+                          <div class="track-cell-title" title="${escapeHTML(item.title)}">${escapeHTML(item.title)}</div>
+                          <div class="track-cell-artist" title="${escapeHTML(item.artist || 'Artist')}">${escapeHTML(item.artist || 'Artist')}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="col-album" title="${escapeHTML(item.album || 'Single')}">${escapeHTML(item.album || 'Single')}</td>
+                    <td class="col-added-by">
+                      <div class="track-added-by-cell">
+                        <img src="${item.added_by?.avatar || currentProfile.avatar || 'imgs/avatars/default.png'}" class="track-user-avatar">
+                        <span title="${escapeHTML(item.added_by?.name || currentProfile.name || 'User')}">${escapeHTML(item.added_by?.name || currentProfile.name || 'User')}</span>
+                      </div>
+                    </td>
+                    <td class="col-date">${formatRelativeDate(item.added_at)}</td>
+                    <td class="col-dur" style="text-align: right;">${item.durationFormatted || '0:00'}</td>
+                    <td class="col-actions" style="text-align: center;">
+                      <div style="display: inline-flex; align-items: center; gap: 4px;">
+                        <button class="track-queue-btn" title="Add to Queue" data-track-id="${item.id}"><i class="fas fa-list-ul"></i></button>
+                        <button class="track-remove-btn" title="Remove from playlist" data-track-id="${item.id}"><i class="fas fa-trash-alt"></i></button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      grid.innerHTML = tableHtml;
+
+      // Bind Play All
+      document.getElementById('btn-play-all-playlist')?.addEventListener('click', () => {
+        if (items.length > 0 && window.MeemAudioPlayer) {
+          window.MeemAudioPlayer.playTrack(items[0], items);
+        }
+      });
+
+      // Bind Row Click
+      grid.querySelectorAll('.spotify-track-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.closest('.track-remove-btn') || e.target.closest('.track-queue-btn')) return;
+          const idx = parseInt(row.dataset.index, 10);
+          const track = items[idx];
+          if (track && window.MeemAudioPlayer) {
+            window.MeemAudioPlayer.playTrack(track, items);
+          }
+        });
+      });
+
+      // Bind Add to Queue
+      grid.querySelectorAll('.track-queue-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const trackId = btn.dataset.trackId;
+          const track = items.find(t => String(t.id) === String(trackId));
+          if (track && window.MeemAudioPlayer) {
+            window.MeemAudioPlayer.addToQueue(track);
+          }
+        });
+      });
+
+      // Bind Remove Track
+      grid.querySelectorAll('.track-remove-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const trackId = btn.dataset.trackId;
+          const idx = list.items.findIndex(t => t.id === trackId);
+          if (idx !== -1) {
+            list.items.splice(idx, 1);
+            persist(true);
+            showToast('Removed track from playlist');
+            renderCustomListDetail(list.id);
+          }
+        });
+      });
+
+      return;
+    }
+
+    grid.className = 'card-grid watchlist-grid-cinematic';
+    grid.style.cssText = 'margin-top: 25px;';
     if (items.length === 0) {
       empty.style.display = 'flex';
     } else {
@@ -8603,13 +9122,31 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         card.onclick = () => openDiscoverDetail(item);
         grid.appendChild(card);
       });
-      if (window.socialPresence && typeof window.socialPresence.renderPlaybackPins === 'function') {
-        window.socialPresence.renderPlaybackPins('#custom-list-grid');
-      }
+    }
+    if (window.socialPresence && typeof window.socialPresence.renderPlaybackPins === 'function') {
+      window.socialPresence.renderPlaybackPins('#custom-list-grid');
     }
   }
 
-  function createNewCustomList(name, itemToAdd = null) {
+  function formatRelativeDate(isoString) {
+    if (!isoString) return 'Recently';
+    try {
+      const d = new Date(isoString);
+      const now = new Date();
+      const diffMs = now - d;
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays <= 0) return 'Today';
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7) return `${diffDays} days ago`;
+      if (diffDays < 14) return '1 week ago';
+      if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch (e) {
+      return 'Recently';
+    }
+  }
+
+  function createNewCustomList(name, itemToAdd = null, type = 'media') {
     if (!currentProfile) {
       console.error('[LISTS] Cannot create list: No active profile');
       showToast('⚠️ No active profile selected');
@@ -8625,32 +9162,53 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const newList = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'list_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
       name: name,
+      type: type || 'media',
       profile_id: currentProfile.id,
       items: []
     };
 
     if (itemToAdd) {
-      const toAdd = {
-        id: itemToAdd.id,
-        title: itemToAdd.title || itemToAdd.name || '',
-        type: itemToAdd.type || '',
-        poster: itemToAdd.poster || itemToAdd.poster_path || '',
-        backdrop: itemToAdd.backdrop || itemToAdd.backdrop_path || '',
-        release_date: itemToAdd.release_date || itemToAdd.first_air_date || '',
-        vote_average: itemToAdd.vote_average || 0,
-        overview: itemToAdd.overview || ''
-      };
-      newList.items.push(toAdd);
+      if (type === 'music') {
+        newList.items.push({
+          id: itemToAdd.id,
+          title: itemToAdd.title || 'Track',
+          artist: itemToAdd.artist || 'Artist',
+          album: itemToAdd.album || 'Single',
+          thumbnail: itemToAdd.thumbnail || '',
+          duration: itemToAdd.duration || 0,
+          durationFormatted: itemToAdd.durationFormatted || '0:00',
+          added_at: new Date().toISOString(),
+          added_by: {
+            id: currentProfile.id,
+            name: currentProfile.name,
+            avatar: currentProfile.avatar
+          }
+        });
+      } else {
+        const toAdd = {
+          id: itemToAdd.id,
+          title: itemToAdd.title || itemToAdd.name || '',
+          type: itemToAdd.type || '',
+          poster: itemToAdd.poster || itemToAdd.poster_path || '',
+          backdrop: itemToAdd.backdrop || itemToAdd.backdrop_path || '',
+          release_date: itemToAdd.release_date || itemToAdd.first_air_date || '',
+          vote_average: itemToAdd.vote_average || 0,
+          overview: itemToAdd.overview || ''
+        };
+        newList.items.push(toAdd);
+      }
       showToast(`Created "${name}" and added item`);
     } else {
-      showToast(`Created collection "${name}"`);
+      showToast(`Created ${type === 'music' ? 'music playlist' : 'collection'} "${name}"`);
     }
 
     currentProfile.custom_lists.push(newList);
-    console.log('[LISTS] Created new custom list:', { name, itemsCount: newList.items.length, listId: newList.id });
+    console.log('[LISTS] Created new custom list:', { name, type, itemsCount: newList.items.length, listId: newList.id });
     persist(true);
     if (typeof renderLibCustomLists === 'function') renderLibCustomLists();
+    return newList;
   }
+  window.createNewCustomList = createNewCustomList;
 
   // ── Custom List Name Modal (replaces prompt() which is unreliable in Electron) ──
   function showCreateListModal(onConfirm, initialValue = '', title = 'Create New Collection', confirmLabel = 'Create') {
@@ -8660,6 +9218,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     const isRename = confirmLabel !== 'Create';
     const iconClass = isRename ? 'fa-pen' : 'fa-folder-plus';
+    let selectedType = 'media';
+
+    const canMusic = (window.AppCapabilities && typeof window.AppCapabilities.can === 'function')
+      ? window.AppCapabilities.can('music')
+      : (appData.installedAddons || []).some(a => {
+          if (a.enabled === false) return false;
+          const id = String(a.id || '').toLowerCase();
+          const url = String(a.url || a.manifestUrl || '').toLowerCase();
+          const name = String(a.name || '').toLowerCase();
+          return id === 'com.meem.music.player' || id.includes('music.player') || id.includes('ytmusic') || (id.includes('music') && !id.includes('schedule')) || url.includes('addon-music') || url.includes('music-player') || name.includes('music') || name.includes('spotify');
+        });
 
     const overlay = document.createElement('div');
     overlay.id = 'create-list-modal-overlay';
@@ -8671,16 +9240,40 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
         </svg>
       </div>
-      <div id="create-list-modal-box" style="background:rgba(255,255,255,0.03);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border:1px solid rgba(255,255,255,0.1);border-radius:36px;padding:44px 38px;width:480px;max-width:92vw;box-shadow:0 40px 100px rgba(0,0,0,0.85);display:flex;flex-direction:column;gap:24px;position:relative;z-index:2;">
+      <div id="create-list-modal-box" style="background:rgba(255,255,255,0.03);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border:1px solid rgba(255,255,255,0.1);border-radius:36px;padding:40px 36px;width:500px;max-width:92vw;box-shadow:0 40px 100px rgba(0,0,0,0.85);display:flex;flex-direction:column;gap:20px;position:relative;z-index:2;">
         <div style="display:flex;align-items:center;gap:14px;">
           <div style="width:52px;height:52px;border-radius:18px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
             <i class="fas ${iconClass}" style="color:#ffffff;font-size:22px;"></i>
           </div>
           <h3 style="margin:0;font-size:1.5rem;font-weight:800;color:#fff;letter-spacing:-0.4px;">${title}</h3>
         </div>
-        <input id="create-list-modal-input" type="text" placeholder="e.g. To Watch, Favorites..." autocomplete="off" value="${initialValue.replace(/"/g, '&quot;')}"
+
+        ${(!isRename && canMusic) ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="collection-type-choice-card active" data-type="media">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;flex-shrink:0;">
+              <i class="fas fa-clapperboard"></i>
+            </div>
+            <div>
+              <div style="font-weight:800;font-size:0.95rem;color:#fff;">Media</div>
+              <div style="font-size:0.75rem;color:rgba(255,255,255,0.6);margin-top:2px;">Movies & TV Shows</div>
+            </div>
+          </div>
+          <div class="collection-type-choice-card" data-type="music">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;flex-shrink:0;">
+              <i class="fas fa-music"></i>
+            </div>
+            <div>
+              <div style="font-weight:800;font-size:0.95rem;color:#fff;">Music Playlist</div>
+              <div style="font-size:0.75rem;color:rgba(255,255,255,0.6);margin-top:2px;">Songs & Recitations</div>
+            </div>
+          </div>
+        </div>
+        ` : ''}
+
+        <input id="create-list-modal-input" type="text" placeholder="${isRename ? 'Collection name...' : 'e.g. Chill Vibes, Best Recitations, Favorites...'}" autocomplete="off" value="${initialValue.replace(/"/g, '&quot;')}"
           style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.18);border-radius:16px;color:#fff;padding:16px 20px;font-size:1rem;font-weight:600;outline:none;transition:all 0.2s;">
-        <div style="display:flex;gap:14px;justify-content:flex-end;margin-top:6px;">
+        <div style="display:flex;gap:14px;justify-content:flex-end;margin-top:4px;">
           <button id="create-list-modal-cancel" style="padding:14px 28px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.18);border-radius:16px;color:rgba(255,255,255,0.85);font-size:0.95rem;font-weight:700;cursor:pointer;transition:background 0.2s;">Cancel</button>
           <button id="create-list-modal-confirm" style="padding:14px 30px;background:#ffffff !important;color:#000000 !important;border:none;border-radius:16px;font-size:0.95rem;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(255,255,255,0.3);transition:opacity 0.2s;">${confirmLabel}</button>
         </div>
@@ -8692,7 +9285,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const confirmBtn = overlay.querySelector('#create-list-modal-confirm');
     const cancelBtn = overlay.querySelector('#create-list-modal-cancel');
 
-    // Focus input immediately and select text (useful for rename)
+    overlay.querySelectorAll('.collection-type-choice-card').forEach(card => {
+      card.addEventListener('click', () => {
+        overlay.querySelectorAll('.collection-type-choice-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        selectedType = card.dataset.type || 'media';
+      });
+    });
+
     setTimeout(() => { try { input.focus(); if (initialValue) input.select(); } catch(e) {} }, 50);
 
     cancelBtn.onclick = () => overlay.remove();
@@ -8700,7 +9300,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const val = input.value.trim();
       if (!val) return;
       overlay.remove();
-      if (typeof onConfirm === 'function') onConfirm(val);
+      if (typeof onConfirm === 'function') onConfirm(val, selectedType);
     };
     input.onkeydown = (e) => {
       if (e.key === 'Enter') confirmBtn.click();
@@ -8779,7 +9379,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           data.forEach(user => {
             const div = document.createElement('div');
             div.style.cssText = 'padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.06);transition:background 0.2s;display:flex;align-items:center;gap:12px;';
-            const statusText = user.allow_invitations === false ? ' <span style="color:#EF4444;font-size:11px;font-weight:bold;margin-left:5px;">(الدعوات مغلقة)</span>' : '';
+            const statusText = user.allow_invitations === false ? ' <span style="color:#EF4444;font-size:11px;font-weight:bold;margin-left:5px;">(Invites Closed)</span>' : '';
             const avatarUrl = user.avatar || 'https://lh3.googleusercontent.com/a/default-user=s96-c';
             
             div.innerHTML = `
@@ -8874,7 +9474,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
         // Check if the user has disabled invitations
         if (allowInvitations === false) {
-          showToast('الشخص دا قافل الدعوات !');
+          showToast('This user has disabled invitations.');
           confirmBtn.disabled = false;
           confirmBtn.style.opacity = '1';
           return;
@@ -8890,7 +9490,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
         if (!inviteRes.success) {
           if (inviteRes.blocked) {
-            showToast('الشخص دا قافل الدعوات !');
+            showToast('This user has disabled invitations.');
           } else if (inviteRes.exists) {
             showToast('This user is already a collaborator/invited');
           } else {
@@ -8951,21 +9551,41 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         // DB rows use list_name; local-only lists use name
         profile_id: row.profile_id || currentProfile.id,
         name: row.list_name || row.name,
+        type: row.type || (row.list_type || 'media'),
         theme_color: row.theme_color || '#6366f1',
-        items: (row.list_items || row.items || []).map(item => ({
-          id: item.media_id || item.id,
-          type: item.type,
-          media_type: item.type,
-          title: item.title,
-          poster: item.poster_path || item.poster,
-          backdrop: item.backdrop_path || item.backdrop,
-          release_date: item.release_date,
-          vote_average: item.vote_average,
-          overview: item.overview,
-          source: item.source || null,
-          mal_id: item.mal_id || null,
-          anime_id: item.anime_id || null
-        }))
+        items: (row.list_items || row.items || []).map(item => {
+          const itemData = item.item_data || {};
+          const isMusic = (item.type === 'music') || (row.type === 'music') || !!itemData.artist || (item.source === 'music');
+          if (isMusic) {
+            return {
+              id: item.media_id || item.id,
+              type: 'music',
+              title: item.title || itemData.title || '',
+              artist: itemData.artist || item.overview || '',
+              album: itemData.album || '',
+              thumbnail: item.poster_path || itemData.thumbnail || item.backdrop_path || '',
+              poster: item.poster_path || itemData.thumbnail || '',
+              duration: itemData.duration || 0,
+              durationFormatted: itemData.durationFormatted || item.release_date || '0:00',
+              added_at: item.added_at || itemData.added_at || new Date().toISOString(),
+              added_by: itemData.added_by || null
+            };
+          }
+          return {
+            id: item.media_id || item.id,
+            type: item.type,
+            media_type: item.type,
+            title: item.title,
+            poster: item.poster_path || item.poster,
+            backdrop: item.backdrop_path || item.backdrop,
+            release_date: item.release_date,
+            vote_average: item.vote_average,
+            overview: item.overview,
+            source: item.source || null,
+            mal_id: item.mal_id || null,
+            anime_id: item.anime_id || null
+          };
+        })
       }));
       
       persist(true);
@@ -9099,8 +9719,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     // Watchlist or Library create custom list button
     const createBtn = e.target.closest('#btn-create-watchlist-collection, #btn-create-library-collection');
     if (createBtn) {
-      showCreateListModal((name) => {
-        createNewCustomList(name);
+      showCreateListModal((name, type) => {
+        createNewCustomList(name, null, type);
       });
       return;
     }
@@ -9119,6 +9739,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     // Custom list invite collaborator button
     const inviteBtn = e.target.closest('#btn-invite-collaborator');
     if (inviteBtn) {
+      if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+        showToast('👑 Inviting friends to collections is available exclusively for MEEM VIP members!');
+        if (typeof window.openSubscriptionModal === 'function') window.openSubscriptionModal('Shared Watchlists & Collaboration');
+        return;
+      }
       if (!activeCustomListId || !currentProfile) return;
       const list = currentProfile.custom_lists.find(l => l.id === activeCustomListId);
       if (!list) return;
@@ -9229,7 +9854,30 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   });
 
+  function isMetadataProviderActive() {
+    const installed = appData.installedAddons || [];
+    const hasCinemeta = installed.some(a => {
+      const id = (a.id || '').toLowerCase();
+      const name = (a.name || '').toLowerCase();
+      const url = (a.url || a.manifestUrl || '').toLowerCase();
+      return id.includes('cinemeta') || name.includes('cinemeta') || url.includes('cinemeta');
+    });
+    const hasTmdb = installed.some(a => {
+      const id = (a.id || '').toLowerCase();
+      const name = (a.name || '').toLowerCase();
+      const url = (a.url || a.manifestUrl || '').toLowerCase();
+      return id.includes('tmdb') || name.includes('tmdb') || url.includes('tmdb');
+    }) || (!!appData.tmdbKey && appData.tmdbEnabled !== false);
+
+    return hasCinemeta || hasTmdb;
+  }
+  window.isMetadataProviderActive = isMetadataProviderActive;
+
   async function autoMatchMetadata() {
+    if (!isMetadataProviderActive()) {
+      console.log('[Metadata] Skipping auto-match: neither Cinemeta nor TMDB is active/installed');
+      return;
+    }
     const cache = appData.cinemetaCache = appData.cinemetaCache || {};
     const tmdbCache = appData.tmdbCache || {};
     const items = [
@@ -9386,10 +10034,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const muc = (appData.music || []).length;
 
     const bm = $('#badge-movies'), bs = $('#badge-shows'), by = $('#badge-social'), bmu = $('#badge-music');
-    if (bm) { bm.textContent = mc; bm.classList.toggle('visible', mc > 0); }
-    if (bs) { bs.textContent = sc; bs.classList.toggle('visible', sc > 0); }
-    if (by) { by.textContent = socCount; by.classList.toggle('visible', socCount > 0); }
-    if (bmu) { bmu.textContent = muc; bmu.classList.toggle('visible', muc > 0); }
+    if (bm) { bm.textContent = mc > 0 ? mc : ''; bm.classList.toggle('visible', mc > 0); }
+    if (bs) { bs.textContent = sc > 0 ? sc : ''; bs.classList.toggle('visible', sc > 0); }
+    if (by) { by.textContent = socCount > 0 ? socCount : ''; by.classList.toggle('visible', socCount > 0); }
+    if (bmu) { bmu.textContent = muc > 0 ? muc : ''; bmu.classList.toggle('visible', muc > 0); }
 
     const cM = $('#movies-count'), cS = $('#shows-count'), cY = $('#social-count'), cMu = $('#music-count'), cW = $('#watchlist-count');
     if (cM) cM.textContent = mc ? mc + ' item' + (mc > 1 ? 's' : '') : '0 items';
@@ -9769,15 +10417,24 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const radioName = item.title || item.name || 'Radio Station';
       const radioFavicon = item.favicon || item.logo || item.poster_path || item.posterPath || item.poster;
       let radioPoster = '';
-      if (radioFavicon && radioFavicon !== 'imgs/appicon-w.png') {
-        radioPoster = `<img src="${localImg(radioFavicon)}" style="width:100%;height:100%;object-fit:contain;padding:16px;box-sizing:border-box;position:relative;z-index:2;" loading="lazy" onerror="this.style.display='none';var ph=this.parentElement.querySelector('.card-poster-placeholder');if(ph){ph.style.display='flex';ph.style.opacity='1';}">`;
+      const isDeadRadioFavicon = (url) => {
+        if (!url || url === 'imgs/appicon-w.png') return true;
+        if (window._deadFaviconUrls && window._deadFaviconUrls.has(url)) return true;
+        return ['phantomsw.com', 'cdn.raddio.net', 'radiosfax.tn', 'radiokef.tn', 'ANd9GcRLDeG4UfceNKx39_KEr8RQhM3QX5kSdpK6zQ'].some(p => url.includes(p));
+      };
+      if (radioFavicon && !isDeadRadioFavicon(radioFavicon)) {
+        radioPoster = `<img src="${localImg(radioFavicon)}" style="width:100%;height:100%;object-fit:contain;padding:16px;box-sizing:border-box;position:relative;z-index:2;" loading="lazy" onerror="if(window._deadFaviconUrls) window._deadFaviconUrls.add(this.src); this.style.display='none';var ph=this.parentElement.querySelector('.card-poster-placeholder');if(ph){ph.style.display='flex';ph.style.opacity='1';}">`;
       }
       card.innerHTML = `
         <div class="card-poster" style="background: linear-gradient(135deg, rgba(30, 20, 50, 0.95), rgba(12, 10, 24, 0.98)); position: relative;">
+          <div class="live-badge" style="position: absolute; top: 8px; left: 8px; background: #818cf8; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; text-transform: uppercase; z-index: 10; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none;">
+            <span style="width: 6px; height: 6px; background: #ffffff; border-radius: 50%; display: inline-block; animation: pulse-red 1.5s infinite;"></span>
+            LIVE
+          </div>
           ${radioPoster}
           <div class="card-poster-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: absolute; inset: 0; padding: 14px; text-align: center; z-index: 1;">
             <div class="ph-icon" style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;box-shadow: 0 0 20px rgba(255,255,255,0.15);">
-              <i class="fas fa-broadcast-tower" style="font-size: 26px; color: #ffffff;"></i>
+              <i class="fas fa-broadcast-tower" style="font-size: 26px; color: #ffffff; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; line-height: 1;"></i>
             </div>
             <span class="ph-text" style="font-weight:700;color:#fff;font-size:13px;line-height:1.2;">${escapeHTML(radioName)}</span>
           </div>
@@ -9818,10 +10475,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
       card.innerHTML = `
         <div class="card-poster" style="background: linear-gradient(135deg, rgba(15, 25, 40, 0.95), rgba(8, 12, 22, 0.98)); position: relative;">
+          <div class="live-badge" style="position: absolute; top: 8px; left: 8px; background: #ef4444; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; text-transform: uppercase; z-index: 10; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none;">
+            <span style="width: 6px; height: 6px; background: #ffffff; border-radius: 50%; display: inline-block; animation: pulse-red 1.5s infinite;"></span>
+            LIVE
+          </div>
           ${logoHTML}
           <div class="card-poster-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: absolute; inset: 0; padding: 14px; text-align: center; z-index: 1;">
             <div class="ph-icon" style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;box-shadow: 0 0 20px rgba(255,255,255,0.15);">
-              <i class="fas fa-tv" style="font-size: 26px; color: #ffffff;"></i>
+              <i class="fas fa-tv" style="font-size: 26px; color: #ffffff; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; line-height: 1;"></i>
             </div>
             <span class="ph-text" style="font-weight:700;color:#fff;font-size:13px;line-height:1.2;">${escapeHTML(chName)}</span>
           </div>
@@ -9991,7 +10652,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     currentEpisodeIndex = -1;
     if (!partName && show.parts?.length > 0) currentPart = show.parts[0].name; else currentPart = partName;
     let tmdb = getMetadataForItem(show);
-    if (!tmdb) {
+    if (!tmdb && isMetadataProviderActive()) {
       // Prefer fetching by IMDb ID directly (Trakt items always have one) to avoid
       // wrong-result title-search collisions (e.g. "Arcane" returning a Dutch thriller).
       const resolvedImdb = show.imdb_id || show.imdbId ||
@@ -10233,9 +10894,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       details.appendChild(classification);
     }
 
-    // TMDB API suggestion banner notice
-    const isTmdbActive = appData.tmdbKey && appData.tmdbEnabled !== false;
-    if (!isTmdbActive) {
+    // TMDB / Cinemeta suggestion banner notice
+    const isMetaActive = isMetadataProviderActive();
+    if (!isMetaActive) {
       const banner = document.createElement('div');
       banner.className = 'tmdb-notice-banner';
       banner.style.cssText = 'margin: 25px 0 0 0; padding: 18px 24px; background: #000000; border: 1.5px solid rgba(255, 255, 255, 0.45); border-radius: 16px; display: flex; align-items: center; justify-content: space-between; gap: 20px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.95), 0 0 25px rgba(255, 255, 255, 0.08); backdrop-filter: blur(12px); max-width: 750px; transition: all 0.3s ease; flex-wrap: wrap;';
@@ -10245,14 +10906,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 <i class="fas fa-magic" style="font-size: 18px; color: #ffffff;"></i>
             </div>
             <div style="display: flex; flex-direction: column; gap: 3px; text-align: left;">
-                <div style="font-size: 14px; font-weight: 800; color: #ffffff; letter-spacing: 0.3px;">Enhance Your TV Show Experience</div>
+                <div style="font-size: 14px; font-weight: 800; color: #ffffff; letter-spacing: 0.3px;">Install Cinemeta or Add TMDB API Key</div>
                 <div style="font-size: 12.5px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; font-weight: 500;">
-                    Missing those episode posters? We can fix that! Simply add your TMDB API key in Settings, and we'll handle the rest.
+                    Install the Cinemeta add-on or add your TMDB API key in Settings to automatically fetch episode posters and titles.
                 </div>
             </div>
         </div>
         <button class="btn-primary" style="background: #ffffff; border: none; color: #000000; padding: 10px 22px; font-size: 12px; font-weight: 800; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; box-shadow: 0 4px 20px rgba(255, 255, 255, 0.3); white-space: nowrap;" onclick="switchView('settings')" onmouseover="this.style.background='#f4f4f5'; this.style.transform='translateY(-2px)';" onmouseout="this.style.background='#ffffff'; this.style.transform='none';">
-            <i class="fas fa-cog" style="color: #000000;"></i> <span style="color: #000000; font-weight: 800;">GO TO SETTINGS</span>
+            <i class="fas fa-cog" style="color: #000000;"></i> <span style="color: #000000; font-weight: 800;">SETTINGS / ADDONS</span>
         </button>
       `;
       details.appendChild(banner);
@@ -10657,9 +11318,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const showSubtitlesBtn = window.AppCapabilities ? window.AppCapabilities.can('subtitles') : hasAddon(['subdl', 'opensubtitles', 'subscene']);
     const showBannerBtn = window.AppCapabilities ? window.AppCapabilities.can('banner-search') : true;
 
-    // Discover requires a catalog addon (Cinemeta/TMDB) to be installed
-    const showDiscoverBtn = window.AppCapabilities ? window.AppCapabilities.can('catalog') : hasAddon(['cinemeta', 'tmdb', 'tmdb-addon', 'tmdb.elfhosted']);
-    // Search & Watchlist are ALWAYS visible as core features
+    // Home (Discover), Search & Watchlist are ALWAYS visible as core features
+    const showDiscoverBtn = true;
     const showSearchBtn = true;
     const showWatchlistBtn = true;
 
@@ -10667,7 +11327,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const applyNav = (id, visible) => {
       const el = $(id);
       if (!el) return;
-      el.style.display = visible ? '' : 'none';
+      if (visible) {
+        el.classList.remove('hidden');
+        el.style.removeProperty('display');
+      } else {
+        el.classList.add('hidden');
+        el.style.setProperty('display', 'none', 'important');
+      }
     };
 
     applyNav('#nav-movies', showMoviesBtn);
@@ -10676,6 +11342,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     applyNav('#nav-search', showSearchBtn);
     applyNav('#nav-watchlist', showWatchlistBtn);
     applyNav('#nav-subtitles', showSubtitlesBtn);
+
+    const showAnimeScheduleBtn = (appData.installedAddons || []).some(a => {
+      const id = (a.id || '').toLowerCase();
+      const url = (a.url || a.manifestUrl || '').toLowerCase();
+      const name = (a.name || '').toLowerCase();
+      return id.includes('anime.schedule') || url.includes('anime-schedule') || name.includes('anime schedule') || name.includes('anime release schedule');
+    });
+    applyNav('#nav-anime-schedule', showAnimeScheduleBtn);
+
+    const showMusicBtn = window.AppCapabilities ? window.AppCapabilities.can('music') : (appData.installedAddons || []).some(a => {
+      if (a.enabled === false) return false;
+      const id = String(a.id || '').toLowerCase();
+      const url = String(a.url || a.manifestUrl || '').toLowerCase();
+      const name = String(a.name || '').toLowerCase();
+      return id === 'com.meem.music.player' || id.includes('music.player') || id.includes('ytmusic') || (id.includes('music') && !id.includes('schedule')) || url.includes('addon-music') || url.includes('music-player') || name.includes('music') || name.includes('spotify');
+    });
+    applyNav('#nav-music', showMusicBtn);
 
     const bannerBtn = $('#btn-fav-banner');
     if (bannerBtn) {
@@ -10700,11 +11383,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (!showSubtitlesBtn) hiddenViews.push('subtitles');
     if (!showMoviesBtn) hiddenViews.push('movies');
     if (!showShowsBtn) hiddenViews.push('shows');
+    if (!showMusicBtn) {
+      hiddenViews.push('music');
+      hiddenViews.push('music-player');
+    }
 
     if (typeof currentView !== 'undefined' && hiddenViews.includes(currentView)) {
-      const safeViews = ['discover', 'search', 'watchlist', 'music', 'downloads', 'settings'];
+      const safeViews = ['discover', 'search', 'watchlist', 'downloads', 'settings'];
       if (showMoviesBtn) safeViews.unshift('movies');
       if (showShowsBtn) safeViews.unshift('shows');
+      if (showMusicBtn) safeViews.push('music');
       const fallback = safeViews[0] || 'settings';
       switchView(fallback);
     }
@@ -10882,6 +11570,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const displayTime = manualTime !== null ? manualTime : engine.currentTime;
     const timeDisplay = $('#time-display');
     if (timeDisplay) timeDisplay.textContent = `${formatTime(displayTime)} / ${formatTime(dur)}`;
+    const timeCur = $('#time-current');
+    const timeDur = $('#time-duration');
+    if (timeCur) timeCur.textContent = formatTime(displayTime);
+    if (timeDur) timeDur.textContent = formatTime(dur);
 
     // Music time display
     const mTimeCur = $('#music-time-current');
@@ -11215,41 +11907,39 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     bass: [6, 3, 0, 0, -1]
   };
 
-  $('#btn-transcode-audio').onclick = () => {
-    if (!video || !video.src || !video.src.startsWith('http')) return;
-    
-    if (video.src.includes('127.0.0.1:1147') || video.src.includes('localhost:1147')) {
-      try {
-        const urlObj = new URL(video.src);
-        if (urlObj.searchParams.get('transcode') === 'true') {
-          showToast('Audio fix is already active');
-          return;
+  const btnTA = $('#btn-transcode-audio') || $('#psd-btn-transcode');
+  if (btnTA) {
+    btnTA.onclick = () => {
+      if (!video || !video.src || !video.src.startsWith('http')) return;
+      
+      if (video.src.includes('127.0.0.1:1147') || video.src.includes('localhost:1147')) {
+        try {
+          const urlObj = new URL(video.src);
+          if (urlObj.searchParams.get('transcode') === 'true') {
+            showToast('Audio fix is already active');
+            return;
+          }
+          
+          showToast('Applying audio fix (transcoding)...');
+          urlObj.searchParams.set('transcode', 'true');
+          
+          const currentTime = video.currentTime;
+          if (currentTime > 0) {
+            urlObj.searchParams.set('start', currentTime.toString());
+          }
+          
+          video.src = urlObj.toString();
+          video.play().catch(e => console.warn('Failed to auto-resume after transcode:', e));
+          
+          btnTA.style.color = 'var(--accent)';
+        } catch (e) {
+          console.error('Error applying audio transcode:', e);
         }
-        
-        showToast('Applying audio fix (transcoding)...');
-        urlObj.searchParams.set('transcode', 'true');
-        
-        const currentTime = video.currentTime;
-        if (currentTime > 0) {
-          urlObj.searchParams.set('start', currentTime.toString());
-        }
-        
-        video.src = urlObj.toString();
-        // Since transcode re-encodes from the start parameter, the video itself will see time 0 as the 'current' time for the segment
-        // Wait, if we set video.src, the video resets to 0. But the stream itself STARTS at 'currentTime'.
-        // This causes the progress bar to show 0:00 instead of 35:00.
-        // Actually, for a quick "Audio fix" it's better than silence. 
-        // We'll let it play from the offset.
-        video.play().catch(e => console.warn('Failed to auto-resume after transcode:', e));
-        
-        $('#btn-transcode-audio').style.color = 'var(--accent)';
-      } catch (e) {
-        console.error('Error applying audio transcode:', e);
+      } else {
+        showToast('Audio fix is only available for internal streams');
       }
-    } else {
-      showToast('Audio fix is only available for internal streams');
-    }
-  };
+    };
+  }
 
   // ─── dedicated subdl subtitles panel integration ───
   const btnPlayerSubdl = $('#btn-player-subdl');
@@ -11443,17 +12133,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   }
 
-  $('#btn-close-tracks').onclick = () => closeSidePanel();
+  if ($('#btn-close-tracks')) $('#btn-close-tracks').onclick = () => closeSidePanel();
 
-  $('#btn-eq').onclick = () => {
-    if (!audioCtx) initAudioEQ();
-    openPanel('#player-eq-panel');
-  };
-  $('#music-btn-eq').onclick = () => {
-    if (!audioCtx) initAudioEQ();
-    openPanel('#player-eq-panel');
-  };
-  $('#btn-close-eq').onclick = () => closeSidePanel();
+  const btnEq = $('#btn-eq') || $('#psd-btn-eq');
+  if (btnEq) {
+    btnEq.onclick = () => {
+      if (!audioCtx) initAudioEQ();
+      openPanel('#player-eq-panel');
+    };
+  }
+  if ($('#music-btn-eq')) {
+    $('#music-btn-eq').onclick = () => {
+      if (!audioCtx) initAudioEQ();
+      openPanel('#player-eq-panel');
+    };
+  }
+  if ($('#btn-close-eq')) $('#btn-close-eq').onclick = () => closeSidePanel();
 
   function initAudioEQ() {
     if (!audioCtx) {
@@ -11698,7 +12393,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       } else {
         // Try TMDB first
         const tmdbData = await window.api.tmdbDiscoverByGenre(id);
-        finalItems = (tmdbData?.results || []).filter(item => item.adult !== true);
+        finalItems = (tmdbData?.results || []).filter(item => item.adult !== true).map(m => {
+          const pPath = m.poster_path || m.poster || '';
+          const fullPoster = pPath ? (pPath.startsWith('http') ? pPath : (pPath.startsWith('/') ? `https://image.tmdb.org/t/p/w500${pPath}` : pPath)) : '';
+          return {
+            ...m,
+            poster: fullPoster,
+            poster_path: fullPoster
+          };
+        });
 
         // Fallback to Cinemeta if TMDB returned nothing (no key or error)
         if (!finalItems.length) {
@@ -11856,16 +12559,33 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const card = document.createElement('div');
       card.className = 'discover-card';
       const title = item.title || item.name || 'Unknown';
-      let posterUrl = item.poster || '';
+      let posterUrl = item.poster || item.poster_path || item.bannerPath || item.banner || item.customPoster || item.cover || '';
+      if (posterUrl && typeof posterUrl === 'string' && posterUrl.startsWith('/') && !posterUrl.startsWith('//') && !posterUrl.match(/^\/[a-zA-Z]:/)) {
+        posterUrl = `https://image.tmdb.org/t/p/w500${posterUrl}`;
+      }
+      if (!posterUrl && (item.imdb_id || item.imdbId)) {
+        const rawImdb = item.imdb_id || item.imdbId;
+        const cleanImdb = String(rawImdb).startsWith('tt') ? rawImdb : `tt${rawImdb}`;
+        posterUrl = `https://images.metahub.space/poster/medium/${cleanImdb}/img`;
+      }
       const inLib = localTitles.has(title.toLowerCase());
       const label = item.media_type === 'tv' ? 'SERIES' : 'MOVIE';
       const year = (item.release_date || item.first_air_date || '').slice(0, 4);
       const rating = parseFloat(item.vote_average) || 0;
 
+      const isChannelOrLogo = item.type === 'iptv' || item.type === 'radio' || item.type === 'channel' || item.isLive || item.isIptv || item.isRadio || !!item.logo || (typeof posterUrl === 'string' && (posterUrl.includes('logo') || posterUrl.includes('channel') || posterUrl.includes('aljazeera') || posterUrl.includes('radio') || posterUrl.includes('iptv') || posterUrl.includes('svg')));
+
+      const fallbackIcon = (item.type === 'iptv' || item.type === 'channel' || item.isLive || item.isIptv) ? 'fa-tv' : (item.type === 'radio' || item.isRadio ? 'fa-radio' : (item.type === 'show' || item.type === 'tv' ? 'fa-desktop' : 'fa-film'));
+
+      const imgClass = `discover-poster${isChannelOrLogo ? ' is-channel-logo' : ''}`;
+
       card.innerHTML = `
         <div class="discover-poster-wrap">
-          <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
-          ${posterUrl ? `<img src="${localImg(posterUrl)}" class="discover-poster" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+          <div class="discover-poster-placeholder" style="${posterUrl ? 'display:none;' : ''}">
+            <i class="fas ${fallbackIcon}"></i>
+            <span class="placeholder-title">${escapeHTML(title)}</span>
+          </div>
+          ${posterUrl ? `<img src="${localImg(posterUrl)}" class="${imgClass}" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
           ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
         </div>
         <div class="discover-info">
@@ -11892,20 +12612,32 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   let discoverHeroIndex = 0;
   let discoverHeroInterval = null;
 
-  function resolveHeroBackdrop(raw) {
-    if (!raw) return '';
-    const s = String(raw).trim();
-    if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('file://')) {
-      return s;
+  function resolveHeroBackdrop(item) {
+    if (!item) return '';
+    const raw = item.backdrop_path || item.background || item.backdrop || item.bannerImage || item.fanart || item.poster_path || item.poster || '';
+    const imdbId = item.imdb_id || item.imdbId || (String(item.id || '').startsWith('tt') ? item.id : null);
+
+    let url = '';
+    if (raw) {
+      const s = String(raw).trim();
+      if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('file://')) {
+        url = s;
+      } else if (s.startsWith('/tt') || s.startsWith('tt')) {
+        const cleanId = s.replace(/^\//, '').split('/')[0];
+        url = `https://images.metahub.space/background/medium/${cleanId}/img`;
+      } else if (s.startsWith('/')) {
+        url = `https://image.tmdb.org/t/p/w1280${s}`;
+      } else {
+        url = `https://image.tmdb.org/t/p/w1280/${s}`;
+      }
+    } else if (imdbId) {
+      url = `https://images.metahub.space/background/medium/${imdbId}/img`;
     }
-    if (s.startsWith('/tt') || s.startsWith('tt')) {
-      const cleanId = s.replace(/^\//, '').split('/')[0];
-      return `https://images.metahub.space/poster/medium/${cleanId}/img`;
+
+    if (url && typeof window.localImg === 'function') {
+      return window.localImg(url);
     }
-    if (s.startsWith('/')) {
-      return `https://image.tmdb.org/t/p/w1280${s}`;
-    }
-    return `https://image.tmdb.org/t/p/w1280/${s}`;
+    return url;
   }
 
   function updateDiscoverHeroDisplay() {
@@ -11915,15 +12647,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (!item) return;
 
     const title = item.title || item.name || 'Unknown';
-    const rawBackdrop = item.backdrop_path || item.background || item.backdrop || item.poster_path || item.poster || '';
-    const backdrop = resolveHeroBackdrop(rawBackdrop);
+    const backdrop = resolveHeroBackdrop(item);
     const year = (item.release_date || item.first_air_date || item.seasonYear || '').toString().slice(0, 4);
     const rating = item.vote_average ? parseFloat(item.vote_average).toFixed(1) : (item.score || 'N/A');
     const isAnime = item.source === 'anilist' || item.source === 'mal' || item.format;
     const type = isAnime ? 'ANIME' : (item.media_type === 'tv' ? 'SERIES' : 'MOVIE');
+    const imdbId = item.imdb_id || item.imdbId || (String(item.id || '').startsWith('tt') ? item.id : null);
 
     hero.innerHTML = `
-      <div class="hero-backdrop" style="background-image: url('${backdrop}')"></div>
+      <div class="hero-backdrop" id="hero-backdrop-bg" style="background-image: url('${backdrop}')"></div>
       <div class="hero-overlay">
         <div class="hero-content">
           <div class="hero-badge">Featured ${type}</div>
@@ -11940,6 +12672,27 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       </div>
       <div class="hero-pagination" id="discover-hero-dots"></div>
     `;
+
+    // Smart Fallback Preloader for Hero Backdrop Image
+    if (backdrop) {
+      const imgTester = new Image();
+      imgTester.src = backdrop;
+      imgTester.onerror = () => {
+        let fallback = '';
+        if (imdbId && !backdrop.includes('metahub.space')) {
+          fallback = `https://images.metahub.space/background/medium/${imdbId}/img`;
+        } else if (item.poster_path) {
+          fallback = `https://image.tmdb.org/t/p/w1280${item.poster_path}`;
+        } else if (imdbId) {
+          fallback = `https://images.metahub.space/poster/medium/${imdbId}/img`;
+        }
+        if (fallback) {
+          if (typeof window.localImg === 'function') fallback = window.localImg(fallback);
+          const bgEl = hero.querySelector('#hero-backdrop-bg');
+          if (bgEl) bgEl.style.backgroundImage = `url('${fallback}')`;
+        }
+      };
+    }
 
     hero.onclick = (e) => {
       if (e.target.classList.contains('hero-dot')) return;
@@ -12172,8 +12925,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               dlBtn.style = 'padding:4px 10px;font-size:11px;flex-shrink:0;';
               dlBtn.innerHTML = '<i class="fas fa-download"></i>';
               dlBtn.title = 'Download this file';
-              dlBtn.onclick = async (e) => {
-                e.stopPropagation();
+              dlBtn.onclick = async () => {
+                if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+                  showToast('👑 Offline downloads are available exclusively for MEEM VIP members!');
+                  if (typeof window.openSubscriptionModal === 'function') {
+                    window.openSubscriptionModal('Offline Downloads');
+                  }
+                  return;
+                }
                 const idx = f.idx !== undefined ? f.idx : i;
                 
                 let dlPath = null;
@@ -12248,6 +13007,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
             // Download selected button
             dlSelectedBtn.onclick = async () => {
+              if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+                showToast('👑 Offline downloads are available exclusively for MEEM VIP members!');
+                if (typeof window.openSubscriptionModal === 'function') {
+                  window.openSubscriptionModal('Offline Downloads');
+                }
+                return;
+              }
               const selected = checkboxes.filter(c => c.checked);
               if (selected.length === 0) { showToast('Select at least one file'); return; }
               const idxs = selected.map(cb => parseInt(cb.dataset.fileIdx, 10));
@@ -12305,11 +13071,25 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
 
   async function startDownload() {
+    if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+      showToast('👑 Offline downloads are available exclusively for MEEM VIP members!');
+      if (typeof window.openSubscriptionModal === 'function') {
+        window.openSubscriptionModal('Offline Downloads');
+      }
+      return;
+    }
     // Gate: require responsibility disclaimer before starting any download
     showDisclaimerAndProceed(_doStartDownload);
   }
 
   async function _doStartDownload() {
+    if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
+      showToast('👑 Offline downloads are available exclusively for MEEM VIP members!');
+      if (typeof window.openSubscriptionModal === 'function') {
+        window.openSubscriptionModal('Offline Downloads');
+      }
+      return;
+    }
     const urlInput = $('#dl-url');
     const nameInput = $('#dl-name');
     let url = urlInput ? urlInput.value.trim() : '';
@@ -12612,8 +13392,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const b = $('#badge-downloads');
     const hb = $('#header-dl-badge');
     const c = activeDownloads.size;
-    if (b) { b.textContent = c; b.classList.toggle('visible', c > 0); }
-    if (hb) { hb.textContent = c; hb.style.display = c > 0 ? 'block' : 'none'; }
+    if (b) { b.textContent = c > 0 ? c : ''; b.classList.toggle('visible', c > 0); }
+    if (hb) { hb.textContent = c > 0 ? c : ''; hb.style.display = c > 0 ? 'block' : 'none'; }
   }
 
   // ── Vault Logic ──
@@ -12821,7 +13601,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   function renderAll() {
     renderLibrary(); renderSidebar(); renderWatchlist(); renderSocial(); renderMusic();
-    showToast('Library ready');
   }
 
   // ── FINAL BOOT ──
@@ -13076,6 +13855,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   function switchView(name) {
     if (name === 'home') name = 'discover';
+    const canMusic = window.AppCapabilities ? window.AppCapabilities.can('music') : (appData.installedAddons || []).some(a => {
+      if (a.enabled === false) return false;
+      const id = String(a.id || '').toLowerCase();
+      const url = String(a.url || a.manifestUrl || '').toLowerCase();
+      const n = String(a.name || '').toLowerCase();
+      return id === 'com.meem.music.player' || id.includes('music.player') || id.includes('ytmusic') || (id.includes('music') && !id.includes('schedule')) || url.includes('addon-music') || url.includes('music-player') || n.includes('music') || n.includes('spotify');
+    });
+    if ((name === 'music' || name === 'music-player') && !canMusic) {
+      showToast('Please install the MEEM Music mod to access Music');
+      name = 'discover';
+    }
     window.switchView = switchView;
     if (name !== 'custom-list-detail' && name !== 'discover-detail' && name !== 'player' && name !== 'music-player') {
       activeCustomListId = null;
@@ -13115,7 +13905,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
     }
     if (name === 'discover') discoverStack = []; // Reset sub-navigation when going to main list
-    if (['library', 'movies', 'shows', 'social', 'music', 'radio', 'iptv', 'addons', 'watchlist', 'settings', 'account', 'discover', 'downloads', 'discover-detail', 'show-detail', 'subtitles', 'sync', 'player', 'music-player', 'profiles', 'hub', 'search', 'custom-list-detail'].includes(name)) {
+    if (['library', 'movies', 'shows', 'social', 'music', 'radio', 'iptv', 'addons', 'watchlist', 'settings', 'account', 'discover', 'downloads', 'discover-detail', 'show-detail', 'subtitles', 'sync', 'player', 'music-player', 'profiles', 'hub', 'search', 'custom-list-detail', 'anime-schedule'].includes(name)) {
       if (name === 'custom-list-detail') {
         if (activeCustomListId && (currentView === 'discover-detail' || currentView === 'player' || currentView === 'music-player')) {
           renderCustomListDetail(activeCustomListId);
@@ -13133,6 +13923,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
       if (name === 'addons') {
         if (typeof initStremioAddonsUI === 'function') initStremioAddonsUI();
+      }
+      if (name === 'anime-schedule') {
+        if (typeof window.loadAnimeSchedule === 'function') window.loadAnimeSchedule();
+      }
+      if (name === 'music') {
+        if (typeof window.initSpotifyMusicView === 'function') window.initSpotifyMusicView();
       }
       if (name === 'settings') {
         if (typeof initSubdlUI === 'function') initSubdlUI();
@@ -13179,7 +13975,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (name !== 'show-detail') currentShowId = null;
     $$('.nav-btn[data-view]').forEach(b => {
       const v = b.dataset.view;
-      const isAct = v === name || (v === 'social' && (name === 'social' || name === 'music'));
+      const isAct = v === name;
       b.classList.toggle('active', isAct);
     });
 
@@ -13250,7 +14046,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         // Explicitly set display to avoid relying purely on CSS class (fixes settings/account blank)
         if (isActive) {
           // Some views need flex layout instead of block
-          if (k === 'addons') {
+          if (k === 'addons' || k === 'anime-schedule') {
             el.style.display = 'flex';
           } else if (k === 'iptv') {
             el.style.display = 'block';
@@ -13346,6 +14142,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     };
 
     if (name === 'discover') {
+      if (typeof renderContinueWatchingDiscover === 'function') {
+        renderContinueWatchingDiscover();
+      }
+      if (typeof renderBentoWatchlist === 'function') {
+        renderBentoWatchlist();
+      }
       const trending = $('#trending-row');
       const isBlank = !trending || trending.children.length === 0 || trending.querySelector('.discover-card-skeleton');
       if (isBlank && !isDiscoverLoading) loadDiscover();
@@ -13360,6 +14162,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (name === 'subtitles') renderSubtitles();
     if (name === 'library') {
       renderLibrary();
+      renderLibContinueWatching();
       if (window.socialPresence && window.socialPresence.renderInvitedFriends) {
         window.socialPresence.renderInvitedFriends();
       }
@@ -14366,6 +15169,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // ── Music Player ──
   async function renderMusic() {
+    if (typeof window.initSpotifyMusicView === 'function') {
+      window.initSpotifyMusicView();
+      return;
+    }
     const grid = $('#music-grid');
     if (!grid) return;
     grid.innerHTML = '';
@@ -14580,6 +15387,108 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (typeof renderLibCustomLists === 'function') {
       renderLibCustomLists();
     }
+    renderBentoWatchlist();
+  }
+
+  function renderBentoWatchlist() {
+    const container = document.getElementById('bento-watchlist-items');
+    const emptyEl = document.getElementById('bento-watchlist-empty');
+    if (!container) return;
+
+    // Resolve profile safely from multiple candidate sources
+    const prof = window.currentProfile || (typeof currentProfile !== 'undefined' ? currentProfile : null) ||
+                 (window.appData?.profiles && window.appData.profiles.find(p => p.id === window.appData?.activeProfileId)) || {};
+
+    const rawWatchlist = (prof.watchlist || window.appData?.watchlist || []).filter(Boolean);
+    const customListItems = (prof.custom_lists || []).filter(l => l.type !== 'music').flatMap(l => l.items || []).filter(Boolean);
+
+    // Combine items prioritizing directly watchlisted items
+    const combined = [...rawWatchlist, ...customListItems];
+    const seen = new Set();
+    const uniqueItems = [];
+
+    for (const item of combined) {
+      if (!item) continue;
+      const key = item.id || item.path || (item.title ? `${item.title}_${item.type || ''}` : null);
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      uniqueItems.push(item);
+    }
+
+    const list = uniqueItems
+      .filter(i => {
+        try {
+          if (typeof isLocked === 'function' && i.id && isLocked(i.id)) return false;
+          if (typeof isAgeAllowed === 'function' && !isAgeAllowed(i)) return false;
+        } catch (e) {}
+        return true;
+      });
+
+    container.innerHTML = '';
+    if (!list || list.length === 0) {
+      if (emptyEl) emptyEl.style.display = 'flex';
+      container.style.display = 'none';
+      return;
+    }
+
+    if (emptyEl) emptyEl.style.display = 'none';
+    container.style.display = 'flex';
+
+    const tmdbCache = (window.appData && window.appData.tmdbCache) || {};
+
+    list.slice(0, 15).forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'bento-wl-card';
+      const title = item.title || item.name || item.original_title || 'Untitled';
+
+      const cached = item.id ? (tmdbCache[item.id] || tmdbCache[String(item.id).replace('tmdb:', '')]) : null;
+      let posterUrl = item.poster || item.poster_path || item.posterPath || item.bannerPath || item.backdrop_path || item.backdropPath || item.backdrop || item.cover || item.image || item.favicon || item.logo || item.thumbnail || (cached?.posterPath || cached?.poster_path || cached?.backdropPath) || '';
+
+      if (posterUrl && typeof posterUrl === 'string') {
+        if (posterUrl.startsWith('/') && !posterUrl.startsWith('//') && !posterUrl.match(/^\/[a-zA-Z]:/)) {
+          posterUrl = `https://image.tmdb.org/t/p/w342${posterUrl}`;
+        } else if (!posterUrl.startsWith('http') && !posterUrl.startsWith('data:') && !posterUrl.startsWith('file:') && !posterUrl.startsWith('imgs/') && typeof localImg === 'function') {
+          posterUrl = localImg(posterUrl);
+        }
+      }
+
+      const isLive = item.type === 'radio' || item.type === 'iptv' || item.media_type === 'radio' || item.media_type === 'iptv' || !!item.radioUrl || !!item.streamUrl;
+      const isShow = item.media_type === 'tv' || item.type === 'show' || item.type === 'series' || !!(item.episodes);
+      const isRadio = item.type === 'radio' || item.media_type === 'radio' || !!item.radioUrl;
+      const typeLabel = isLive ? (isRadio ? 'RADIO' : 'IPTV') : (isShow ? 'SERIES' : 'MOVIE');
+      const fallbackIcon = isLive ? (isRadio ? 'fa-radio' : 'fa-tv') : (isShow ? 'fa-desktop' : 'fa-film');
+
+      card.innerHTML = `
+        <div class="bento-wl-poster-wrap">
+          ${posterUrl ? `<img src="${posterUrl}" class="bento-wl-poster" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+          <div class="bento-wl-placeholder" style="${posterUrl ? 'display:none;' : 'display:flex;'}">
+            <i class="fas ${fallbackIcon}"></i>
+          </div>
+          <div class="bento-wl-overlay">
+            <div class="bento-wl-play-btn"><i class="fas fa-play"></i></div>
+          </div>
+          <div class="bento-wl-badge">${typeLabel}</div>
+        </div>
+        <div class="bento-wl-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
+      `;
+
+      card.onclick = () => {
+        if (isRadio && typeof window.playRadioStation === 'function') {
+          window.playRadioStation(item);
+          switchView('radio');
+        } else if (item.type === 'iptv' && typeof window.selectIptvChannel === 'function') {
+          window.selectIptvChannel(item);
+        } else if (typeof openDiscoverDetail === 'function' && (item.id || item.tmdbId || item.imdbId || !item.isLocal)) {
+          openDiscoverDetail(item);
+        } else if (typeof openShowDetail === 'function' && isShow) {
+          openShowDetail(item);
+        } else if (typeof playVideo === 'function') {
+          playVideo(item);
+        }
+      };
+
+      container.appendChild(card);
+    });
   }
 
   function getTmdbIdStr(i) {
@@ -14639,6 +15548,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     persist(true);
     updateWatchlistButton(item);
+    renderBentoWatchlist();
     if (currentView === 'watchlist') renderWatchlist();
 
     // Trakt Sync
@@ -15301,40 +16211,24 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         // Fetch trending/top movies - try Cinemeta catalog directly
         sectionTitle = 'Trending Movies & TV Shows';
         let recItems = [];
-        try {
-          const res = await window.api.invoke('cinemeta-catalog', { type: 'movie', id: 'top' }).catch(() => null);
-          if (res && Array.isArray(res.metas) && res.metas.length > 0) {
-            recItems = res.metas.map(movie => ({
-              id: movie.id,
-              title: movie.name,
-              poster: movie.poster ? (movie.poster.startsWith('http') ? movie.poster : `https://images.metahub.space/poster/medium/${movie.id}/img`) : (movie.id ? `https://images.metahub.space/poster/medium/${movie.id}/img` : ''),
-              type: 'movie',
-              source: 'cinemeta',
-              rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
-              releaseYear: movie.releaseInfo ? parseInt(movie.releaseInfo.substring(0, 4)) : 0,
-              synopsis: movie.description || ''
-            }));
-          }
-        } catch (e) {
-          console.warn('[EmptySearch] Cinemeta catalog fetch failed:', e.message);
-        }
-
-        if (recItems.length === 0) {
+        const canCatalog = typeof window.can === 'function' ? window.can('catalog') : false;
+        if (canCatalog) {
           try {
-            const resp = await fetch('https://v3-cinemeta.strem.io/catalog/movie/top.json', { signal: AbortSignal.timeout(6000) });
-            const data = await resp.json();
-            recItems = (data?.metas || []).map(movie => ({
-              id: movie.id,
-              title: movie.name,
-              poster: movie.poster ? (movie.poster.startsWith('http') ? movie.poster : `https://images.metahub.space/poster/medium/${movie.id}/img`) : (movie.id ? `https://images.metahub.space/poster/medium/${movie.id}/img` : ''),
-              type: 'movie',
-              source: 'cinemeta',
-              rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
-              releaseYear: movie.year ? parseInt(movie.year) : 0,
-              synopsis: movie.description || ''
-            }));
-          } catch (e2) {
-            console.warn('[EmptySearch] Direct Cinemeta fetch fallback failed:', e2.message);
+            const res = await window.api.invoke('cinemeta-catalog', { type: 'movie', id: 'top' }).catch(() => null);
+            if (res && Array.isArray(res.metas) && res.metas.length > 0) {
+              recItems = res.metas.map(movie => ({
+                id: movie.id,
+                title: movie.name,
+                poster: movie.poster ? (movie.poster.startsWith('http') ? movie.poster : `https://images.metahub.space/poster/medium/${movie.id}/img`) : (movie.id ? `https://images.metahub.space/poster/medium/${movie.id}/img` : ''),
+                type: 'movie',
+                source: 'cinemeta',
+                rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
+                releaseYear: movie.releaseInfo ? parseInt(movie.releaseInfo.substring(0, 4)) : 0,
+                synopsis: movie.description || ''
+              }));
+            }
+          } catch (e) {
+            console.warn('[EmptySearch] Cinemeta catalog fetch failed:', e.message);
           }
         }
         recs = recItems;
@@ -15394,10 +16288,19 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const year = (item.release_date || item.first_air_date || item.seasonYear || item.releaseYear || item.year || '').toString().slice(0, 4);
           const rating = item.vote_average || item.score || item.rating || 0;
           
+          const isChannelOrLogo = item.type === 'iptv' || item.type === 'radio' || item.type === 'channel' || item.isLive || item.isIptv || item.isRadio || !!item.logo || (typeof posterUrl === 'string' && (posterUrl.includes('logo') || posterUrl.includes('channel') || posterUrl.includes('aljazeera') || posterUrl.includes('radio') || posterUrl.includes('iptv') || posterUrl.includes('svg')));
+
+          const fallbackIcon = (item.type === 'iptv' || item.type === 'channel' || item.isLive || item.isIptv) ? 'fa-tv' : (item.type === 'radio' || item.isRadio ? 'fa-radio' : (item.type === 'show' || item.type === 'tv' ? 'fa-desktop' : 'fa-film'));
+
+          const imgClass = `discover-poster search-poster-img${isChannelOrLogo ? ' is-channel-logo' : ''}`;
+
           card.innerHTML = `
             <div class="discover-poster-wrap">
-              <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
-              ${posterUrl ? `<img src="${posterUrl}" class="discover-poster search-poster-img" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+              <div class="discover-poster-placeholder" style="${posterUrl ? 'display:none;' : ''}">
+                <i class="fas ${fallbackIcon}"></i>
+                <span class="placeholder-title">${escapeHTML(itemTitle)}</span>
+              </div>
+              ${posterUrl ? `<img src="${posterUrl}" class="${imgClass}" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
               ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
             </div>
             <div class="discover-info">
@@ -15574,9 +16477,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             const header = document.createElement('h3');
             header.style.cssText = 'grid-column: 1/-1; margin: 30px 0 15px 0; font-size: 1.15rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; color: #fff; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; display: flex; align-items: center; gap: 10px;';
             if (sectionId === 'youtube') {
-              header.innerHTML = `<i class="fab fa-youtube" style="color: #ff0000; font-size: 1.4rem;"></i> <span>${escapeHTML(title)}</span>`;
+              header.innerHTML = `<i class="fab fa-youtube" style="color: #ffffff; font-size: 1.4rem;"></i> <span>${escapeHTML(title)}</span>`;
             } else if (sectionId === 'youtube_music') {
-              header.innerHTML = `<i class="fab fa-youtube" style="color: #ff0033; font-size: 1.4rem;"></i> <span>${escapeHTML(title)}</span>`;
+              header.innerHTML = `<i class="fab fa-youtube" style="color: #ffffff; font-size: 1.4rem;"></i> <span>${escapeHTML(title)}</span>`;
             } else {
               header.innerText = title;
             }
@@ -15612,8 +16515,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                   <img src="${thumb}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease;" loading="lazy" onerror="this.src='imgs/no-backdrop.png'">
                   ${duration ? `<div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; z-index: 2; letter-spacing: 0.5px;">${escapeHTML(String(duration))}</div>` : ''}
                   <div class="yt-play-hover" style="position: absolute; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s;">
-                    <div style="width: 48px; height: 48px; border-radius: 50%; background: #ff0000; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(255,0,0,0.5);">
-                      <i class="fas fa-play" style="color: #fff; font-size: 18px; margin-left: 2px;"></i>
+                    <div style="width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.5);">
+                      <i class="fas fa-play" style="color: #000; font-size: 18px; margin-left: 2px;"></i>
                     </div>
                   </div>
                 </div>
@@ -15623,7 +16526,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                   </div>
                   <div>
                     <div style="display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.7); font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">
-                      <i class="fab fa-youtube" style="color: #ff0000; font-size: 13px;"></i>
+                      <i class="fab fa-youtube" style="color: #ffffff; font-size: 13px;"></i>
                       <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(author)}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.4); font-size: 0.75rem;">
@@ -16785,8 +17688,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Finalize UI with current version
   try {
-    const ver = APP_VERSION || '11.6.0';
-    if ($('#app-version-label')) $('#app-version-label').textContent = `MediaVault v${ver}`;
+    const ver = APP_VERSION || '3.9.1';
+    if ($('#app-version-label')) $('#app-version-label').textContent = `MEEM v${ver}`;
     if ($('#settings-app-version')) $('#settings-app-version').textContent = `v${ver}`;
   } catch (e) { }
 
@@ -16868,6 +17771,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   function showNativeNotification(title, message) {
     try {
+      if (window.api && typeof window.api.showNativeNotification === 'function') {
+        window.api.showNativeNotification({ title, body: message });
+      }
       if (Notification.permission === 'granted') {
         new Notification(title, { body: message });
       } else if (Notification.permission !== 'denied') {
@@ -16881,6 +17787,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       console.warn('Native notification failed:', e);
     }
   }
+  window.showNativeNotification = showNativeNotification;
 
   function addNotification(title, message, type = 'system') {
     appData.notifications = appData.notifications || [];
@@ -16906,8 +17813,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     persist();
     updateNotificationBadge();
     
-    // Trigger OS notification for chat, download, and invite types
-    if (type === 'chat' || type === 'download' || type === 'invite') {
+    // Trigger OS notification for chat, download, invite, and anime release types
+    if (type === 'chat' || type === 'download' || type === 'invite' || type === 'anime') {
       showNativeNotification(title, message);
     }
     
@@ -17017,8 +17924,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         padding: 10px 12px;
         border-radius: 12px;
         cursor: pointer;
-        background: ${n.read ? 'rgba(255,255,255,0.02)' : 'rgba(99,102,241,0.07)'};
-        border: 1px solid ${n.read ? 'rgba(255,255,255,0.04)' : 'rgba(99,102,241,0.2)'};
+        background: ${n.read ? 'rgba(255,255,255,0.02)' : 'rgba(251,191,36,0.04)'};
+        border: 1px solid ${n.read ? 'rgba(255,255,255,0.04)' : 'rgba(251,191,36,0.15)'};
         position: relative;
         transition: all 0.2s;
       `;
@@ -17026,7 +17933,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       // Icon per type
       const iconMap = {
         invite:   { bg: 'rgba(251,191,36,0.12)',  color: '#fbbf24', icon: 'fa-user-plus' },
-        chat:     { bg: 'rgba(99,102,241,0.12)',   color: '#818cf8', icon: 'fa-comment-alt' },
+        chat:     { bg: 'rgba(251,191,36,0.12)',   color: '#fbbf24', icon: 'fa-comment-alt' },
         download: { bg: 'rgba(16,185,129,0.12)',   color: '#10b981', icon: 'fa-download' },
         status:   { bg: 'rgba(0,173,181,0.12)',    color: '#00adb5', icon: 'fa-circle-dot' },
         system:   { bg: 'rgba(245,158,11,0.10)',   color: '#f59e0b', icon: 'fa-bell' },
@@ -17054,10 +17961,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           <p style="margin: 0; font-size: 11px; color: var(--text-muted); line-height: 1.4; word-break: break-word;">${escapeHTML(n.message)}</p>
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; opacity: 0; transition: opacity 0.2s;" class="notif-actions">
-          ${!n.read ? `<button class="notif-read-btn" title="Mark as read" style="background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); color: #818cf8; cursor: pointer; padding: 3px 5px; border-radius: 6px; line-height: 1;"><i class="fas fa-check" style="font-size: 9px;"></i></button>` : ''}
+          ${!n.read ? `<button class="notif-read-btn" title="Mark as read" style="background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.3); color: #fbbf24; cursor: pointer; padding: 3px 5px; border-radius: 6px; line-height: 1;"><i class="fas fa-check" style="font-size: 9px;"></i></button>` : ''}
           <button class="notif-delete-btn" title="Delete" style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); color: #f87171; cursor: pointer; padding: 3px 5px; border-radius: 6px; line-height: 1;"><i class="fas fa-times" style="font-size: 9px;"></i></button>
         </div>
-        ${!n.read ? `<div style="position: absolute; top: 10px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: #6366f1; class="notif-unread-dot"></div>` : ''}
+        ${!n.read ? `<div style="position: absolute; top: 10px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: #fbbf24;" class="notif-unread-dot"></div>` : ''}
       `;
 
       item.onmouseenter = () => { const a = item.querySelector('.notif-actions'); if (a) a.style.opacity = '1'; };
@@ -17273,9 +18180,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // ── Deep link handler (non-OAuth: add-ons, etc.) ─────────────────────────
   window.handleAppDeepLink = async (urlStr) => {
-    if (urlStr.startsWith('mediavault://') && window.installAddonFromUrl) {
+    if ((urlStr.startsWith('meem://') || urlStr.startsWith('mediavault://')) && window.installAddonFromUrl) {
       try {
-        const manifestUrl = urlStr.replace('mediavault://', 'https://');
+        const manifestUrl = urlStr.replace(/^meem:\/\//i, 'https://').replace(/^mediavault:\/\//i, 'https://');
         await window.installAddonFromUrl(manifestUrl);
       } catch (err) {
         console.error('[DeepLink] Addon installation error:', err);
@@ -17462,6 +18369,68 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     };
   }
   // ── Global Window Bindings for Modular Logic ──
+  window.updateBentoController = function(title, isPlaying) {
+    const titleEl = document.getElementById('bento-media-title');
+    const playBtnMain = document.querySelector('.bento-play-main');
+    const playIcon = playBtnMain ? playBtnMain.querySelector('i') : null;
+
+    if (titleEl && title) {
+      titleEl.textContent = title;
+      titleEl.title = title;
+    }
+
+    if (playIcon) {
+      playIcon.className = `fas ${isPlaying ? 'fa-pause' : 'fa-play'}`;
+    }
+  };
+
+  window.bentoMediaControl = function(action) {
+    const iptvVideo = document.getElementById('iptv-video-player');
+    const mainVideo = document.getElementById('video-element');
+    const radioAudio = document.querySelector('audio');
+    
+    // Find whichever media element is loaded or playing
+    const activeMedia = (iptvVideo && iptvVideo.src && !iptvVideo.paused) ? iptvVideo : 
+                        ((mainVideo && mainVideo.src && !mainVideo.paused) ? mainVideo : 
+                        ((radioAudio && radioAudio.src && !radioAudio.paused) ? radioAudio : 
+                        (iptvVideo?.src ? iptvVideo : (mainVideo?.src ? mainVideo : radioAudio))));
+
+    if (action === 'toggle') {
+      if (activeMedia && activeMedia.src) {
+        if (activeMedia.paused) {
+          activeMedia.play();
+          window.updateBentoController(document.getElementById('bento-media-title')?.textContent || 'Media Active', true);
+          if (typeof window.showToast === 'function') window.showToast('▶ Playback Resumed');
+        } else {
+          activeMedia.pause();
+          window.updateBentoController(document.getElementById('bento-media-title')?.textContent || 'Media Active', false);
+          if (typeof window.showToast === 'function') window.showToast('⏸ Playback Paused');
+        }
+      } else {
+        const firstContinueCard = document.querySelector('#discover-continue-row .continue-card');
+        if (firstContinueCard) {
+          firstContinueCard.click();
+        } else {
+          if (typeof window.showToast === 'function') window.showToast('No active media playing');
+        }
+      }
+    } else if (action === 'prev') {
+      if (activeMedia && activeMedia.currentTime > 0) {
+        activeMedia.currentTime = Math.max(0, activeMedia.currentTime - 10);
+        if (typeof window.showToast === 'function') window.showToast('Rewind 10s');
+      } else if (typeof window.playPrevEpisode === 'function') {
+        window.playPrevEpisode();
+      }
+    } else if (action === 'next') {
+      if (activeMedia && activeMedia.duration) {
+        activeMedia.currentTime = Math.min(activeMedia.duration, activeMedia.currentTime + 10);
+        if (typeof window.showToast === 'function') window.showToast('Skip 10s');
+      } else if (typeof window.playNextEpisode === 'function') {
+        window.playNextEpisode();
+      }
+    }
+  };
+
   window.persist = persist;
   window.showDisclaimerAndProceed = showDisclaimerAndProceed;
   window.showToast = showToast;
@@ -17475,6 +18444,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   window.renderSidebar = renderSidebar;
   window.updateModGatedViews = updateModGatedViews;
   window.renderWatchlist = renderWatchlist;
+  window.renderBentoWatchlist = renderBentoWatchlist;
   window.renderLibCustomLists = renderLibCustomLists;
   window.renderCustomListDetail = renderCustomListDetail;
   window.createNewCustomList = createNewCustomList;
@@ -17568,53 +18538,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // ─── YOUTUBE OAUTH2 & SETTINGS MODALS ───
   window.openYouTubeSettingsModal = async () => {
-    let modal = $('#youtube-settings-modal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'youtube-settings-modal';
-      modal.className = 'modal-backdrop fade-in';
-      modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:99999;';
-      modal.innerHTML = `
-        <div style="background:var(--bg-surface-1, #1e1e24); border:1px solid rgba(255,255,255,0.12); border-radius:18px; padding:32px; width:480px; max-width:92vw; text-align:left; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:14px;">
-            <h2 style="font-size:1.3rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px; margin:0;">
-              <i class="fab fa-youtube" style="color:#ff4b4b; font-size:24px;"></i> YouTube Add-on Settings
-            </h2>
-            <button onclick="closeYouTubeSettingsModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px;"><i class="fas fa-times"></i></button>
-          </div>
-
-          <div id="yt-settings-account-box" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between;">
-            <div style="display:flex; align-items:center; gap:14px;">
-              <img id="yt-settings-avatar" src="https://lh3.googleusercontent.com/a/default-user=s96-c" style="width:44px; height:44px; border-radius:50%; border:2px solid #ff4b4b; object-fit:cover;">
-              <div>
-                <div id="yt-settings-name" style="font-weight:700; color:#fff; font-size:0.95rem;">Checking Google Account...</div>
-                <div id="yt-settings-email" style="font-size:0.8rem; color:var(--text-muted);">---</div>
-              </div>
-            </div>
-            <button id="yt-settings-auth-btn" class="btn btn-primary" style="background:#ff4b4b; border:none; padding:8px 16px; font-size:0.85rem; border-radius:8px; font-weight:700; cursor:pointer;">Sign in</button>
-          </div>
-
-          <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:24px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; font-size:0.9rem; color:#ccc;">
-              <span><i class="fas fa-history" style="color:#ff4b4b; margin-right:8px;"></i> Watch History Sync</span>
-              <span style="color:#4caf50; font-weight:700; font-size:0.8rem;">ENABLED</span>
-            </div>
-            <div style="display:flex; align-items:center; justify-content:space-between; font-size:0.9rem; color:#ccc;">
-              <span><i class="fas fa-bell" style="color:#ff4b4b; margin-right:8px;"></i> Subscriptions Feed</span>
-              <span style="color:#4caf50; font-weight:700; font-size:0.8rem;">ENABLED</span>
-            </div>
-          </div>
-
-          <div style="display:flex; justify-content:flex-end; gap:10px;">
-            <button class="btn btn-secondary" onclick="closeYouTubeSettingsModal()" style="padding:8px 20px; border-radius:8px;">Close</button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
+    const modal = $('#youtube-settings-modal');
+    if (modal) modal.style.display = 'flex';
+    if (typeof window.refreshYouTubeAccountUI === 'function') {
+      await window.refreshYouTubeAccountUI();
     }
-
-    modal.style.display = 'flex';
-    updateYouTubeSettingsAccountUI();
   };
 
   window.closeYouTubeSettingsModal = () => {
@@ -17622,94 +18550,64 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (modal) modal.style.display = 'none';
   };
 
-  async function updateYouTubeSettingsAccountUI() {
-    try {
-      const res = await window.api.invoke('youtube-get-account');
-      const nameEls = [$('#yt-account-name'), $('#yt-settings-name')].filter(Boolean);
-      const emailEls = [$('#yt-account-email'), $('#yt-settings-email')].filter(Boolean);
-      const avatarEls = [$('#yt-account-avatar'), $('#yt-settings-avatar')].filter(Boolean);
-      const authBtns = [$('#btn-yt-auth-action'), $('#yt-settings-auth-btn')].filter(Boolean);
-      const authLabel = $('#yt-auth-btn-label');
-
-      if (res && res.signedIn && res.account) {
-        nameEls.forEach(el => el.textContent = res.account.name || 'Google User');
-        emailEls.forEach(el => el.textContent = res.account.email || 'Signed in via Google OAuth');
-        avatarEls.forEach(el => el.src = res.account.avatar || 'https://lh3.googleusercontent.com/a/default-user=s96-c');
-        if (authLabel) authLabel.textContent = 'Sign Out';
-        authBtns.forEach(btn => {
-          if (!authLabel) btn.textContent = 'Sign Out';
-          btn.style.background = 'rgba(255,255,255,0.1)';
-          btn.onclick = async () => {
-            await window.api.invoke('youtube-sign-out');
-            showToast('👋 Signed out of Google.');
-            updateYouTubeSettingsAccountUI();
-            if (typeof loadDiscover === 'function') loadDiscover(true);
-          };
-        });
-      } else {
-        nameEls.forEach(el => el.textContent = 'Not Signed In');
-        emailEls.forEach(el => el.textContent = 'Sign in to sync subscriptions & watch history');
-        avatarEls.forEach(el => el.src = 'https://lh3.googleusercontent.com/a/default-user=s96-c');
-        if (authLabel) authLabel.textContent = 'Sign In';
-        authBtns.forEach(btn => {
-          if (!authLabel) btn.textContent = 'Sign in with Google';
-          btn.style.background = '#ff0000';
-          btn.onclick = () => {
-            closeYouTubeSettingsModal();
-            openGoogleAuthModal();
-          };
-        });
-      }
-    } catch (e) {
-      console.warn('[YouTube Settings] Error fetching account info:', e);
+  window.updateYouTubeSettingsAccountUI = async () => {
+    if (typeof window.refreshYouTubeAccountUI === 'function') {
+      return window.refreshYouTubeAccountUI();
     }
-  }
-
-  window.updateYouTubeSettingsAccountUI = updateYouTubeSettingsAccountUI;
-  setTimeout(() => updateYouTubeSettingsAccountUI(), 1000);
+  };
+  setTimeout(() => window.updateYouTubeSettingsAccountUI?.(), 1000);
 
   window.openGoogleAuthModal = async () => {
     let modal = $('#google-auth-modal');
     if (!modal) {
       modal = document.createElement('div');
       modal.id = 'google-auth-modal';
-      modal.className = 'modal-backdrop fade-in';
-      modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:99999;';
+      modal.className = 'modal-overlay fade-in';
+      modal.style.cssText = 'position:fixed; inset:0; background:rgba(5,5,8,0.88); backdrop-filter:blur(35px); -webkit-backdrop-filter:blur(35px); display:flex; align-items:center; justify-content:center; z-index:99999; padding:20px;';
       modal.innerHTML = `
-        <div style="background:var(--bg-surface-1, #1e1e24); border:1px solid rgba(255,255,255,0.12); border-radius:18px; padding:32px; width:480px; max-width:92vw; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
-          <div style="width:60px; height:60px; background:rgba(255,75,75,0.15); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 20px auto; color:#ff4b4b;">
-            <i class="fab fa-youtube" style="font-size:32px;"></i>
+        <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+          <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+            <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+          </svg>
+        </div>
+        <div style="background:rgba(255,255,255,0.03); backdrop-filter:blur(40px); -webkit-backdrop-filter:blur(40px); border:1px solid rgba(255,255,255,0.1); border-radius:36px; padding:38px 34px; width:480px; max-width:92vw; text-align:center; box-shadow:0 40px 100px rgba(0,0,0,0.85); position:relative; z-index:2; color:#fff; font-family:var(--font);">
+          <div style="width:52px; height:52px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); border-radius:18px; display:flex; align-items:center; justify-content:center; margin:0 auto 18px auto; color:#ffffff;">
+            <i class="fab fa-youtube" style="font-size:24px; color:#ffffff !important;"></i>
           </div>
-          <h2 style="font-size:1.4rem; font-weight:800; color:#fff; margin-bottom:8px;">Sign in with Google</h2>
-          <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:24px; line-height:1.5;">Connect your YouTube account to sync Watch History, Subscriptions & Recommendations.</p>
+          <h2 style="font-size:1.45rem; font-weight:800; color:#fff; margin:0 0 6px 0; letter-spacing:-0.4px;">Sign in with Google</h2>
+          <p style="font-size:0.85rem; color:rgba(255,255,255,0.6); margin:0 0 24px 0; line-height:1.5;">Connect your YouTube account to sync Watch History, Subscriptions & Recommendations.</p>
 
-          <div id="yt-auth-loading" style="padding:20px; color:var(--text-muted); font-size:0.9rem;">
-            <i class="fas fa-spinner fa-spin fa-2x" style="color:#ff4b4b; margin-bottom:12px; display:block;"></i>
+          <div id="yt-auth-loading" style="padding:20px; color:rgba(255,255,255,0.65); font-size:0.9rem;">
+            <i class="fas fa-spinner fa-spin fa-2x" style="color:#ffffff; margin-bottom:12px; display:block;"></i>
             Generating device authorization code...
           </div>
 
-          <div id="yt-auth-instructions" style="display:none; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:20px; margin-bottom:24px; text-align:left;">
-            <div style="font-weight:700; color:#fff; margin-bottom:10px; font-size:0.95rem;">Follow these simple steps:</div>
-            <ol style="margin:0; padding-left:20px; font-size:0.88rem; color:#ccc; line-height:1.9;">
-              <li>Open <a id="yt-auth-url-link" href="#" target="_blank" style="color:#ff4b4b; font-weight:700; text-decoration:underline;">google.com/device</a> in your browser.</li>
-              <li>Enter code: <strong id="yt-auth-user-code" style="color:#fff; font-size:1.15rem; background:rgba(255,75,75,0.2); padding:3px 10px; border-radius:6px; letter-spacing:2px; font-family:monospace; user-select:all;">---</strong></li>
+          <div id="yt-auth-instructions" style="display:none; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.12); border-radius:18px; padding:20px; margin-bottom:24px; text-align:left;">
+            <div style="font-weight:700; color:#fff; margin-bottom:10px; font-size:0.92rem;">Follow these simple steps:</div>
+            <ol style="margin:0; padding-left:20px; font-size:0.85rem; color:rgba(255,255,255,0.75); line-height:1.9;">
+              <li>Open <a id="yt-auth-url-link" href="#" target="_blank" style="color:#ffffff; font-weight:700; text-decoration:underline;">google.com/device</a> in your browser.</li>
+              <li>Enter code: <strong id="yt-auth-user-code" style="color:#fff; font-size:1.15rem; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.2); padding:3px 10px; border-radius:8px; letter-spacing:2px; font-family:monospace; user-select:all;">---</strong></li>
               <li>Authorize MEEM on your Google account.</li>
             </ol>
             <div style="margin-top:16px; display:flex; gap:10px; align-items:center;">
-              <button id="btn-copy-yt-code" class="btn btn-primary btn-sm" style="flex:1; background:#ff4b4b; border-color:#ff4b4b; font-size:0.82rem; padding:8px 12px; border-radius:8px;">
+              <button id="btn-copy-yt-code" class="btn btn-primary btn-sm" style="flex:1; background:#ffffff !important; color:#000000 !important; border:none; font-weight:800; font-size:0.85rem; padding:10px 16px; border-radius:12px; box-shadow:0 4px 20px rgba(255,255,255,0.25);">
                 <i class="fas fa-copy"></i> Copy Code & Open Browser
               </button>
             </div>
-            <div style="margin-top:14px; display:flex; align-items:center; gap:10px; font-size:0.82rem; color:var(--text-muted);">
-              <i class="fas fa-sync-alt fa-spin" style="color:#ff4b4b;"></i> Waiting for authorization from browser...
+            <div style="margin-top:14px; display:flex; align-items:center; gap:10px; font-size:0.8rem; color:rgba(255,255,255,0.55);">
+              <i class="fas fa-sync-alt fa-spin" style="color:#ffffff;"></i> Waiting for authorization from browser...
             </div>
           </div>
 
           <div style="display:flex; gap:12px; justify-content:center;">
-            <button class="btn btn-secondary" onclick="closeGoogleAuthModal()" style="padding:10px 24px; border-radius:10px;">Cancel</button>
+            <button class="btn btn-secondary" onclick="closeGoogleAuthModal()" style="padding:12px 28px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.18); border-radius:16px; color:rgba(255,255,255,0.85); font-size:0.92rem; font-weight:700; cursor:pointer;">Cancel</button>
           </div>
         </div>
       `;
+      modal.onclick = (e) => {
+        if (e.target === modal) closeGoogleAuthModal();
+      };
       document.body.appendChild(modal);
     }
 
@@ -17724,6 +18622,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           $('#yt-auth-instructions').style.display = 'block';
           $('#yt-auth-user-code').textContent = data.userCode;
           const targetUrl = data.verificationUrl || 'https://www.google.com/device';
+          
+          try {
+            navigator.clipboard?.writeText(data.userCode);
+            showToast(`📋 Code "${data.userCode}" copied! Opening browser...`);
+          } catch (e) {}
+
+          if (window.api?.openExternal) {
+            window.api.openExternal(targetUrl);
+          }
+
           const link = $('#yt-auth-url-link');
           if (link) {
             link.href = targetUrl;

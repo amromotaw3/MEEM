@@ -242,7 +242,7 @@ function startPermanentCompatServer() {
           '-map', `0:s:${trackIdx}`,
           '-f', 'webvtt',
           'pipe:1'
-        ]);
+        ], { windowsHide: true });
         activeChildProcesses.add(subProc);
 
         subProc.stdout.pipe(res);
@@ -325,7 +325,7 @@ function startPermanentCompatServer() {
           ];
         }
 
-        const ffmpegProc = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const ffmpegProc = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         activeChildProcesses.add(ffmpegProc);
 
         ffmpegProc.stdout.pipe(res);
@@ -446,6 +446,12 @@ function startPermanentCompatServer() {
 // ─── TORRENT STREAMING CONTROLLER ─────────────────────────────────────────
 async function startStreaming(magnetOrHash, fileIdx = null, progressCb = null) {
   if (!magnetOrHash) return { success: false, error: 'No torrent hash or magnet provided' };
+
+  if (typeof magnetOrHash === 'object' && magnetOrHash !== null) {
+    if (fileIdx == null && magnetOrHash.fileIdx != null) fileIdx = magnetOrHash.fileIdx;
+    if (!progressCb && typeof magnetOrHash.progressCb === 'function') progressCb = magnetOrHash.progressCb;
+    magnetOrHash = magnetOrHash.magnet || magnetOrHash.url || magnetOrHash.infoHash || magnetOrHash.path || '';
+  }
 
   const magnet = formatMagnet(magnetOrHash);
   const hashMatch = magnet.match(/urn:btih:([a-zA-Z0-9]+)/i);
@@ -676,7 +682,7 @@ async function probeUrl(url, timeoutMs = 7000) {
       if (!resolved) { resolved = true; resolve(null); }
     }, timeoutMs);
 
-    exec(`"${ffprobePath}" -v quiet -print_format json -show_streams "${url}"`, (err, stdout) => {
+    exec(`"${ffprobePath}" -v quiet -print_format json -show_streams "${url}"`, { windowsHide: true }, (err, stdout) => {
       if (resolved) return;
       resolved = true;
       clearTimeout(timer);
@@ -818,5 +824,6 @@ module.exports = {
   stopStreaming,
   probeUrl,
   initStreamerIpc,
-  startPermanentCompatServer
+  startPermanentCompatServer,
+  findBestVideoFile
 };

@@ -15,7 +15,8 @@
     animeSearch: true,
     localMovies: false,
     localShows: false,
-    youtube: false
+    youtube: false,
+    music: false
   };
 
   function normalizeAddonUrl(url) {
@@ -46,7 +47,15 @@
       if (a.enabled === false) return false;
       const id = String(a.id || '').toLowerCase();
       const url = String(a.url || a.manifestUrl || '').toLowerCase();
-      return id === 'com.mediavault.youtube' || url.includes('addon-youtube') || (id.includes('youtube') && !id.includes('music') && !id.includes('ytmusic'));
+      const name = String(a.name || '').toLowerCase();
+      return id === 'com.mediavault.youtube' || url.includes('addon-youtube') || (id.includes('youtube') && !id.includes('music') && !id.includes('ytmusic')) || (name === 'youtube' || name.includes('youtube addon'));
+    });
+    const hasMusicAddon = addons.some(a => {
+      if (a.enabled === false) return false;
+      const id = String(a.id || '').toLowerCase();
+      const url = String(a.url || a.manifestUrl || '').toLowerCase();
+      const name = String(a.name || '').toLowerCase();
+      return id === 'com.meem.music.player' || id.includes('music.player') || id.includes('ytmusic') || (id.includes('music') && !id.includes('schedule')) || url.includes('addon-music') || url.includes('music-player') || name.includes('music') || name.includes('spotify');
     });
     const hasTmdbConfig = Boolean(appData.tmdbKey && appData.tmdbEnabled !== false);
 
@@ -54,6 +63,7 @@
     const prevCatalog = state.catalog;
     const prevSubtitles = state.subtitles;
     const prevYoutube = state.youtube;
+    const prevMusic = state.music;
 
     state.catalog = hasCatalogAddon;
     state.bannerSearch = hasCatalogAddon; // Banner search relies on Cinemeta / TMDB addons
@@ -63,12 +73,14 @@
     state.localMovies = Array.isArray(appData.movies) && appData.movies.length > 0;
     state.localShows = Array.isArray(appData.shows) && appData.shows.length > 0;
     state.youtube = hasYoutubeAddon;
+    state.music = hasMusicAddon;
 
     const changed = (
       prevBannerSearch !== state.bannerSearch ||
       prevCatalog !== state.catalog ||
       prevSubtitles !== state.subtitles ||
-      prevYoutube !== state.youtube
+      prevYoutube !== state.youtube ||
+      prevMusic !== state.music
     );
 
     if (changed) {
@@ -87,6 +99,7 @@
       case 'banner-search':
         return state.bannerSearch;
       case 'catalog':
+        return state.catalog;
       case 'movies':
       case 'shows':
         return state.catalog || state.localMovies || state.localShows;
@@ -97,6 +110,9 @@
       case 'anime':
       case 'avatar':
         return state.animeSearch;
+      case 'music':
+      case 'music-player':
+        return state.music;
       default:
         return Boolean(state[feature]);
     }

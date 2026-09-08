@@ -59,6 +59,10 @@
     },
 
     async saveSource(source) {
+      if (!source || source.id == null || source.id === '') {
+        console.warn('[IptvStorage] saveSource called with invalid source:', source);
+        return null;
+      }
       const db = await openDB();
       return new Promise((resolve, reject) => {
         const tx = db.transaction('sources', 'readwrite');
@@ -70,8 +74,12 @@
     },
 
     async deleteSource(sourceId) {
+      if (sourceId == null || sourceId === '') {
+        console.warn('[IptvStorage] deleteSource called with invalid sourceId:', sourceId);
+        return false;
+      }
       const db = await openDB();
-      return new Promise(async (resolve, reject) => {
+      return new Promise((resolve, reject) => {
         try {
           const tx = db.transaction(['sources', 'channels'], 'readwrite');
           tx.objectStore('sources').delete(sourceId);
@@ -98,6 +106,7 @@
     },
 
     async cacheChannels(sourceId, channels) {
+      if (sourceId == null || sourceId === '') return 0;
       const db = await openDB();
       return new Promise((resolve, reject) => {
         const tx = db.transaction('channels', 'readwrite');
@@ -123,6 +132,7 @@
     },
 
     async getChannels(sourceId, category = 'All', search = '') {
+      if (sourceId == null || sourceId === '') return [];
       const db = await openDB();
       return new Promise((resolve, reject) => {
         const tx = db.transaction('channels', 'readonly');
@@ -157,6 +167,7 @@
     },
 
     async toggleFavorite(channelId, isFav) {
+      if (channelId == null || channelId === '') return false;
       const db = await openDB();
       return new Promise((resolve, reject) => {
         const tx = db.transaction(['channels', 'favorites'], 'readwrite');

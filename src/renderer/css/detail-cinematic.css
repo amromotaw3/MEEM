@@ -95,23 +95,23 @@
 }
 
 #view-show-detail .back-btn {
-    background: rgba(255, 255, 255, 0.95) !important;
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    box-shadow: 0 10px 30px rgba(255, 255, 255, 0.15);
-    padding: 10px 18px !important;
-    border-radius: 14px;
-    color: #1a1a2e !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4) !important;
+    padding: 10px 20px !important;
+    border-radius: 12px;
+    color: #ffffff !important;
     font-weight: 700;
-    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s ease, border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
 }
 
 #view-show-detail .back-btn:hover {
     background: #ffffff !important;
-    border-color: rgba(99, 102, 241, 0.5);
-    color: #6366f1 !important;
-    transform: translateX(-4px);
-    box-shadow: 0 12px 35px rgba(99, 102, 241, 0.25);
+    border-color: #ffffff !important;
+    color: #000000 !important;
+    transform: translateX(-3px);
+    box-shadow: 0 8px 25px rgba(255, 255, 255, 0.25) !important;
 }
 
 
@@ -159,8 +159,7 @@
 }
 
 .dd-backdrop-img.dd-backdrop-loading {
-    filter: blur(16px) contrast(1.05) saturate(1.1);
-    opacity: 0.7;
+    opacity: 0.8;
 }
 
 .dd-backdrop-overlay {
@@ -173,7 +172,7 @@
 }
 
 /* ═══════════════════════════════════════════
-   PC SIDE PANEL (Pure Black Cinema)
+   PC SIDE PANEL (Luxury Glassmorphic)
    ═══════════════════════════════════════════ */
 
 .dd-side-panel {
@@ -182,8 +181,9 @@
     bottom: 20px;
     right: -500px;
     width: 380px;
-    background: #000000 !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    background: rgba(14, 14, 18, 0.94) !important;
+    backdrop-filter: blur(32px) saturate(180%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
     border-radius: 24px;
     z-index: 1000;
     transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), color 0.6s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.6s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s cubic-bezier(0.16, 1, 0.3, 1), fill 0.6s cubic-bezier(0.16, 1, 0.3, 1), stroke 0.6s cubic-bezier(0.16, 1, 0.3, 1);
@@ -202,7 +202,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: #000000 !important;
+    background: rgba(18, 18, 24, 0.98) !important;
     border-bottom: 1px solid rgba(255,255,255,0.08);
     border-radius: 24px 24px 0 0;
 }
@@ -241,7 +241,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 20px;
-    background: #000000 !important;
+    background: transparent !important;
 }
 
 /* ═══════════════════════════════════════════
@@ -287,11 +287,12 @@
     align-items: center;
     gap: 14px;
     padding: 14px 18px;
-    background: #050508 !important;
+    background: rgba(20, 20, 26, 0.85) !important;
+    backdrop-filter: blur(24px) saturate(180%) !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 16px;
     cursor: pointer;
-    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s cubic-bezier(0.4, 0, 0.2, 1), fill 0.2s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease !important;
     margin-bottom: 10px;
     position: relative;
     overflow: hidden;
@@ -417,17 +418,17 @@
 }
 
 .dd-stream-card:hover {
-    background: #0e0e14 !important;
-    border-color: rgba(255, 255, 255, 0.25) !important;
+    background: rgba(30, 30, 40, 0.95) !important;
+    border-color: rgba(255, 255, 255, 0.28) !important;
     transform: translateY(-2px);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.6) !important;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.7) !important;
 }
 
 .dd-stream-card:hover .dd-stream-play-icon {
-    background: #fff;
-    color: #0A0E17;
-    transform: scale(1.1);
-    box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+    background: #ffffff !important;
+    color: #000000 !important;
+    transform: scale(1.08);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.35);
 }
 
 .dd-mobile-panel-back {
@@ -474,12 +475,13 @@
 .dd-ep-card {
     display: flex;
     gap: 18px;
-    background: #050508 !important; /* Pure Dark/Black Theme */
+    background: rgba(20, 20, 26, 0.85) !important;
+    backdrop-filter: blur(24px) saturate(180%) !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 20px;
+    border-radius: 18px;
     padding: 14px;
     cursor: pointer;
-    transition: transform 0.4s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.4s cubic-bezier(0.23, 1, 0.32, 1), color 0.4s cubic-bezier(0.23, 1, 0.32, 1), background-color 0.4s cubic-bezier(0.23, 1, 0.32, 1), border-color 0.4s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.4s cubic-bezier(0.23, 1, 0.32, 1), filter 0.4s cubic-bezier(0.23, 1, 0.32, 1), fill 0.4s cubic-bezier(0.23, 1, 0.32, 1), stroke 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease !important;
     position: relative;
     overflow: hidden;
     animation: dd-fade-in 0.5s ease backwards;
@@ -487,10 +489,10 @@
 }
 
 .dd-ep-card:hover {
-    background: #0e0e14 !important;
-    border-color: rgba(255, 255, 255, 0.25) !important;
-    transform: translateX(-5px) scale(1.02);
-    box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    background: rgba(30, 30, 40, 0.95) !important;
+    border-color: rgba(255, 255, 255, 0.28) !important;
+    transform: translateX(-4px) scale(1.01);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
 }
 
 .dd-ep-card::before {
@@ -535,8 +537,9 @@
     width: 100%;
     -webkit-appearance: none;
     appearance: none;
-    background: #050508 !important;
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    background: rgba(20, 20, 26, 0.9) !important;
+    backdrop-filter: blur(20px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
     color: #ffffff;
     padding: 12px 18px;
     padding-right: 45px; /* Space for custom arrow */
@@ -544,20 +547,20 @@
     font-weight: 700;
     font-size: 0.95rem;
     cursor: pointer;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.25s ease;
     color-scheme: dark;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 }
 
 .dd-season-select:hover {
-    background: #0e0e14 !important;
+    background: rgba(30, 30, 40, 0.95) !important;
     border-color: rgba(255, 255, 255, 0.3) !important;
     transform: translateY(-1px);
 }
 
 .dd-season-select:focus {
     outline: none;
-    background: #0e0e14 !important;
+    background: rgba(30, 30, 40, 0.98) !important;
     border-color: #ffffff !important;
     box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6), 0 0 0 3px rgba(255, 255, 255, 0.1);
 }
@@ -601,11 +604,12 @@
 }
 
 .season-tab.active, .dd-season-tab.active {
-    background: rgba(79, 70, 229, 0.25) !important;
-    color: #fff !important;
-    border: 2px solid var(--accent) !important;
-    box-shadow: 0 0 20px var(--accent-glow) !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #ffffff !important;
+    box-shadow: 0 4px 20px rgba(255, 255, 255, 0.25) !important;
     transform: translateY(-2px);
+    font-weight: 800 !important;
 }
 
 .season-tab, .dd-season-tab {
@@ -737,22 +741,26 @@
     z-index: 20;
     width: 44px;
     height: 44px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.35);
-    backdrop-filter: blur(15px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
+    border-radius: 12px;
+    background: rgba(16, 16, 20, 0.75);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #ffffff;
     font-size: 1.1rem;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: transform 0.25s ease, opacity 0.25s ease, color 0.25s ease, background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease, fill 0.25s ease, stroke 0.25s ease;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 .dd-back-btn:hover {
-    background: rgba(255, 255, 255, 0.15);
-    transform: scale(1.08);
+    background: #ffffff !important;
+    color: #000000 !important;
+    border-color: #ffffff !important;
+    transform: scale(1.06);
+    box-shadow: 0 6px 22px rgba(255, 255, 255, 0.25);
 }
 
 /* ═══════════════════════════════════════════
@@ -855,21 +863,22 @@
 }
 
 .dd-pill {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     padding: 6px 14px;
     border-radius: 20px;
     font-size: 0.8rem;
     font-weight: 600;
-    color: var(--text-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, fill 0.2s ease, stroke 0.2s ease;
 }
 .dd-pill:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.3);
     color: #fff;
+    transform: translateY(-1px);
 }
 
 /* ═══════════════════════════════════════════
@@ -913,9 +922,9 @@
 }
 
 .dd-read-more-btn {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: #00adb5;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #ffffff !important;
     border-radius: 12px;
     font-weight: 700;
     font-size: 0.8rem;
@@ -926,15 +935,15 @@
     align-items: center;
     gap: 8px;
     transition: all 0.25s ease;
-    backdrop-filter: blur(8px);
+    backdrop-filter: blur(16px);
 }
 
 .dd-read-more-btn:hover {
-    background: rgba(0, 173, 181, 0.15);
-    border-color: #00adb5;
-    color: #ffffff;
+    background: rgba(255, 255, 255, 0.15) !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
+    color: #ffffff !important;
     transform: translateY(-1px);
-    box-shadow: 0 4px 15px rgba(0, 173, 181, 0.25);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
 }
 
 /* ═══════════════════════════════════════════

@@ -73,7 +73,7 @@ async function extractFrame(videoPath, outputPath) {
       '-q:v', '2',
       '-y',
       outputPath
-    ], (err) => {
+    ], { windowsHide: true }, (err) => {
       if (err) {
         console.error('[Downloader] Frame extraction failed:', err.message);
         resolve(false);
@@ -168,7 +168,18 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
     }
 
     const outputTemplate = path.join(path.dirname(outputPath), downloadId + '.%(ext)s');
-    const args = ['--no-playlist', '-o', outputTemplate, '--no-warnings', '--newline', '-N', '8'];
+    
+    // Optimized yt-dlp arguments with YouTube client fallback flags to prevent Code 1 errors
+    const args = [
+      '--no-playlist',
+      '-o', outputTemplate,
+      '--no-warnings',
+      '--newline',
+      '-N', '8',
+      '--no-check-certificate',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      '--extractor-args', 'youtube:player_client=android,web'
+    ];
     
     if (ffmpegPath && fs.existsSync(ffmpegPath)) {
       args.push('--ffmpeg-location', ffmpegPath, '-f', 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best', '--merge-output-format', 'mp4');
@@ -178,7 +189,14 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
     
     args.push(url);
     
+    let stderrOutput = '';
     childProcess = adapter.spawnYtDlp(args);
+
+    if (childProcess.stderr) {
+      childProcess.stderr.on('data', (d) => {
+        if (!cancelled) stderrOutput += d.toString();
+      });
+    }
     
     childProcess.stdout.on('data', (d) => { 
       if (cancelled) return; 
@@ -191,8 +209,6 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
         let totalDisplay = m[2] + m[3];
         
         // Sanity check: yt-dlp fragment downloads can report misleading totals
-        // (e.g. "90.5GiB" when the actual file is ~200MB).
-        // If yt-dlp reports >20GB for a non-torrent download, show "Estimating..." instead.
         if ((sizeUnit.startsWith('G') && sizeNum > 20) || sizeUnit.startsWith('T')) {
           totalDisplay = 'Estimating...';
         }
@@ -211,8 +227,66 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
 
     childProcess.on('close', (code) => { 
       if (cancelled) return; 
-      if (code === 0) resolve();
-      else reject(new Error(`Download failed (Code ${code}). Check if the link is valid.`));
+      if (code === 0) {
+        resolve();
+      } else {
+        console.warn(`[Downloader] Primary yt-dlp failed (Code ${code}), trying fallback mode. Stderr:`, stderrOutput);
+        
+        // Fallback retry with simplified format flags & android client
+        const fallbackArgs = [
+          '--no-playlist',
+          '-o', outputTemplate,
+          '--no-warnings',
+          '--newline',
+          '--no-check-certificate',
+          '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          '--extractor-args', 'youtube:player_client=android',
+          '-f', 'bestvideo+bestaudio/best',
+          url
+        ];
+
+        try {
+          const fallbackProc = adapter.spawnYtDlp(fallbackArgs);
+          let fbStderr = '';
+          if (fallbackProc.stderr) {
+            fallbackProc.stderr.on('data', d => { if (!cancelled) fbStderr += d.toString(); });
+          }
+          
+          fallbackProc.stdout.on('data', (d) => {
+            if (cancelled) return;
+            const t = d.toString();
+            const m = t.match(/\[download\]\s+([\d\.]+)%\s+of\s+[~]?([\d\.]+)([a-zA-Z]+)(?:\s+at\s+([^\s]+))?/);
+            if (m) {
+              mainWindow?.webContents?.send?.('download-progress', {
+                  id: downloadId,
+                  name: displayName,
+                  percent: parseFloat(m[1]).toFixed(1),
+                  downloaded: 'Downloading...',
+                  total: m[2] + m[3],
+                  speed: m[4] || '',
+                  status: 'downloading'
+              });
+            }
+          });
+
+          fallbackProc.on('close', (fbCode) => {
+            if (cancelled) return;
+            if (fbCode === 0) {
+              resolve();
+            } else {
+              const cleanErr = (fbStderr || stderrOutput || `Code ${code}`).trim();
+              const summaryErr = cleanErr.split('\n').filter(l => l.includes('ERROR:') || l.includes('HTTP Error') || l.includes('Unable')).pop() || cleanErr.slice(-150);
+              reject(new Error(`Download failed: ${summaryErr}`));
+            }
+          });
+          
+          fallbackProc.on('error', (err) => {
+            if (!cancelled) reject(new Error('Engine Fallback Error: ' + err.message));
+          });
+        } catch (fbErr) {
+          reject(new Error(`Download failed (Code ${code}): ` + (stderrOutput || fbErr.message)));
+        }
+      }
     });
 
     childProcess.on('error', (err) => { 
@@ -330,7 +404,7 @@ function downloadWithYtDlpDirect(targetUrl, outputPath, downloadId, displayName,
   const mainWindow = getMainWindow();
   return new Promise((resolve, reject) => {
     const outputTemplate = outputPath.endsWith('.mp4') ? outputPath : `${outputPath}.%(ext)s`;
-    const args = ['--no-playlist', '-o', outputTemplate, '--no-warnings', '--newline', '-N', '4', targetUrl];
+    const args = ['--no-playlist', '-o', outputTemplate, '--no-warnings', '--newline', '-N', '4', '--no-check-certificate', targetUrl];
     
     let cp;
     try {
@@ -655,6 +729,7 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
           }
         }
         selectedIdxs = selectedIdxs.filter(x => x >= 0 && x < torrent.files.length);
+        torrent.selectedIdxs = selectedIdxs;
 
         if (selectedIdxs.length > 0) {
           torrent.files.forEach((f, idx) => {
@@ -670,7 +745,7 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
           const largeVideos = videoFiles.filter(f => f.length > 50 * 1024 * 1024);
 
           if (largeVideos.length > 1) {
-            // Season Pack: Deselect everything except the actual video episodes
+            // Season Pack: Select all actual video episodes
             torrent.files.forEach(f => {
               if (largeVideos.includes(f)) f.select();
               else f.deselect();
@@ -708,32 +783,57 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
       clearTimeout(discoveryTimeout);
       clearInterval(heartbeatInterval);
       try {
-        let fileToMove = torrent.targetFile;
-        // If no specific target was set (batch mode), pick the largest file
-        if (!fileToMove && torrent.files && torrent.files.length > 0) {
-          fileToMove = torrent.files.reduce((prev, curr) => (prev.length > curr.length) ? prev : curr);
+        const destDir = path.dirname(outputPath);
+
+        let selectedFiles = [];
+        if (torrent.targetFile) {
+          selectedFiles = [torrent.targetFile];
+        } else if (Array.isArray(torrent.selectedIdxs) && torrent.selectedIdxs.length > 0) {
+          selectedFiles = torrent.selectedIdxs.map(i => torrent.files[i]).filter(Boolean);
+        } else if (torrent.files && torrent.files.length > 0) {
+          selectedFiles = torrent.files.filter(f => f.progress >= 0.95);
         }
-        if (fileToMove) {
-          const srcPath = path.join(path.dirname(outputPath), fileToMove.path);
-          // Determine proper output path with correct extension
+
+        if (torrent.targetFile && selectedFiles.length === 1) {
+          const fileToMove = torrent.targetFile;
+          const srcPath = path.join(destDir, fileToMove.path);
           const actualExt = path.extname(fileToMove.name);
           const targetPath = actualExt ? outputPath.replace(/\.mp4$/i, actualExt) : outputPath;
           if (fs.existsSync(srcPath) && srcPath !== targetPath) {
-            try { fs.renameSync(srcPath, targetPath); } catch(e) { 
-              try { fs.copyFileSync(srcPath, targetPath); } catch(e2) { 
-                console.warn('[Downloader] File copy also failed:', e2.message); 
+            try {
+              fs.renameSync(srcPath, targetPath);
+            } catch (e) {
+              try { fs.copyFileSync(srcPath, targetPath); } catch (e2) {
+                console.warn('[Downloader] File copy failed:', e2.message);
               }
             }
           }
-          console.log(`[Downloader] Torrent done. Moved: "${fileToMove.name}" -> "${path.basename(targetPath)}"`);
+          console.log(`[Downloader] Torrent single file done. Moved: "${fileToMove.name}" -> "${path.basename(targetPath)}"`);
+        } else if (selectedFiles.length > 0) {
+          // Batch download: move each selected file out of any torrent subfolder directly into destDir
+          selectedFiles.forEach(f => {
+            const srcPath = path.join(destDir, f.path);
+            const targetPath = path.join(destDir, f.name);
+            if (fs.existsSync(srcPath) && srcPath !== targetPath) {
+              try {
+                fs.renameSync(srcPath, targetPath);
+              } catch (e) {
+                try { fs.copyFileSync(srcPath, targetPath); } catch (e2) {}
+              }
+            }
+            console.log(`[Downloader] Torrent batch file done: "${f.name}" -> "${targetPath}"`);
+          });
         }
-      } catch(e) { console.warn('[Downloader] File move error:', e.message); }
-      // Clean up the torrent store and remove client
+      } catch (e) { console.warn('[Downloader] File move error:', e.message); }
+
+      // Clean up the torrent client WITHOUT deleting downloaded files from disk
       try {
-        wtClient.remove(torrent.infoHash, { destroyStore: true }, (err) => {
+        wtClient.remove(torrent.infoHash, { destroyStore: false }, (err) => {
           if (err) console.error('[Downloader] Error removing torrent:', err);
         });
-      } catch(e) { /* ignore cleanup errors */ }
+      } catch (e) { /* ignore cleanup errors */ }
+
+      mainWindow?.webContents?.send?.('download-progress', { id: downloadId, name: displayName, percent: 100, status: 'completed', statusText: 'Completed' });
       resolve();
     };
 
@@ -746,15 +846,10 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
 
       // Check if all selected files are done
       let allSelectedDone = false;
-      if (torrent.targetFile) {
-        if (torrent.targetFile.progress >= 1.0) {
-          allSelectedDone = true;
-        }
-      } else if (torrent.files && torrent.files.length > 0) {
-        const selectedFiles = torrent.files.filter(f => f.progress > -1);
-        if (selectedFiles.length > 0 && selectedFiles.every(f => f.progress >= 1.0)) {
-          allSelectedDone = true;
-        }
+      const selectedFiles = torrent.targetFile ? [torrent.targetFile] : ((torrent.selectedIdxs && torrent.selectedIdxs.length > 0) ? torrent.selectedIdxs.map(i => torrent.files[i]).filter(Boolean) : (torrent.files ? torrent.files.filter(f => f.progress > -1) : []));
+
+      if (selectedFiles.length > 0 && selectedFiles.every(f => f.progress >= 0.99)) {
+        allSelectedDone = true;
       }
 
       if (allSelectedDone && !cancelled) {
@@ -769,20 +864,22 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
       lastProgressTime = now;
       
       // Calculate true progress based on selection mode
-      const progress = torrent.targetFile ? torrent.targetFile.progress : torrent.progress;
-      const downloadedBytes = torrent.targetFile ? torrent.targetFile.downloaded : torrent.downloaded;
-      
-      // Calculate selected files total length
-      let totalBytes = torrent.targetFile ? torrent.targetFile.length : 0;
-      if (!torrent.targetFile) {
-        totalBytes = torrent.files.filter(f => f.progress > -1).reduce((acc, f) => acc + f.length, 0);
-        if (totalBytes === 0) totalBytes = torrent.length; // Fallback
+      let downloadedBytes = 0;
+      let totalBytes = 0;
+      if (selectedFiles.length > 0) {
+        downloadedBytes = selectedFiles.reduce((acc, f) => acc + (f.downloaded || 0), 0);
+        totalBytes = selectedFiles.reduce((acc, f) => acc + (f.length || 0), 0);
+      } else {
+        downloadedBytes = torrent.downloaded;
+        totalBytes = torrent.length;
       }
 
-      mainWindow?.webContents.send('download-progress', { 
+      const percent = totalBytes > 0 ? Math.min(100, (downloadedBytes / totalBytes) * 100).toFixed(1) : '0';
+
+      mainWindow?.webContents?.send('download-progress', { 
         id: downloadId, 
         name: displayName, 
-        percent: (progress * 100).toFixed(1),
+        percent,
         downloaded: formatBytes(downloadedBytes),
         total: formatBytes(totalBytes),
         speed: formatBytes(torrent.downloadSpeed) + '/s',
@@ -854,6 +951,17 @@ async function downloadTorrent(magnet, outputPath, downloadId, displayName, opts
 
 function initDownloaderIpc(ipcMain) {
   ipcMain.handle('start-download', async (_e, opts) => {
+    const { getInMemorySession, isSessionVIP } = require('./store');
+    const session = getInMemorySession();
+    if (!isSessionVIP(session)) {
+      console.warn('[Downloader] Blocked download attempt: MEEM VIP subscription required.');
+      return {
+        success: false,
+        error: 'VIP_REQUIRED',
+        message: 'Offline downloads are available exclusively for MEEM VIP members.'
+      };
+    }
+
     let { url, name, type, season, episode, isMusicMode } = opts;
     const isTorrent = url.startsWith('magnet:') || url.includes('.torrent') || opts.fileIdx !== undefined;
     const mainWindow = getMainWindow();
@@ -1261,7 +1369,7 @@ function initDownloaderIpc(ipcMain) {
     const lower = cleanUrl.toLowerCase();
     if (lower.includes('tiktok.com') || lower.includes('instagram.com') || lower.includes('twitter.com') || lower.includes('x.com') || lower.includes('facebook.com') || lower.includes('fb.watch')) {
       return new Promise((resolve) => {
-        const cp = adapter.spawnYtDlp(['--get-title', '--no-playlist', '--quiet', '--no-warnings', cleanUrl]);
+        const cp = adapter.spawnYtDlp(['--get-title', '--no-playlist', '--quiet', '--no-warnings', '--no-check-certificate', cleanUrl]);
         let title = '';
         cp.stdout.on('data', d => title += d.toString());
         cp.on('close', (code) => {
@@ -1314,7 +1422,7 @@ function initDownloaderIpc(ipcMain) {
 
     // 5. Generic yt-dlp metadata extractor for all other video links
     return new Promise((resolve) => {
-      const cp = adapter.spawnYtDlp(['--get-title', '--no-playlist', '--quiet', '--no-warnings', cleanUrl]);
+      const cp = adapter.spawnYtDlp(['--get-title', '--no-playlist', '--quiet', '--no-warnings', '--no-check-certificate', cleanUrl]);
       let title = '';
       cp.stdout.on('data', d => title += d.toString());
       cp.on('close', (code) => {

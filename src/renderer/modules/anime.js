@@ -193,9 +193,9 @@
 
   function renderContinueWatchingDiscover() {
     if (!currentProfile?.playback) return;
-    const section = $('#discover-continue-section');
     const row = $('#discover-continue-row');
-    if (!section || !row) return;
+    if (!row) return;
+    const section = $('#discover-continue-section') || row.closest('.bento-card') || row.parentElement;
 
     row.innerHTML = '';
 
@@ -204,7 +204,28 @@
         const tmdbCache = appData.tmdbCache || {};
         let libItem = null;
         if (typeof allItems === 'function') {
-          libItem = allItems().find(i => getPlaybackKey(i) === key);
+          libItem = allItems().find(i => {
+            const pk = getPlaybackKey(i);
+            return pk === key || i.path === key || key.startsWith(i.path) || (i.path && key.includes(i.path));
+          });
+        }
+        if (!libItem && Array.isArray(appData.shows)) {
+          for (const s of appData.shows) {
+            const ep = (s.episodes || []).find(e => e.path === key || key.startsWith(e.path) || (e.path && key.includes(e.path)));
+            if (ep) {
+              libItem = {
+                ...ep,
+                show: s,
+                showTitle: s.title || s.name,
+                backdrop_path: s.backdrop || s.backdropPath || s.cover || s.poster,
+                poster_path: ep.thumbnail || s.poster || s.cover
+              };
+              break;
+            }
+          }
+        }
+        if (!libItem && Array.isArray(appData.movies)) {
+          libItem = appData.movies.find(m => m.path === key || key.startsWith(m.path) || (m.path && key.includes(m.path)));
         }
 
         if (libItem) {
@@ -238,6 +259,15 @@
               season: seasonNum, 
               episode: episodeNum 
             };
+          } else {
+            const cleanName = key.split(/[\\/]/).pop()?.replace(/\.[^/.]+$/, '') || 'Media';
+            pb.meta = {
+              id: key,
+              path: key,
+              title: cleanName,
+              season: seasonNum,
+              episode: episodeNum
+            };
           }
         }
       }
@@ -247,6 +277,36 @@
         }
         if (pb.fileIdx !== undefined && pb.fileIdx !== null) {
           pb.meta.fileIdx = pb.fileIdx;
+        }
+
+        // Re-hydrate local file path on app refresh if missing
+        if (!pb.meta.path && window.appData) {
+          if (typeof key === 'string' && (key.includes(':\\') || key.includes(':/') || key.startsWith('/'))) {
+            pb.meta.path = key;
+          } else {
+            if (Array.isArray(appData.shows)) {
+              for (const s of appData.shows) {
+                const ep = (s.episodes || []).find(e => {
+                  if (e.path && (e.path === key || key.includes(e.path))) return true;
+                  if (pb.meta.season != null && pb.meta.episode != null && e.season == pb.meta.season && e.episode == pb.meta.episode) {
+                    const sTitle = (s.title || s.cleanTitle || '').toLowerCase();
+                    const showTitle = (pb.meta.showTitle || pb.meta.showName || '').toLowerCase();
+                    if (!showTitle || !sTitle || sTitle === showTitle || sTitle.includes(showTitle) || showTitle.includes(sTitle)) return true;
+                  }
+                  return false;
+                });
+                if (ep && ep.path) {
+                  pb.meta.path = ep.path;
+                  if (!pb.meta.show) pb.meta.show = s;
+                  break;
+                }
+              }
+            }
+            if (!pb.meta.path && Array.isArray(appData.movies)) {
+              const m = appData.movies.find(mv => mv.path && (mv.path === key || key.includes(mv.path)));
+              if (m && m.path) pb.meta.path = m.path;
+            }
+          }
         }
       }
       return pb;
@@ -299,71 +359,152 @@
         const progress = Math.min((pb.time / pb.duration) * 100, 100).toFixed(1);
 
         const tmdbCache = appData.tmdbCache || {};
+        const cinemetaCache = appData.cinemetaCache || {};
         const isEpisode = item.season !== undefined && item.episode !== undefined;
         let displayTitle = item.title || item.name;
 
+        // 1. Locate showObj reliably
         let showObj = item.show;
         if (isEpisode && !showObj) {
-          showObj = (appData.shows || []).find(s => (s.episodes || []).some(e => getPlaybackKey(e) === getPlaybackKey(item)));
+          showObj = (appData.shows || []).find(s => {
+            if (item.showId && (s.id === item.showId || s.imdb_id === item.showId)) return true;
+            if (item.path && s.path && (item.path === s.path || item.path.startsWith(s.path))) return true;
+            if (item.folder && s.folder && item.folder === s.folder) return true;
+            if (item.showName && (s.title === item.showName || s.cleanTitle === item.showName)) return true;
+            if (item.showTitle && (s.title === item.showTitle || s.cleanTitle === item.showTitle)) return true;
+            return (s.episodes || []).some(e => (item.path && e.path === item.path) || (typeof getPlaybackKey === 'function' && getPlaybackKey(e) === getPlaybackKey(item)));
+          });
         }
 
-        let subtitle = isEpisode ? (item.showName || (showObj && showObj.title) || 'TV Show') : '';
-        const showId = showObj?.id || item.showId;
-        const metaCache = tmdbCache[showId] || tmdbCache[item.id] || tmdbCache[item.tmdbId] || {};
+        let subtitle = isEpisode ? (item.showName || item.showTitle || (showObj && (showObj.title || showObj.cleanTitle)) || 'TV Show') : '';
 
-        let bPath = item.backdrop_path || item.backdropPath || metaCache.backdropPath || metaCache.backdrop_path;
+        // 2. Comprehensive metadata lookup across TMDB, Cinemeta, and showObj keys
+        let metaCache = null;
+        if (typeof getMetadataForItem === 'function') {
+          if (showObj) metaCache = getMetadataForItem(showObj);
+          if (!metaCache) metaCache = getMetadataForItem(item);
+        }
+
+        if (!metaCache || (!metaCache.seasons && !metaCache.videos)) {
+          const candidateKeys = [
+            showObj?.id, showObj?.imdb_id, showObj?.imdbId, showObj?.tmdbId, showObj?.tmdb_id, showObj?.cinemetaId,
+            showObj?.cleanTitle, showObj?.title, showObj?.path,
+            item.showId, item.imdb_id, item.imdbId, item.tmdbId, item.tmdb_id, item.id, item.showName, item.showTitle
+          ].filter(Boolean);
+
+          for (const k of candidateKeys) {
+            if (tmdbCache[k] && (tmdbCache[k].seasons || tmdbCache[k].backdropPath || tmdbCache[k].posterPath || tmdbCache[k].poster)) {
+              metaCache = tmdbCache[k];
+              break;
+            }
+            if (cinemetaCache[k] && (cinemetaCache[k].seasons || cinemetaCache[k].videos || cinemetaCache[k].backdrop || cinemetaCache[k].poster)) {
+              metaCache = cinemetaCache[k];
+              break;
+            }
+          }
+        }
+
+        // Title matching fallback across cached metadata
+        if (!metaCache || (!metaCache.seasons && !metaCache.videos)) {
+          const targetTitle = (item.showName || item.showTitle || showObj?.title || showObj?.cleanTitle || '').toLowerCase().trim();
+          if (targetTitle) {
+            for (const cache of [tmdbCache, cinemetaCache]) {
+              for (const entry of Object.values(cache)) {
+                if (entry && (entry.seasons || entry.videos)) {
+                  const entryTitle = (entry.title || entry.name || '').toLowerCase().trim();
+                  if (entryTitle === targetTitle || (targetTitle.length > 3 && entryTitle.includes(targetTitle))) {
+                    metaCache = entry;
+                    break;
+                  }
+                }
+              }
+              if (metaCache && (metaCache.seasons || metaCache.videos)) break;
+            }
+          }
+        }
+        metaCache = metaCache || {};
+
+        let bPath = item.backdrop_path || item.backdropPath || metaCache.backdropPath || metaCache.backdrop_path || metaCache.backdrop;
+        let episodeStill = null;
 
         if (isEpisode) {
-          const sn = item.season;
-          const en = item.episode;
+          const sn = parseInt(item.season, 10);
+          const en = parseInt(item.episode, 10);
 
-          const sData = (metaCache.seasons) ? (metaCache.seasons[sn] || metaCache.seasons[String(sn)]) : null;
-          const epData = (sData) ? (sData[en] || sData[String(en)]) : null;
+          let epData = null;
+          // Look up in seasons object or array
+          const seasonsData = metaCache.seasons || {};
+          const sData = seasonsData[sn] || seasonsData[String(sn)];
+          if (Array.isArray(sData)) {
+            epData = sData.find(e => parseInt(e.episode || e.episode_number, 10) === en);
+          } else if (sData && typeof sData === 'object') {
+            epData = sData[en] || sData[String(en)];
+          }
+
+          // Also check metaCache.videos (Cinemeta format: videos: [{ season: 1, episode: 1, title: "...", thumbnail: "..." }])
+          if (!epData && Array.isArray(metaCache.videos)) {
+            epData = metaCache.videos.find(v => parseInt(v.season, 10) === sn && parseInt(v.episode, 10) === en);
+          }
+
+          // Also check showObj.episodes if local episode had cached meta
+          if (!epData && showObj?.episodes) {
+            epData = showObj.episodes.find(e => parseInt(e.season, 10) === sn && parseInt(e.episode, 10) === en);
+          }
 
           if (epData) {
-            displayTitle = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} ┬╖ ${epData.name || 'Episode ' + en}`;
-
-            let still = '';
-            if (epData.local_still) {
-              still = `local-file:///${epData.local_still.replace(/\\/g, "/")}`;
-            }
-
-            if (still) {
-              bPath = still;
+            const epName = epData.name || epData.title;
+            if (epName && !epName.toLowerCase().startsWith('episode') && epName !== String(en)) {
+              displayTitle = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} • ${epName}`;
+            } else {
+              displayTitle = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')}`;
             }
           } else {
             displayTitle = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')}`;
+          }
+
+          // Prioritize Episode Still / Thumbnail Image over anime cover
+          const rawStill = item.thumbnail || item.still_path || item.still ||
+                           epData?.local_still || epData?.thumbnail || epData?.still_path || epData?.still ||
+                           (appData.thumbnails ? (appData.thumbnails[item.id] || appData.thumbnails[item.path]) : null);
+
+          if (rawStill) {
+            if (rawStill.startsWith('data:') || rawStill.startsWith('http://') || rawStill.startsWith('https://') || rawStill.startsWith('local-file://')) {
+              episodeStill = rawStill;
+            } else if (rawStill.startsWith('file:///')) {
+              episodeStill = `local-file:///${rawStill.replace('file:///', '')}`;
+            } else if (rawStill.startsWith('/')) {
+              episodeStill = `https://image.tmdb.org/t/p/w500${rawStill}`;
+            } else if (rawStill.includes(':\\') || rawStill.includes(':/') || rawStill.startsWith('\\\\')) {
+              episodeStill = `local-file:///${rawStill.replace(/\\/g, "/")}`;
+            } else {
+              episodeStill = `https://image.tmdb.org/t/p/w500/${rawStill}`;
+            }
           }
         }
 
         const pPath = item.poster_path || item.posterPath || metaCache.posterPath || metaCache.poster_path;
 
         let backdropUrl = 'imgs/no-backdrop.png';
-        const localBanner = appData.banners ? (appData.banners[item.id] || (showObj ? appData.banners[showId] : null)) : null;
-
-        if (localBanner) {
-          backdropUrl = `local-file:///${localBanner.replace(/\\/g, "/")}`;
-        } else if (item.cover) {
-          if (item.cover.startsWith('data:') || item.cover.startsWith('http') || item.cover.startsWith('local-file')) {
-            backdropUrl = item.cover;
-          } else {
-            backdropUrl = `local-file:///${item.cover.replace(/\\/g, "/")}`;
+        if (episodeStill) {
+          backdropUrl = episodeStill;
+        } else {
+          const sId = showObj?.id || item.showId;
+          const localBanner = appData.banners ? (appData.banners[item.id] || (sId ? appData.banners[sId] : null)) : null;
+          if (localBanner) {
+            backdropUrl = `local-file:///${localBanner.replace(/\\/g, "/")}`;
+          } else if (bPath) {
+            backdropUrl = (bPath.startsWith('http') || bPath.startsWith('local-file')) ? bPath : `https://image.tmdb.org/t/p/w500${bPath}`;
+          } else if (item.cover) {
+            backdropUrl = (item.cover.startsWith('data:') || item.cover.startsWith('http') || item.cover.startsWith('local-file'))
+              ? item.cover
+              : `local-file:///${item.cover.replace(/\\/g, "/")}`;
+          } else if (item.poster) {
+            backdropUrl = `local-file:///${item.poster.replace(/\\/g, "/")}`;
+          } else if (item.image) {
+            backdropUrl = localImg(item.image);
+          } else if (pPath) {
+            backdropUrl = (pPath.startsWith('http') || pPath.startsWith('local-file')) ? pPath : `https://image.tmdb.org/t/p/w500${pPath}`;
           }
-        } else if (item.poster) {
-          backdropUrl = `local-file:///${item.poster.replace(/\\/g, "/")}`;
-        } else if (item.thumbnail) {
-          backdropUrl = `local-file:///${item.thumbnail.replace(/\\/g, "/")}`;
-        } else if (item.image) {
-          backdropUrl = localImg(item.image);
-        } else if (bPath) {
-          if (bPath.startsWith('http') || bPath.startsWith('local-file')) {
-            backdropUrl = bPath;
-          } else {
-            // metahub.space is currently down; use TMDB ElfHosted fallback directly
-            backdropUrl = 'imgs/no-backdrop.png';
-          }
-        } else if (pPath) {
-          backdropUrl = 'imgs/no-backdrop.png';
         }
 
         card.innerHTML = `
@@ -381,6 +522,87 @@
         card.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
+          const resumeTime = (pb && pb.time > 2 && !pb.watched) ? pb.time : 0;
+          const magnet = item.torrentMagnet || pb?.torrentMagnet || pb?.meta?.torrentMagnet;
+          const fIdx = item.fileIdx ?? pb?.fileIdx ?? pb?.meta?.fileIdx ?? null;
+          let rawPath = item.path || pb?.path || pb?.meta?.path || item.url || pb?.meta?.url;
+
+          if (!rawPath && typeof pb?.key === 'string' && (pb.key.includes(':\\') || pb.key.includes(':/') || pb.key.startsWith('/'))) {
+            rawPath = pb.key;
+          }
+          if (!rawPath && typeof item?.id === 'string' && (item.id.includes(':\\') || item.id.includes(':/') || item.id.startsWith('/'))) {
+            rawPath = item.id;
+          }
+
+          if (!rawPath && window.appData) {
+            if (Array.isArray(appData.shows)) {
+              for (const s of appData.shows) {
+                const ep = (s.episodes || []).find(ex => {
+                  if (ex.path && (ex.path === item.path || ex.path === pb?.key || (pb?.key && pb.key.includes(ex.path)))) return true;
+                  if (item.season != null && item.episode != null && ex.season == item.season && ex.episode == item.episode) {
+                    const sName = (item.showTitle || item.showName || '').toLowerCase();
+                    const sTitle = (s.title || s.cleanTitle || '').toLowerCase();
+                    if (!sName || !sTitle || sTitle === sName || sTitle.includes(sName) || sName.includes(sTitle)) return true;
+                  }
+                  return false;
+                });
+                if (ep && ep.path) {
+                  rawPath = ep.path;
+                  if (!showObj) showObj = s;
+                  break;
+                }
+              }
+            }
+            if (!rawPath && Array.isArray(appData.movies)) {
+              const m = appData.movies.find(mv => mv.path && (mv.path === item.path || mv.path === pb?.key || (pb?.key && pb.key.includes(mv.path))));
+              if (m && m.path) rawPath = m.path;
+            }
+          }
+
+          const isValidLocal = rawPath && (rawPath.startsWith('http://') || rawPath.startsWith('https://') || rawPath.includes(':\\') || rawPath.includes(':/') || rawPath.startsWith('\\\\'));
+
+          if (magnet) {
+            if (typeof playVideo === 'function') {
+              playVideo({
+                ...item,
+                torrentMagnet: magnet,
+                fileIdx: fIdx,
+                startTime: resumeTime
+              }, showObj, { startTime: resumeTime });
+            }
+          } else if (isValidLocal) {
+            if (typeof playVideo === 'function') {
+              playVideo({
+                ...item,
+                path: rawPath,
+                startTime: resumeTime
+              }, showObj, { startTime: resumeTime });
+            }
+          } else if (item.isStream) {
+            if (typeof playVideo === 'function') {
+              playVideo({
+                ...item,
+                startTime: resumeTime
+              }, item.showName ? { title: item.showName, id: item.showId } : null, { startTime: resumeTime });
+            }
+          } else {
+            // Online item without a direct path: open unified detail to pick stream
+            if (typeof openUnifiedDetail === 'function') {
+              openUnifiedDetail(showObj || item);
+            } else if (typeof openShowDetail === 'function' && showObj) {
+              openShowDetail(showObj);
+            } else if (typeof playVideo === 'function') {
+              playVideo({
+                ...item,
+                startTime: resumeTime
+              }, showObj, { startTime: resumeTime });
+            }
+          }
+        };
+
+        card.oncontextmenu = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
           showContinueWatchingMenu(e, pb, item, showObj);
         };
 
@@ -388,18 +610,13 @@
       });
       section.style.display = 'block';
     } else {
-      const hasMediaAddon = (appData.addons || []).some(a => a.type === 'catalog' || a.type === 'content' || a.id === 'cinemeta' || a.id === 'tmdb-addon');
-      if (!hasMediaAddon) {
-        section.style.display = 'none';
-        return;
-      }
       row.innerHTML = `
-        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px dashed rgba(255,255,255,0.12); margin: 0 10px;">
-          <div style="width: 50px; height: 50px; background: var(--accent-glow); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 15px; box-shadow: 0 0 30px var(--accent-glow);">
-             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        <div style="flex: 1; width: 100%; height: 100%; min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 20px; background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px dashed rgba(255,255,255,0.15); box-sizing: border-box; text-align: center;">
+          <div style="width: 52px; height: 52px; background: rgba(255,255,255,0.06); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; border: 1px solid rgba(255,255,255,0.1);">
+             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" style="opacity: 0.85;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           </div>
-          <h3 style="font-size: 16px; margin: 0; opacity: 0.8; font-weight: 700;">Start your next adventure</h3>
-          <p style="font-size: 13px; margin: 5px 0 0; opacity: 0.4;">Your recently watched movies and shows will appear here.</p>
+          <h3 style="font-size: 17px; margin: 0; opacity: 0.95; font-weight: 800; color: #fff; letter-spacing: 0.5px;">Start Watching Now!</h3>
+          <p style="font-size: 12px; margin: 6px 0 0; opacity: 0.5; max-width: 260px; line-height: 1.4;">Your in-progress movies and episodes will appear here automatically.</p>
         </div>
       `;
       section.style.display = 'block';
@@ -570,10 +787,19 @@
       const year = (item.release_date || item.first_air_date || item.year || '').toString().slice(0, 4);
       const rating = parseFloat(item.vote_average || item.rating || tmdbCached?.rating || 0) || 0;
 
+      const isChannelOrLogo = item.type === 'iptv' || item.type === 'radio' || item.type === 'channel' || item.isLive || item.isIptv || item.isRadio || !!item.logo || (typeof posterUrl === 'string' && (posterUrl.includes('logo') || posterUrl.includes('channel') || posterUrl.includes('aljazeera') || posterUrl.includes('radio') || posterUrl.includes('iptv') || posterUrl.includes('svg')));
+
+      const fallbackIcon = (item.type === 'iptv' || item.type === 'channel' || item.isLive || item.isIptv) ? 'fa-tv' : (item.type === 'radio' || item.isRadio ? 'fa-radio' : (item.type === 'show' || item.type === 'tv' ? 'fa-desktop' : 'fa-film'));
+
+      const imgClass = `discover-poster${isChannelOrLogo ? ' is-channel-logo' : ''}`;
+
       card.innerHTML = `
         <div class="discover-poster-wrap">
-          <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
-          ${posterUrl ? `<img src="${localImg(posterUrl)}" class="discover-poster" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+          <div class="discover-poster-placeholder" style="${posterUrl ? 'display:none;' : ''}">
+            <i class="fas ${fallbackIcon}"></i>
+            <span class="placeholder-title">${escapeHTML(title)}</span>
+          </div>
+          ${posterUrl ? `<img src="${localImg(posterUrl)}" class="${imgClass}" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
           ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
         </div>
         <div class="discover-info">
@@ -597,20 +823,32 @@
     });
   }
 
-  function resolveHeroBackdrop(raw) {
-    if (!raw) return '';
-    const s = String(raw).trim();
-    if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('file://')) {
-      return s;
+  function resolveHeroBackdrop(item) {
+    if (!item) return '';
+    const raw = item.backdrop_path || item.background || item.backdrop || item.bannerImage || item.fanart || item.poster_path || item.poster || '';
+    const imdbId = item.imdb_id || item.imdbId || (String(item.id || '').startsWith('tt') ? item.id : null);
+
+    let url = '';
+    if (raw) {
+      const s = String(raw).trim();
+      if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('file://')) {
+        url = s;
+      } else if (s.startsWith('/tt') || s.startsWith('tt')) {
+        const cleanId = s.replace(/^\//, '').split('/')[0];
+        url = `https://images.metahub.space/background/medium/${cleanId}/img`;
+      } else if (s.startsWith('/')) {
+        url = `https://image.tmdb.org/t/p/w1280${s}`;
+      } else {
+        url = `https://image.tmdb.org/t/p/w1280/${s}`;
+      }
+    } else if (imdbId) {
+      url = `https://images.metahub.space/background/medium/${imdbId}/img`;
     }
-    if (s.startsWith('/tt') || s.startsWith('tt')) {
-      const cleanId = s.replace(/^\//, '').split('/')[0];
-      return `https://images.metahub.space/poster/medium/${cleanId}/img`;
+
+    if (url && typeof window.localImg === 'function') {
+      return window.localImg(url);
     }
-    if (s.startsWith('/')) {
-      return `https://image.tmdb.org/t/p/w1280${s}`;
-    }
-    return `https://image.tmdb.org/t/p/w1280/${s}`;
+    return url;
   }
 
   function updateDiscoverHeroDisplay() {
@@ -620,15 +858,15 @@
     if (!item) return;
 
     const title = item.title || item.name || 'Unknown';
-    const rawBackdrop = item.backdrop_path || item.background || item.backdrop || item.poster_path || item.poster || '';
-    const backdrop = resolveHeroBackdrop(rawBackdrop);
+    const backdrop = resolveHeroBackdrop(item);
     const year = (item.release_date || item.first_air_date || item.seasonYear || '').toString().slice(0, 4);
     const rating = item.vote_average ? parseFloat(item.vote_average).toFixed(1) : (item.score || 'N/A');
     const isAnime = item.source === 'anilist' || item.source === 'mal' || item.format;
     const type = isAnime ? 'ANIME' : (item.media_type === 'tv' ? 'SERIES' : 'MOVIE');
+    const imdbId = item.imdb_id || item.imdbId || (String(item.id || '').startsWith('tt') ? item.id : null);
 
     hero.innerHTML = `
-      <div class="hero-backdrop" style="background-image: url('${backdrop}')"></div>
+      <div class="hero-backdrop" id="hero-backdrop-bg" style="background-image: url('${backdrop}')"></div>
       <div class="hero-overlay">
         <div class="hero-content">
           <div class="hero-badge">Featured ${type}</div>
@@ -649,6 +887,27 @@
       </div>
       <div class="hero-pagination" id="discover-hero-dots"></div>
     `;
+
+    // Smart Fallback Preloader for Hero Backdrop Image
+    if (backdrop) {
+      const imgTester = new Image();
+      imgTester.src = backdrop;
+      imgTester.onerror = () => {
+        let fallback = '';
+        if (imdbId && !backdrop.includes('metahub.space')) {
+          fallback = `https://images.metahub.space/background/medium/${imdbId}/img`;
+        } else if (item.poster_path) {
+          fallback = `https://image.tmdb.org/t/p/w1280${item.poster_path}`;
+        } else if (imdbId) {
+          fallback = `https://images.metahub.space/poster/medium/${imdbId}/img`;
+        }
+        if (fallback) {
+          if (typeof window.localImg === 'function') fallback = window.localImg(fallback);
+          const bgEl = hero.querySelector('#hero-backdrop-bg');
+          if (bgEl) bgEl.style.backgroundImage = `url('${fallback}')`;
+        }
+      };
+    }
 
     hero.onclick = (e) => {
       if (e.target.classList.contains('hero-dot')) return;
@@ -683,6 +942,7 @@
 
   function addDiscoverHeroItem(item) {
     if (!item) return;
+    if (discoverHeroItems.length >= 6) return;
     if (!discoverHeroItems.find(i => (i.id === item.id) || (i.imdb_id === item.imdb_id))) {
       discoverHeroItems.push(item);
       
@@ -889,6 +1149,9 @@
       b.classList.toggle('active', b.dataset.genre === 'trending');
     });
 
+    if (window.AppCapabilities && typeof window.AppCapabilities.refresh === 'function') {
+      window.AppCapabilities.refresh();
+    }
     const hasCatalog = !!window.AppCapabilities?.can('catalog');
     const hasYoutube = !!window.AppCapabilities?.can('youtube');
 
@@ -907,36 +1170,56 @@
     });
 
     const content = $('#discover-content');
+    if (content) content.style.display = 'block';
+
     let localHomeEl = $('#discover-local-home');
-
-    // If no media addons at all, show local dashboard
-    if (!hasMediaAddon) {
-      isDiscoverLoading = false;
-      if (content) {
-        content.style.display = 'block';
-        if ($('#discover-hero')) $('#discover-hero').style.display = 'none';
-        if ($('#discover-continue-section')) $('#discover-continue-section').style.display = 'none';
-        $$('#discover-content > .discover-section').forEach(s => s.style.display = 'none');
-        if ($('#discover-empty-state')) $('#discover-empty-state').style.display = 'none';
-
-        renderLocalHomeDashboard(content);
-      }
-      return;
-    }
-
     if (localHomeEl) localHomeEl.style.display = 'none';
-    if ($('#discover-empty-state')) $('#discover-empty-state').style.display = 'none';
 
-    // Only show Hero banner and Continue section if Catalog is available
+    const bentoWrapper = $('.bento-dashboard-wrapper');
+    if (bentoWrapper) {
+      bentoWrapper.classList.toggle('no-hero', !hasCatalog);
+    }
+    // Show Hero banner ONLY if Cinemeta catalog is installed
     if ($('#discover-hero')) $('#discover-hero').style.display = hasCatalog ? '' : 'none';
+
+    // Continue Watching section MUST ALWAYS remain visible on Home page
     if ($('#discover-continue-section')) $('#discover-continue-section').style.display = '';
 
-    // Show/Hide Movie & Series catalog sections based on whether a Catalog addon is present
+    // Hide ONLY the Cinemeta catalog sections when Cinemeta catalog is missing
     const movieSeriesRows = ['#in-cinemas-row', '#top10-tv-row', '#top10-movie-row', '#popular-movies-row', '#popular-series-row', '#anime-row'];
     movieSeriesRows.forEach(sel => {
       const el = $(sel);
       const section = el?.closest('.discover-section');
       if (section) section.style.display = hasCatalog ? 'block' : 'none';
+    });
+
+    // Hide YouTube sections when YouTube add-on is missing/uninstalled
+    const youtubeSectionIds = [
+      '#discover-youtube-section',
+      '#discover-youtube-recommended-section',
+      '#discover-youtube-subscriptions-section',
+      '#discover-youtube-history-section',
+      '#discover-yt-gaming-section',
+      '#discover-yt-music-section',
+      '#discover-yt-tech-section',
+      '#discover-yt-comedy-section',
+      '#home-local-youtube-section'
+    ];
+    youtubeSectionIds.forEach(sel => {
+      const el = $(sel);
+      const section = el?.closest('.discover-section') || el;
+      if (section) {
+        if (!hasYoutube) {
+          section.style.display = 'none';
+        } else {
+          const isPersonalized = sel.includes('recommended') || sel.includes('subscriptions') || sel.includes('history');
+          if (isPersonalized) {
+            section.style.display = 'none';
+          } else {
+            section.style.display = 'block';
+          }
+        }
+      }
     });
 
     if (isDiscoverLoading && !force) return;
@@ -951,7 +1234,10 @@
     const dm = $('.discover-main');
     if (dm) dm.scrollTop = 0;
 
-    setTimeout(() => renderContinueWatchingDiscover(), 100);
+    setTimeout(() => {
+      renderContinueWatchingDiscover();
+      if (typeof window.renderBentoWatchlist === 'function') window.renderBentoWatchlist();
+    }, 100);
 
     if (hasCatalog) {
       movieSeriesRows.forEach(sel => {
@@ -989,8 +1275,8 @@
           year: m.releaseInfo
         }));
         renderDiscoverRow(selector, items, isTop10);
-        if ((selector === '#in-cinemas-row' || selector === '#top10-movie-row' || selector === '#top10-tv-row') && items.length > 0) {
-          addDiscoverHeroItem(items[0]);
+        if (items.length > 0) {
+          items.slice(0, 2).forEach(it => addDiscoverHeroItem(it));
         }
       } catch (err) {
         console.error(`Failed to load ${selector}:`, err);
@@ -1018,7 +1304,7 @@
         }));
         renderDiscoverRow(selector, items, false);
         if (items.length > 0) {
-          addDiscoverHeroItem(items[0]);
+          items.slice(0, 2).forEach(it => addDiscoverHeroItem(it));
         }
       } catch (err) {
         console.error(`Failed to load ${selector}:`, err);
@@ -1036,7 +1322,7 @@
         sectionEl.innerHTML = `
           <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
             <h3 style="display:flex; align-items:center; gap:10px; color:#fff; font-size:1.3rem; font-weight:800;">
-              <i class="${iconClass}" style="color:#ff0000; font-size:1.2rem;"></i> ${escapeHTML(title)}
+              <i class="${iconClass}" style="color:#ffffff; font-size:1.2rem;"></i> ${escapeHTML(title)}
             </h3>
           </div>
           <div class="discover-row" id="${selector.replace('#', '')}"></div>
@@ -1198,7 +1484,7 @@
           </div>
           <div>
             <div style="display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.7); font-size: 0.8rem; font-weight: 600; margin-bottom: 3px;">
-              <i class="fab fa-youtube" style="color: #ff0000; font-size: 13px;"></i>
+              <i class="fab fa-youtube" style="color: #ffffff; font-size: 13px;"></i>
               <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(author)}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.4); font-size: 0.75rem;">
@@ -1316,7 +1602,7 @@
         <div class="discover-info">
           <div class="discover-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
           <div class="discover-meta">
-            ${isYT ? `<span style="color:#ff4b4b; font-weight:700;"><i class="fab fa-youtube"></i> ${escapeHTML(item.author || 'YouTube')}</span>` : getBadgeHTML(item)}
+            ${isYT ? `<span style="color:#ffffff; font-weight:700;"><i class="fab fa-youtube"></i> ${escapeHTML(item.author || 'YouTube')}</span>` : getBadgeHTML(item)}
             <span>${year}</span>
             ${rating ? `<span class="discover-rating-stars"><i class="fas fa-star" style="font-size:8px"></i> ${rating.toFixed(1)}</span>` : ''}
             ${!isYT ? `<span class="discover-age-badge-container">${getAgeBadgeHTML(getItemCertification(item))}</span>` : ''}
@@ -2435,10 +2721,10 @@
     const clearCardLoading = (el) => {
       if (!el) return;
       el.classList.remove('btn-loading');
-      const spinner = el.querySelector('.fa-spinner');
-      if (spinner) spinner.remove();
-      const svg = el.querySelector('svg');
-      if (svg) svg.style.display = '';
+      const spinners = el.querySelectorAll('.fa-spinner, .btn-spinner-svg');
+      spinners.forEach(s => s.remove());
+      const svgs = el.querySelectorAll('svg');
+      svgs.forEach(s => s.style.display = '');
       const iconWrap = el.querySelector('.dd-stream-play-icon');
       if (iconWrap) {
         iconWrap.classList.remove('loading');
@@ -2483,16 +2769,6 @@
         iconWrap.classList.add('loading');
       }
       else if (cardEl.classList.contains('stream-btn-play') || cardEl.classList.contains('stream-btn-vlc')) {
-        const svg = cardEl.querySelector('svg');
-        if (svg) svg.style.display = 'none';
-        
-        if (!cardEl.querySelector('.fa-spinner')) {
-          const spinner = document.createElement('i');
-          spinner.className = 'fas fa-spinner fa-spin';
-          spinner.style.fontSize = '16px';
-          spinner.style.color = '#000000';
-          cardEl.appendChild(spinner);
-        }
         cardEl.classList.add('btn-loading');
       }
     }
@@ -2515,25 +2791,25 @@
       showToast(`Opening ${stream.addon} in external player...`);
       console.log('[playStream] Mobile external handoff:', handoffUrl);
 
-      const result = await (window.PlayMediaService
-        ? window.PlayMediaService.play(handoffUrl, { title: meta?.title || stream.name })
-        : window.api.playExternal
-          ? window.api.playExternal(handoffUrl, { title: meta?.title || stream.name })
-          : window.api.playMedia({ url: handoffUrl, title: meta?.title || stream.name })
-      );
-
-      clearCardLoading(cardEl);
-
-      if (!result || !result.success) {
-        showToast('Failed to open external player: ' + (result?.error || 'Unknown error'));
-      } else if (result.streamUrl) {
-        console.log('[playStream] Launching intent for streamUrl:', result.streamUrl);
-        try {
-          await window.api.invoke('open-external-url', result.streamUrl);
-        } catch (e) {
-          window.open(result.streamUrl, '_system');
+      // On Android/Capacitor, open the URL via _system to trigger the native App Chooser.
+      // magnet: links will open torrent clients (LibreTorrent, etc.)
+      // http(s): links will open video players (VLC, MX Player, Amnis, etc.)
+      try {
+        window.open(handoffUrl, '_system');
+      } catch (e) {
+        console.error('[playStream] window.open(_system) failed, fallback intent:', e);
+        // Fallback: try intent URL for video
+        if (handoffUrl.startsWith('http')) {
+          const scheme = handoffUrl.startsWith('https') ? 'https' : 'http';
+          const cleanUrl = handoffUrl.replace(/^https?:\/\//, '');
+          const intentUrl = `intent://${cleanUrl}#Intent;scheme=${scheme};type=video/*;action=android.intent.action.VIEW;end;`;
+          window.location.href = intentUrl;
+        } else {
+          window.location.href = handoffUrl;
         }
       }
+
+      clearCardLoading(cardEl);
       return;
     }
 
@@ -2633,13 +2909,11 @@
 
   // ─── YOUTUBE ADD-ON SETTINGS, AUTH & WATCH HISTORY ─────────────────────
 
-  if (!window.openYouTubeSettingsModal) {
-    window.openYouTubeSettingsModal = async function() {
-      const modal = $('#youtube-settings-modal');
-      if (modal) modal.style.display = 'flex';
-      await refreshYouTubeAccountUI();
-    };
-  }
+  window.openYouTubeSettingsModal = async function() {
+    const modal = $('#youtube-settings-modal');
+    if (modal) modal.style.display = 'flex';
+    await refreshYouTubeAccountUI();
+  };
 
   async function refreshYouTubeAccountUI() {
     try {
@@ -2647,40 +2921,70 @@
       const nameEl = $('#yt-account-name');
       const emailEl = $('#yt-account-email');
       const avatarEl = $('#yt-account-avatar');
+      const statusEl = $('#yt-account-status');
       const btnLabel = $('#yt-auth-btn-label');
       const authBtn = $('#btn-yt-auth-action');
+      const switchBtn = $('#btn-yt-switch-action');
+      const meemSyncLink = $('#link-yt-meem-sync');
 
       if (res && res.success && res.signedIn && res.account) {
         if (nameEl) nameEl.textContent = res.account.name || 'Google Account';
-        if (emailEl) emailEl.textContent = res.account.email || 'user@gmail.com';
+        if (emailEl) emailEl.textContent = res.account.email || 'Connected to YouTube';
         if (avatarEl && res.account.avatar) avatarEl.src = res.account.avatar;
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Connected via Google Account';
+        }
+        if (switchBtn) switchBtn.style.display = 'inline-flex';
+        if (meemSyncLink) meemSyncLink.style.display = 'none';
         if (btnLabel) btnLabel.textContent = 'Sign Out';
         if (authBtn) {
-          authBtn.style.background = 'rgba(239,68,68,0.2)';
+          authBtn.style.background = 'rgba(239,68,68,0.18)';
           authBtn.style.color = '#ef4444';
+          authBtn.style.border = '1px solid rgba(239,68,68,0.35)';
+          authBtn.style.boxShadow = 'none';
         }
       } else {
         if (nameEl) nameEl.textContent = 'Not Signed In';
-        if (emailEl) emailEl.textContent = 'Sign in with Google for personalized feed & recommendations';
+        if (emailEl) emailEl.textContent = 'Sign in with any Google account to sync feeds & history';
         if (avatarEl) avatarEl.src = 'https://lh3.googleusercontent.com/a/default-user=s96-c';
+        if (statusEl) statusEl.style.display = 'none';
+        if (switchBtn) switchBtn.style.display = 'none';
         if (btnLabel) btnLabel.textContent = 'Sign In';
         if (authBtn) {
-          authBtn.style.background = 'var(--accent)';
-          authBtn.style.color = '#fff';
+          authBtn.style.background = '#ffffff';
+          authBtn.style.color = '#000000';
+          authBtn.style.border = 'none';
+          authBtn.style.boxShadow = '0 4px 20px rgba(255,255,255,0.3)';
+        }
+        if (meemSyncLink) {
+          const meemUser = window.state?.user || null;
+          if (meemUser && meemUser.email) {
+            meemSyncLink.style.display = 'inline-block';
+            meemSyncLink.innerHTML = `<i class="fas fa-link" style="margin-right:4px;"></i> Use MEEM Account (${escapeHTML(meemUser.email)})`;
+          } else {
+            meemSyncLink.style.display = 'none';
+          }
         }
       }
     } catch (err) {
       console.error('[YouTube Settings] Account refresh error:', err);
     }
   }
+  window.refreshYouTubeAccountUI = refreshYouTubeAccountUI;
 
   // Auth & Settings Modal Event Handlers
   document.addEventListener('DOMContentLoaded', () => {
+    const settingsModal = $('#youtube-settings-modal');
+    if (settingsModal) {
+      settingsModal.onclick = (e) => {
+        if (e.target === settingsModal) settingsModal.style.display = 'none';
+      };
+    }
     const btnCloseSettings = $('#btn-close-yt-settings');
     if (btnCloseSettings) {
       btnCloseSettings.onclick = () => {
-        const modal = $('#youtube-settings-modal');
-        if (modal) modal.style.display = 'none';
+        if (settingsModal) settingsModal.style.display = 'none';
       };
     }
 
@@ -2690,7 +2994,7 @@
         const res = await window.api.invoke('youtube-get-account');
         if (res && res.signedIn) {
           await window.api.invoke('youtube-sign-out');
-          showToast('👋 Signed out of Google Account');
+          showToast('👋 Signed out of YouTube account');
           await refreshYouTubeAccountUI();
           if (typeof window.loadDiscover === 'function') window.loadDiscover(true);
         } else {
@@ -2705,6 +3009,44 @@
       };
     }
 
+    const switchBtn = $('#btn-yt-switch-action');
+    if (switchBtn) {
+      switchBtn.onclick = async () => {
+        await window.api.invoke('youtube-sign-out');
+        await refreshYouTubeAccountUI();
+        const settingsModal = $('#youtube-settings-modal');
+        if (settingsModal) settingsModal.style.display = 'none';
+        if (typeof window.openGoogleAuthModal === 'function') {
+          window.openGoogleAuthModal();
+        }
+      };
+    }
+
+    const meemSyncLink = $('#link-yt-meem-sync');
+    if (meemSyncLink) {
+      meemSyncLink.onclick = async (e) => {
+        e.preventDefault();
+        const syncRes = await window.api.invoke('youtube-sync-meem-account').catch(() => null);
+        if (syncRes && syncRes.signedIn && syncRes.account) {
+          showToast(`✅ Connected MEEM Account (${syncRes.account.email})`);
+          await refreshYouTubeAccountUI();
+          if (typeof window.loadDiscover === 'function') window.loadDiscover(true);
+        }
+      };
+    }
+
+    const linkTvAuth = $('#link-yt-device-auth');
+    if (linkTvAuth) {
+      linkTvAuth.onclick = (e) => {
+        e.preventDefault();
+        const settingsModal = $('#youtube-settings-modal');
+        if (settingsModal) settingsModal.style.display = 'none';
+        if (typeof window.openGoogleAuthModal === 'function') {
+          window.openGoogleAuthModal();
+        }
+      };
+    }
+
     const btnOpenHistory = $('#btn-open-yt-history');
     if (btnOpenHistory) {
       btnOpenHistory.onclick = () => {
@@ -2714,10 +3056,15 @@
       };
     }
 
+    const histModal = $('#youtube-history-modal');
+    if (histModal) {
+      histModal.onclick = (e) => {
+        if (e.target === histModal) histModal.style.display = 'none';
+      };
+    }
     const btnCloseHistory = $('#btn-close-yt-history');
     if (btnCloseHistory) {
       btnCloseHistory.onclick = () => {
-        const histModal = $('#youtube-history-modal');
         if (histModal) histModal.style.display = 'none';
       };
     }
@@ -2853,9 +3200,839 @@
   window.performDiscoverSearch = performDiscoverSearch;
   window.openDiscoverDetail = openDiscoverDetail;
   window.renderCinemetaEpisodes = renderCinemetaEpisodes;
+  window.renderCinemetaEpisodes = renderCinemetaEpisodes;
   window.loadStreams = loadStreams;
+
+  // --- ANIME SCHEDULE FAVORITES & EPISODE NOTIFICATIONS ---
+  window._animeScheduleCache = window._animeScheduleCache || new Map();
+
+  function getFollowedAnimeList() {
+    let list = null;
+    if (window.currentProfile && Array.isArray(window.currentProfile.followedAnime) && window.currentProfile.followedAnime.length > 0) {
+      list = window.currentProfile.followedAnime;
+    } else if (window.appData && Array.isArray(window.appData.followedAnime) && window.appData.followedAnime.length > 0) {
+      list = window.appData.followedAnime;
+    }
+    if (!list || list.length === 0) {
+      try {
+        const saved = localStorage.getItem('meem_followed_anime');
+        if (saved) list = JSON.parse(saved);
+      } catch {}
+    }
+    list = Array.isArray(list) ? list : [];
+    if (window.appData) window.appData.followedAnime = list;
+    if (window.currentProfile) window.currentProfile.followedAnime = list;
+    return list;
+  }
+
+  function saveFollowedAnimeList(list) {
+    if (window.appData) window.appData.followedAnime = list;
+    if (window.currentProfile) window.currentProfile.followedAnime = list;
+    try {
+      localStorage.setItem('meem_followed_anime', JSON.stringify(list));
+    } catch {}
+    if (typeof window.persist === 'function') {
+      window.persist(true);
+    }
+  }
+
+  function isAnimeFollowed(id) {
+    const list = getFollowedAnimeList();
+    const strId = String(id);
+    return list.some(a => String(a.id) === strId || String(a.mal_id) === strId);
+  }
+
+  window.toggleFollowAnimeById = function(id, event) {
+    if (event) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+    const strId = String(id);
+    const cached = window._animeScheduleCache.get(strId);
+    if (cached) {
+      window.toggleFollowAnime(cached, event);
+    } else {
+      const list = getFollowedAnimeList();
+      const existing = list.find(a => String(a.id) === strId || String(a.mal_id) === strId);
+      if (existing) {
+        window.toggleFollowAnime(existing, event);
+      }
+    }
+  };
+
+  window.toggleFollowAnime = function(anime, event) {
+    if (event) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+    if (!anime) return;
+    const animeId = anime.mal_id || anime.id;
+    let list = getFollowedAnimeList();
+    const existingIndex = list.findIndex(a => String(a.id) === String(animeId) || String(a.mal_id) === String(animeId));
+
+    if (existingIndex >= 0) {
+      list.splice(existingIndex, 1);
+      saveFollowedAnimeList(list);
+      if (typeof window.showToast === 'function') {
+        window.showToast(`Removed from Favorites: ${anime.title_english || anime.title}`);
+      }
+    } else {
+      const item = {
+        id: anime.mal_id || anime.id,
+        mal_id: anime.mal_id || anime.id,
+        title: anime.title_english || anime.title,
+        title_english: anime.title_english || anime.title,
+        poster: anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || anime.poster || 'imgs/poster-placeholder.png',
+        airTime: anime.broadcast?.string || anime.broadcast?.time || anime.airTime || 'Airing',
+        broadcastDay: (anime.broadcast?.day || '').toLowerCase(),
+        nextEpisode: anime.nextEpisode || null,
+        lastEpisodeTitle: anime.lastEpisodeTitle || null,
+        airingAt: anime.airingAt || null,
+        status: anime.status || 'RELEASING',
+        score: anime.score || null,
+        lastNotifiedEpisode: anime.nextEpisode ? anime.nextEpisode - 1 : 0,
+        followedAt: Date.now()
+      };
+      list.unshift(item);
+      saveFollowedAnimeList(list);
+      if (typeof window.showToast === 'function') {
+        window.showToast(`⭐ Added to Favorites & tracking episodes: ${item.title}`);
+      }
+      checkFollowedAnimeEpisodes();
+    }
+
+    renderFollowedAnimeSection();
+    updateVisibleFollowButtons();
+  };
+
+  function updateVisibleFollowButtons() {
+    document.querySelectorAll('.btn-anime-favorite-toggle').forEach(btn => {
+      const id = btn.dataset.animeId;
+      if (!id) return;
+      const followed = isAnimeFollowed(id);
+      btn.style.color = followed ? '#fbbf24' : 'rgba(255,255,255,0.8)';
+      btn.title = followed ? 'Favorited (Click to remove)' : 'Add to Favorites & track episodes';
+      const icon = btn.querySelector('i');
+      if (icon) {
+        icon.className = followed ? 'fas fa-star' : 'far fa-star';
+      }
+    });
+  }
+
+  function renderFollowedAnimeSection() {
+    let container = document.querySelector('#anime-schedule-followed-container');
+    if (!container) return;
+    const list = getFollowedAnimeList();
+    if (!list || list.length === 0) {
+      container.innerHTML = '';
+      container.style.display = 'none';
+      return;
+    }
+
+    container.style.display = 'block';
+    container.innerHTML = `
+      <div class="anime-favorites-section" style="margin-bottom: 28px; background: linear-gradient(180deg, rgba(251, 191, 36, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%); border: 1.5px solid rgba(251, 191, 36, 0.3); border-radius: 16px; padding: 18px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <i class="fas fa-star" style="color: #fbbf24; font-size: 1.25rem;"></i>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.5px;">
+              MY FAVORITES (${list.length})
+            </h3>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.12); padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(16, 185, 129, 0.3);">
+            <i class="fas fa-bell"></i> Episode Notifications Active
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;">
+          ${list.map(anime => {
+            const safeTitle = (anime.title || anime.title_english || 'Anime').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safeTitleAttr = safeTitle.replace(/'/g, "\\'");
+            const nextEpText = anime.nextEpisode ? `Ep ${anime.nextEpisode}` : 'Ongoing';
+            const countdown = anime.countdown || anime.airTime || 'Airing Weekly';
+            const epTitleStr = anime.lastEpisodeTitle ? (anime.lastEpisodeTitle.replace(/</g, '&lt;').replace(/>/g, '&gt;')) : '';
+            return `
+              <div class="anime-card anime-favorite-card" style="background: rgba(255,255,255,0.04); border-radius: 12px; overflow: hidden; border: 1px solid rgba(251, 191, 36, 0.35); cursor: default; user-select: none; position: relative;">
+                <div style="position: relative; aspect-ratio: 2/3; overflow: hidden;">
+                  <img src="${anime.poster}" style="width:100%; height:100%; object-fit:cover; pointer-events: none;" loading="lazy">
+                  
+                  <!-- Remove button -->
+                  <button class="btn-anime-unfavorite" onclick="window.toggleFollowAnime({ id: '${anime.id}', mal_id: '${anime.mal_id}', title: '${safeTitleAttr}' }, event)" style="position: absolute; top: 8px; right: 8px; z-index: 5; background: rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.3); color: #ef4444; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; transition: all 0.2s;" title="Remove from Favorites">
+                    <i class="fas fa-trash-alt" style="font-size: 11px;"></i>
+                  </button>
+
+                  <!-- Episode badge -->
+                  <span style="position: absolute; top: 8px; left: 8px; background: rgba(16, 185, 129, 0.95); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; backdrop-filter: blur(4px);">
+                    <i class="fas fa-tv"></i> ${nextEpText}
+                  </span>
+
+                  <!-- Air time / Countdown badge -->
+                  <span style="position: absolute; bottom: 8px; left: 8px; right: 8px; background: rgba(99, 102, 241, 0.95); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;">
+                    <i class="fas fa-clock"></i> ${countdown}
+                  </span>
+                </div>
+                <div style="padding: 10px; pointer-events: none;">
+                  <div style="font-weight: 700; font-size: 0.85rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${safeTitle}">${safeTitle}</div>
+                  ${epTitleStr ? `<div style="font-size: 0.72rem; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px;" title="${epTitleStr}">${epTitleStr}</div>` : ''}
+                  <div style="font-size: 0.72rem; color: #fbbf24; margin-top: 4px; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                    <i class="fas fa-star" style="font-size: 10px;"></i> Favorited
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  async function checkFollowedAnimeEpisodes() {
+    const list = getFollowedAnimeList();
+    if (!list || list.length === 0) return;
+
+    try {
+      const ids = list.map(a => parseInt(a.mal_id || a.id)).filter(id => !isNaN(id) && id > 0);
+      if (ids.length === 0) return;
+
+      const query = `query ($ids: [Int]) {
+        Page(page: 1, perPage: 50) {
+          media(idMal_in: $ids, type: ANIME) {
+            id
+            idMal
+            title { english romaji native }
+            coverImage { large }
+            nextAiringEpisode { episode airingAt timeUntilAiring }
+            streamingEpisodes { title }
+            status
+          }
+        }
+      }`;
+
+      const resp = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ query, variables: { ids } })
+      });
+
+      const json = await resp.json();
+      const mediaList = json?.data?.Page?.media || [];
+      const now = Math.floor(Date.now() / 1000);
+      let updated = false;
+
+      mediaList.forEach(media => {
+        const animeId = media.idMal || media.id;
+        const tracked = list.find(a => String(a.id) === String(animeId) || String(a.mal_id) === String(animeId));
+        if (!tracked) return;
+
+        const next = media.nextAiringEpisode;
+        if (next && next.episode) {
+          tracked.nextEpisode = next.episode;
+          tracked.airingAt = next.airingAt;
+
+          if (next.airingAt) {
+            const diff = next.airingAt - now;
+            if (diff > 0) {
+              const days = Math.floor(diff / 86400);
+              const hours = Math.floor((diff % 86400) / 3600);
+              const mins = Math.floor((diff % 3600) / 60);
+              tracked.countdown = `Ep ${next.episode} in ${days > 0 ? `${days}d ` : ''}${hours}h ${mins}m`;
+            } else {
+              tracked.countdown = `Ep ${next.episode} Airing Now`;
+            }
+          }
+
+          // Check if an episode has aired
+          const airedEpisode = next.episode - 1;
+          if (airedEpisode > (tracked.lastNotifiedEpisode || 0) && airedEpisode > 0) {
+            tracked.lastNotifiedEpisode = airedEpisode;
+            updated = true;
+
+            // Resolve episode title if available from streamingEpisodes
+            let epTitle = null;
+            if (Array.isArray(media.streamingEpisodes) && media.streamingEpisodes.length > 0) {
+              const match = media.streamingEpisodes.find(se => {
+                const t = se.title || '';
+                return t.includes(`Episode ${airedEpisode} `) || t.includes(`Episode ${airedEpisode}:`) || t.includes(`Episode ${airedEpisode} -`) || t.startsWith(`Episode ${airedEpisode}`);
+              });
+              if (match && match.title) {
+                epTitle = match.title;
+              } else if (media.streamingEpisodes[0]?.title) {
+                epTitle = media.streamingEpisodes[0].title;
+              }
+            }
+            if (epTitle) {
+              tracked.lastEpisodeTitle = epTitle;
+            }
+
+            const displayTitle = tracked.title || media.title?.english || media.title?.romaji || 'Anime';
+            const notifTitle = `New Episode: ${displayTitle}! 🔥`;
+            const notifBody = epTitle ? `${epTitle} is officially out now!` : `Episode ${airedEpisode} is officially out now!`;
+
+            console.log('[AnimeSchedule] Sending episode push notification:', notifTitle, notifBody);
+
+            if (typeof window.addNotification === 'function') {
+              window.addNotification(notifTitle, notifBody, 'anime');
+            } else if (typeof window.showNativeNotification === 'function') {
+              window.showNativeNotification(notifTitle, notifBody);
+            }
+          }
+        }
+      });
+
+      if (updated) {
+        saveFollowedAnimeList(list);
+        renderFollowedAnimeSection();
+      }
+    } catch (err) {
+      console.warn('[AnimeSchedule] checkFollowedAnimeEpisodes error:', err.message);
+    }
+  }
+
+  // Periodic episode notification check every 15 minutes
+  setInterval(checkFollowedAnimeEpisodes, 15 * 60 * 1000);
+  // Also check shortly after boot
+  setTimeout(checkFollowedAnimeEpisodes, 10000);
+
+  async function loadAnimeSchedule(filterDay = '') {
+    const filterBtns = document.querySelectorAll('.anime-schedule-filter-btn');
+    filterBtns.forEach(btn => {
+      if (btn.dataset.day === filterDay) {
+        btn.classList.add('active');
+        btn.style.background = '#fff';
+        btn.style.color = '#000';
+        btn.style.fontWeight = '800';
+      } else {
+        btn.classList.remove('active');
+        btn.style.background = 'rgba(255,255,255,0.06)';
+        btn.style.color = '#fff';
+        btn.style.fontWeight = '600';
+      }
+    });
+
+    const grid = document.querySelector('#anime-schedule-grid') || document.querySelector('#anime-grid') || document.querySelector('#discover-genre-view');
+    if (!grid) return;
+    grid.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted); font-size:1.1rem;"><i class="fas fa-spinner fa-spin"></i> Loading Anime Release Schedule...</div>';
+
+    try {
+      let jikanItems = [];
+      try {
+        if (window.api && typeof window.api.jikanSchedule === 'function') {
+          const res = await window.api.jikanSchedule(filterDay);
+          jikanItems = res?.data || [];
+        } else if (window.api && typeof window.api.invoke === 'function') {
+          const res = await window.api.invoke('jikan-schedule', filterDay);
+          jikanItems = res?.data || [];
+        } else {
+          const res = await fetch(`https://api.jikan.moe/v4/schedules${filterDay ? '?filter=' + filterDay : ''}`);
+          const json = await res.json();
+          jikanItems = json?.data || [];
+        }
+      } catch (jikanErr) {
+        console.warn('[AnimeSchedule] Jikan schedule warning:', jikanErr.message);
+      }
+
+      // 2. AniList Airing Schedule fetch (Complete weekly coverage)
+      let anilistItems = [];
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const daySeconds = 86400;
+        const daysNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        
+        const gql = `query ($greater: Int, $lesser: Int) {
+          Page(page: 1, perPage: 50) {
+            airingSchedules(airingAt_greater: $greater, airingAt_lesser: $lesser, sort: TIME) {
+              id
+              airingAt
+              timeUntilAiring
+              episode
+              media {
+                id
+                idMal
+                title { english romaji native }
+                coverImage { extraLarge large medium }
+                status
+                genres
+                episodes
+                averageScore
+                description
+              }
+            }
+          }
+        }`;
+
+        const resp = await fetch('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            query: gql,
+            variables: { greater: now - daySeconds, lesser: now + (7 * daySeconds) }
+          })
+        });
+        const json = await resp.json();
+        const rawAiring = json?.data?.Page?.airingSchedules || [];
+
+        rawAiring.forEach(entry => {
+          const media = entry.media;
+          if (!media) return;
+          const date = new Date(entry.airingAt * 1000);
+          const dayName = daysNames[date.getDay()];
+          
+          if (filterDay && !dayName.startsWith(filterDay.toLowerCase()) && !filterDay.toLowerCase().startsWith(dayName)) return;
+
+          const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const diff = entry.airingAt - now;
+          let countdown = '';
+          if (diff > 0) {
+            const days = Math.floor(diff / 86400);
+            const hours = Math.floor((diff % 86400) / 3600);
+            const mins = Math.floor((diff % 3600) / 60);
+            countdown = ` (in ${days > 0 ? `${days}d ` : ''}${hours}h ${mins}m)`;
+          }
+
+          const displayTitle = media.title?.english || media.title?.romaji || media.title?.native || 'Unknown Anime';
+
+          anilistItems.push({
+            mal_id: media.idMal || media.id,
+            id: media.idMal || media.id,
+            title: displayTitle,
+            title_english: media.title?.english || displayTitle,
+            images: {
+              jpg: {
+                large_image_url: media.coverImage?.extraLarge || media.coverImage?.large,
+                image_url: media.coverImage?.large || media.coverImage?.medium
+              }
+            },
+            broadcast: {
+              day: dayName,
+              string: `Ep ${entry.episode} on ${dayName.toUpperCase()} at ${timeStr}${countdown}`,
+              time: timeStr
+            },
+            score: media.averageScore ? (media.averageScore / 10).toFixed(1) : null,
+            status: media.status,
+            episodes: media.episodes,
+            genres: media.genres || [],
+            synopsis: media.description ? media.description.replace(/<[^>]*>/g, '') : ''
+          });
+        });
+      } catch (aniErr) {
+        console.warn('[AnimeSchedule] AniList schedule warning:', aniErr.message);
+      }
+
+      // 3. AnimeSchedule.net Live Timetable Integration
+      let animeScheduleItems = [];
+      try {
+        const asResp = await fetch('https://animeschedule.net', {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html'
+          }
+        });
+        const asHtml = await asResp.text();
+        const colBlocks = asHtml.split(/<div[^>]*class="timetable-column[^"]*\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\b/gi);
+
+        for (let i = 1; i < colBlocks.length; i += 2) {
+          const dayName = colBlocks[i].toLowerCase();
+          if (filterDay && !dayName.startsWith(filterDay.toLowerCase()) && !filterDay.toLowerCase().startsWith(dayName)) continue;
+
+          const blockHtml = colBlocks[i + 1] || '';
+          const showCardMatches = blockHtml.match(/<div[^>]*route="([^"]+)"[\s\S]*?(?=<div[^>]*route=|<\/div>\s*<\/div>\s*<\/div>|$)/g);
+          if (!showCardMatches) continue;
+
+          const seenRoutes = new Set();
+          showCardMatches.forEach(tile => {
+            const routeMatch = tile.match(/route="([^"]+)"/);
+            if (!routeMatch) return;
+            const route = routeMatch[1];
+            if (seenRoutes.has(route)) return;
+            seenRoutes.add(route);
+
+            const titleMatch = tile.match(/class="show-title-bar"[^>]*>([^<]+)<\/h[23]>/) || tile.match(/alt="Official promotional poster for ([^"]+)"/);
+            const title = titleMatch ? titleMatch[1].trim() : route;
+
+            const epMatch = tile.match(/airedEpisode="([^"]+)"/);
+            const epNum = epMatch ? epMatch[1] : '';
+
+            const imgMatch = tile.match(/data-src="([^"]+)"/) || tile.match(/src="([^"]+)"/);
+            let poster = imgMatch ? imgMatch[1].replace(/&amp;/g, '&') : '';
+            if (poster.startsWith('/')) poster = 'https://animeschedule.net' + poster;
+
+            animeScheduleItems.push({
+              id: route,
+              mal_id: route,
+              route: route,
+              title: title,
+              title_english: title,
+              images: {
+                jpg: {
+                  large_image_url: poster,
+                  image_url: poster
+                }
+              },
+              broadcast: {
+                day: dayName,
+                string: epNum ? `Ep ${epNum} on ${dayName.toUpperCase()}` : `Airing on ${dayName.toUpperCase()}`
+              },
+              status: 'Ongoing'
+            });
+          });
+        }
+      } catch (asErr) {
+        console.warn('[AnimeSchedule] Live timetable fetch warning:', asErr.message);
+      }
+
+      // Merge and deduplicate items
+      const seenIds = new Set();
+      const items = [];
+      for (const item of [...anilistItems, ...jikanItems, ...animeScheduleItems]) {
+        const key = item.mal_id || item.id || item.title;
+        if (!seenIds.has(String(key))) {
+          seenIds.add(String(key));
+          items.push(item);
+        }
+      }
+
+      if (!items || items.length === 0) {
+        grid.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted)">No schedule entries found for this day.</div>';
+        return;
+      }
+
+      grid.innerHTML = '';
+      
+      // Render Followed / Favorites section at the top
+      const followedContainer = document.createElement('div');
+      followedContainer.id = 'anime-schedule-followed-container';
+      grid.appendChild(followedContainer);
+      renderFollowedAnimeSection();
+
+      // Group items by broadcast day
+      const grouped = {};
+      items.forEach(item => {
+        const day = (item.broadcast?.day || 'Scheduled').toLowerCase();
+        if (!grouped[day]) grouped[day] = [];
+        grouped[day].push(item);
+      });
+
+      Object.keys(grouped).forEach(day => {
+        const daySection = document.createElement('div');
+        daySection.className = 'anime-schedule-day-group';
+        daySection.style.cssText = 'margin-bottom: 28px;';
+        
+        const dayTitle = document.createElement('h3');
+        dayTitle.style.cssText = 'font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 14px; text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; display: flex; align-items: center; gap: 8px;';
+        dayTitle.innerHTML = `<i class="fas fa-calendar-day" style="color:var(--accent);"></i> ${day.toUpperCase()} SCHEDULE (${grouped[day].length})`;
+        daySection.appendChild(dayTitle);
+
+        const dayGrid = document.createElement('div');
+        dayGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;';
+
+        grouped[day].forEach(anime => {
+          const card = document.createElement('div');
+          card.className = 'anime-card';
+          card.style.cssText = 'background: rgba(255,255,255,0.03); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); cursor: default; user-select: none; position: relative; pointer-events: none;';
+
+          const posterUrl = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || 'imgs/poster-placeholder.png';
+          const airTime = anime.broadcast?.string || anime.broadcast?.time || 'Airing';
+          const score = anime.score ? `⭐ ${anime.score}` : 'NEW';
+
+          const safeTitle = (anime.title_english || anime.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const isFollowed = isAnimeFollowed(anime.mal_id);
+          const animeItem = {
+            id: anime.mal_id,
+            mal_id: anime.mal_id,
+            title: anime.title_english || anime.title,
+            title_english: anime.title_english || anime.title,
+            poster: posterUrl,
+            airTime,
+            broadcastDay: (anime.broadcast?.day || '').toLowerCase(),
+            score: anime.score
+          };
+          window._animeScheduleCache.set(String(anime.mal_id), animeItem);
+
+          card.innerHTML = `
+            <div style="position: relative; aspect-ratio: 2/3; overflow: hidden;">
+              <img src="${posterUrl}" style="width:100%; height:100%; object-fit:cover; pointer-events: none;" loading="lazy">
+              
+              <!-- Favorite Star Toggle -->
+              <button class="btn-anime-favorite-toggle" data-anime-id="${anime.mal_id}" onclick="window.toggleFollowAnimeById('${anime.mal_id}', event)" style="position: absolute; top: 8px; left: 8px; z-index: 5; background: rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.25); color: ${isFollowed ? '#fbbf24' : 'rgba(255,255,255,0.8)'}; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; transition: all 0.2s; backdrop-filter: blur(4px);" title="${isFollowed ? 'Favorited (Click to remove)' : 'Add to Favorites & track episodes'}">
+                <i class="${isFollowed ? 'fas fa-star' : 'far fa-star'}" style="font-size: 13px;"></i>
+              </button>
+
+              <span style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.8); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; backdrop-filter: blur(4px); pointer-events: none;">${score}</span>
+              <span style="position: absolute; bottom: 8px; left: 8px; background: rgba(99, 102, 241, 0.9); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; pointer-events: none;"><i class="fas fa-clock"></i> ${airTime}</span>
+            </div>
+            <div style="padding: 10px; pointer-events: none;">
+              <div style="font-weight: 700; font-size: 0.85rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${safeTitle}">${safeTitle}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">${anime.episodes ? anime.episodes + ' Episodes' : 'Ongoing'}</div>
+            </div>
+          `;
+          dayGrid.appendChild(card);
+        });
+
+        daySection.appendChild(dayGrid);
+        grid.appendChild(daySection);
+      });
+
+    } catch (err) {
+      console.error('[Anime Schedule] Load error:', err);
+      grid.innerHTML = `<div style="padding:40px; text-align:center; color:#ef4444">Failed to load anime schedule: ${err.message}</div>`;
+    }
+  };
+
+  let scheduleSearchDebounce = null;
+
+  async function searchAnimeSchedule(query) {
+    const grid = document.querySelector('#anime-schedule-grid');
+    if (!grid) return;
+
+    if (!query || !query.trim()) {
+      return loadAnimeSchedule('');
+    }
+
+    grid.innerHTML = `<div style="padding:40px; text-align:center; color:var(--text-muted); font-size:1.1rem;"><i class="fas fa-spinner fa-spin"></i> Searching release schedule for "${query}"...</div>`;
+
+    // Unselect day filter buttons during search
+    document.querySelectorAll('.anime-schedule-filter-btn').forEach(btn => {
+      btn.classList.remove('active');
+      btn.style.background = 'rgba(255,255,255,0.06)';
+      btn.style.color = '#fff';
+      btn.style.fontWeight = '600';
+    });
+
+    try {
+      let results = null;
+      if (window.api && typeof window.api.animeSearchSchedule === 'function') {
+        try {
+          results = await window.api.animeSearchSchedule(query);
+        } catch (ipcErr) {
+          console.warn('[AnimeSearchSchedule] IPC failed, falling back to direct AniList GraphQL:', ipcErr.message);
+        }
+      } else if (window.api && typeof window.api.invoke === 'function') {
+        try {
+          results = await window.api.invoke('anime-search-schedule', query);
+        } catch (ipcErr) {
+          console.warn('[AnimeSearchSchedule] IPC invoke failed, falling back to direct AniList GraphQL:', ipcErr.message);
+        }
+      }
+
+      // Direct AniList GraphQL fallback if IPC was not ready or returned empty
+      if (!results || !results.data || results.data.length === 0) {
+        try {
+          const gql = `query ($search: String) {
+            Page(page: 1, perPage: 25) {
+              media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+                id
+                idMal
+                title { romaji english native }
+                coverImage { extraLarge large medium }
+                nextAiringEpisode { episode airingAt timeUntilAiring }
+                status
+                episodes
+                genres
+                averageScore
+                description
+              }
+            }
+          }`;
+          const resp = await fetch('https://graphql.anilist.co', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ query: gql, variables: { search: query } })
+          });
+          const json = await resp.json();
+          const list = json?.data?.Page?.media || [];
+          if (list.length > 0) {
+            const now = Math.floor(Date.now() / 1000);
+            const daysNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            results = {
+              data: list.map(item => {
+                const next = item.nextAiringEpisode;
+                let broadcastString = 'Status: ' + (item.status || 'Finished');
+                let badgeColor = 'rgba(100, 116, 139, 0.9)';
+                if (next && next.airingAt) {
+                  const date = new Date(next.airingAt * 1000);
+                  const dayName = daysNames[date.getDay()];
+                  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  const diff = next.airingAt - now;
+                  let countdown = '';
+                  if (diff > 0) {
+                    const days = Math.floor(diff / 86400);
+                    const hours = Math.floor((diff % 86400) / 3600);
+                    const mins = Math.floor((diff % 3600) / 60);
+                    countdown = ` (in ${days > 0 ? `${days}d ` : ''}${hours}h ${mins}m)`;
+                  }
+                  broadcastString = `Ep ${next.episode} on ${dayName} at ${timeStr}${countdown}`;
+                  badgeColor = 'rgba(16, 185, 129, 0.95)';
+                } else if (item.status === 'RELEASING') {
+                  broadcastString = 'Airing Weekly';
+                  badgeColor = 'rgba(59, 130, 246, 0.95)';
+                } else if (item.status === 'NOT_YET_RELEASED') {
+                  broadcastString = 'Upcoming Release';
+                  badgeColor = 'rgba(245, 158, 11, 0.95)';
+                }
+
+                const displayTitle = item.title?.english || item.title?.romaji || item.title?.native || 'Unknown Anime';
+                return {
+                  mal_id: item.idMal || item.id,
+                  id: item.idMal || item.id,
+                  title: displayTitle,
+                  images: {
+                    jpg: {
+                      large_image_url: item.coverImage?.extraLarge || item.coverImage?.large,
+                      image_url: item.coverImage?.large || item.coverImage?.medium
+                    }
+                  },
+                  broadcast: { string: broadcastString },
+                  badgeColor,
+                  score: item.averageScore ? (item.averageScore / 10).toFixed(1) : null,
+                  status: item.status,
+                  genres: item.genres || [],
+                  synopsis: item.description ? item.description.replace(/<[^>]*>/g, '') : ''
+                };
+              })
+            };
+          }
+        } catch (directErr) {
+          console.warn('[AnimeSearchSchedule] Direct AniList fetch error:', directErr.message);
+        }
+      }
+
+      const items = results?.data || [];
+      if (!items || items.length === 0) {
+        grid.innerHTML = '';
+        const followedContainer = document.createElement('div');
+        followedContainer.id = 'anime-schedule-followed-container';
+        grid.appendChild(followedContainer);
+        renderFollowedAnimeSection();
+
+        const emptyMsg = document.createElement('div');
+        emptyMsg.style.cssText = 'padding:40px; text-align:center; color:var(--text-muted)';
+        emptyMsg.textContent = `No anime matching "${query}" found in release schedules.`;
+        grid.appendChild(emptyMsg);
+        return;
+      }
+
+      grid.innerHTML = '';
+
+      // Render Followed / Favorites section at the top
+      const followedContainer = document.createElement('div');
+      followedContainer.id = 'anime-schedule-followed-container';
+      grid.appendChild(followedContainer);
+      renderFollowedAnimeSection();
+
+      const section = document.createElement('div');
+      section.className = 'anime-schedule-day-group';
+      section.style.cssText = 'margin-bottom: 28px;';
+
+      const title = document.createElement('h3');
+      title.style.cssText = 'font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 14px; text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; display: flex; align-items: center; gap: 8px;';
+      title.innerHTML = `<i class="fas fa-search" style="color:var(--accent);"></i> SEARCH RESULTS FOR "${query.toUpperCase()}" (${items.length})`;
+      section.appendChild(title);
+
+      const dayGrid = document.createElement('div');
+      dayGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;';
+
+      items.forEach(anime => {
+        const card = document.createElement('div');
+        card.className = 'anime-card';
+        card.style.cssText = 'background: rgba(255,255,255,0.03); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); cursor: default; user-select: none; position: relative; pointer-events: none;';
+
+        const posterUrl = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || 'imgs/poster-placeholder.png';
+        const airInfo = anime.broadcast?.string || 'Completed';
+        const badgeColor = anime.badgeColor || 'rgba(99, 102, 241, 0.95)';
+        const score = anime.score ? `⭐ ${anime.score}` : (anime.status || 'NEW');
+
+        const safeTitle = (anime.title_english || anime.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const animeId = anime.mal_id || anime.id;
+        const isFollowed = isAnimeFollowed(animeId);
+        const animeItem = {
+          id: animeId,
+          mal_id: animeId,
+          title: anime.title_english || anime.title,
+          title_english: anime.title_english || anime.title,
+          poster: posterUrl,
+          airTime: airInfo,
+          score: anime.score
+        };
+        window._animeScheduleCache.set(String(animeId), animeItem);
+
+        card.innerHTML = `
+          <div style="position: relative; aspect-ratio: 2/3; overflow: hidden;">
+            <img src="${posterUrl}" style="width:100%; height:100%; object-fit:cover; pointer-events: none;" loading="lazy">
+            
+            <!-- Favorite Star Toggle -->
+            <button class="btn-anime-favorite-toggle" data-anime-id="${animeId}" onclick="window.toggleFollowAnimeById('${animeId}', event)" style="position: absolute; top: 8px; left: 8px; z-index: 5; background: rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.25); color: ${isFollowed ? '#fbbf24' : 'rgba(255,255,255,0.8)'}; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; transition: all 0.2s; backdrop-filter: blur(4px);" title="${isFollowed ? 'Favorited (Click to remove)' : 'Add to Favorites & track episodes'}">
+              <i class="${isFollowed ? 'fas fa-star' : 'far fa-star'}" style="font-size: 13px;"></i>
+            </button>
+
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.8); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; backdrop-filter: blur(4px); pointer-events: none;">${score}</span>
+            <span style="position: absolute; bottom: 8px; left: 8px; right: 8px; background: ${badgeColor}; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;"><i class="fas fa-clock"></i> ${airInfo}</span>
+          </div>
+          <div style="padding: 10px; pointer-events: none;">
+            <div style="font-weight: 700; font-size: 0.85rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${safeTitle}">${safeTitle}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">${anime.episodes ? anime.episodes + ' Episodes' : (anime.status || 'Ongoing')}</div>
+          </div>
+        `;
+        dayGrid.appendChild(card);
+      });
+
+      section.appendChild(dayGrid);
+      grid.appendChild(section);
+
+    } catch (err) {
+      console.error('[Anime Search Schedule] Error:', err);
+      grid.innerHTML = `<div style="padding:40px; text-align:center; color:#ef4444">Failed to search schedule: ${err.message}</div>`;
+    }
+  }
+
+  function initAnimeScheduleSearch() {
+    const searchInput = document.querySelector('#anime-schedule-search-input');
+    const clearBtn = document.querySelector('#anime-schedule-search-clear');
+    if (!searchInput || searchInput.dataset.bound) return;
+    searchInput.dataset.bound = 'true';
+
+    searchInput.addEventListener('input', (e) => {
+      const q = e.target.value.trim();
+      if (clearBtn) clearBtn.style.display = q ? 'block' : 'none';
+
+      clearTimeout(scheduleSearchDebounce);
+      scheduleSearchDebounce = setTimeout(() => {
+        if (!q) {
+          loadAnimeSchedule('');
+        } else if (q.length >= 2) {
+          searchAnimeSchedule(q);
+        }
+      }, 400);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        clearTimeout(scheduleSearchDebounce);
+        const q = searchInput.value.trim();
+        if (q) searchAnimeSchedule(q);
+      }
+    });
+
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        searchInput.value = '';
+        clearBtn.style.display = 'none';
+        loadAnimeSchedule('');
+      };
+    }
+  }
+
+  // Bind initAnimeScheduleSearch when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAnimeScheduleSearch);
+  } else {
+    initAnimeScheduleSearch();
+  }
+
   window.playStream = playStream;
   window.clearContinueWatching = clearContinueWatching;
   window.renderContinueWatchingDiscover = renderContinueWatchingDiscover;
+  window.loadAnimeSchedule = loadAnimeSchedule;
+  window.searchAnimeSchedule = searchAnimeSchedule;
+  window.checkFollowedAnimeEpisodes = checkFollowedAnimeEpisodes;
+  window.renderFollowedAnimeSection = renderFollowedAnimeSection;
 
 })();

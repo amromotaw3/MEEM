@@ -10,17 +10,17 @@ CREATE OR REPLACE FUNCTION public.handle_register(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path TO 'public', 'extensions'
 AS $$
 DECLARE
   clean_email text;
   clean_hw text;
   new_user public.users_accounts%ROWTYPE;
   is_super boolean;
-  v_profile public.account_profiles%ROWTYPE;
+  default_prof public.account_profiles%ROWTYPE;
 BEGIN
   clean_email := lower(trim(email));
-  clean_hw := trim(hardware_id);
+  clean_hw := nullif(trim(coalesce(hardware_id, '')), '');
 
   IF clean_email IS NULL OR position('@' in clean_email) = 0 THEN
     RETURN jsonb_build_object('error', 'Invalid email address');
@@ -29,40 +29,54 @@ BEGIN
     RETURN jsonb_build_object('error', 'Password must be at least 6 characters long');
   END IF;
 
-  IF EXISTS (SELECT 1 FROM public.users_accounts u WHERE u.email = clean_email) THEN
-    RETURN jsonb_build_object('error', 'An account with this email already exists');
+  IF clean_hw IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.hardware_blacklist b WHERE b.hardware_id = clean_hw AND coalesce(b.is_banned, true) = true
+  ) THEN
+    RETURN jsonb_build_object('error', 'HARDWARE_BANNED', 'message', 'This device has been globally banned.');
   END IF;
 
   is_super := clean_email = 'amro.motawa@icloud.com';
 
-  INSERT INTO public.users_accounts (email, password_hash, role, max_devices, is_banned, subscription_expires_at)
-  VALUES (
-    clean_email,
-    extensions.crypt(password, extensions.gen_salt('bf')),
-    CASE WHEN is_super THEN 'admin' ELSE 'user' END,
-    CASE WHEN is_super THEN 9999 ELSE 2 END,
-    false,
-    now() + interval '30 days'
-  )
-  RETURNING * INTO new_user;
+  SELECT * INTO new_user FROM public.users_accounts WHERE public.users_accounts.email = clean_email;
+  IF FOUND THEN
+    -- If account exists and password_hash is not set or temporary, update password & activate
+    IF new_user.password_hash IS NULL OR new_user.password_hash = 'SUPABASE_AUTH' THEN
+      UPDATE public.users_accounts
+      SET password_hash = extensions.crypt(password, extensions.gen_salt('bf'))
+      WHERE id = new_user.id
+      RETURNING * INTO new_user;
+    ELSE
+      RETURN jsonb_build_object('error', 'An account with this email already exists');
+    END IF;
+  ELSE
+    INSERT INTO public.users_accounts (email, password_hash, role, max_devices, is_banned, subscription_expires_at)
+    VALUES (
+      clean_email,
+      extensions.crypt(password, extensions.gen_salt('bf')),
+      CASE WHEN is_super THEN 'admin' ELSE 'user' END,
+      CASE WHEN is_super THEN 9999 ELSE 3 END,
+      CASE WHEN is_super THEN now() + interval '100 years' ELSE NULL END
+    )
+    RETURNING * INTO new_user;
+  END IF;
 
   -- Bind device hardware ID if provided
-  IF clean_hw IS NOT NULL AND clean_hw <> '' THEN
+  IF clean_hw IS NOT NULL THEN
     INSERT INTO public.user_devices (user_id, hardware_id)
     VALUES (new_user.id, clean_hw)
     ON CONFLICT DO NOTHING;
   END IF;
 
+  -- Ensure default profile
+  IF NOT EXISTS (SELECT 1 FROM public.account_profiles p WHERE p.user_id = new_user.id) THEN
+    INSERT INTO public.account_profiles (user_id, name, avatar, max_age_rating)
+    VALUES (new_user.id, split_part(clean_email, '@', 1), 'imgs/avatar.png', 18)
+    RETURNING * INTO default_prof;
+  END IF;
+
   RETURN jsonb_build_object(
     'success', true,
-    'message', 'Account created successfully',
-    'user', jsonb_build_object(
-      'id', new_user.id,
-      'email', new_user.email,
-      'role', new_user.role,
-      'max_devices', new_user.max_devices
-    ),
-    'profiles', jsonb_build_array(to_jsonb(v_profile))
+    'user', (to_jsonb(new_user) - 'password_hash') || jsonb_build_object('role', CASE WHEN is_super THEN 'admin' ELSE coalesce(new_user.role, 'user') END)
   );
 EXCEPTION
   WHEN OTHERS THEN

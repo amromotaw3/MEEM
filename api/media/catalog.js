@@ -32,13 +32,10 @@ module.exports = async (req, res) => {
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    const maxAgeRating = profile.max_age_rating !== null && profile.max_age_rating !== undefined ? profile.max_age_rating : 18;
-
-    // 2. Query media content filtering by age rating cap
+    // 2. Query media content
     let mediaQuery = supabase
       .from('media_content')
-      .select('*')
-      .lte('age_rating', maxAgeRating);
+      .select('*');
 
     if (type) {
       mediaQuery = mediaQuery.eq('type', type);

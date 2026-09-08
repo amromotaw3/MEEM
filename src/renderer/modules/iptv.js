@@ -44,37 +44,24 @@
       console.warn('[IPTV Storage Error]', e);
     }
 
-    if (!sourcesList || sourcesList.length === 0) sourcesList = [...DEFAULT_PUBLIC_SOURCES];
+    if (!sourcesList) sourcesList = [];
 
-    // Filter out extra built-in iptv_org sources except 'src_iptv_org_ara'
-    const allowedDefaultIds = new Set(['src_iptv_org_ara']);
-    const toRemove = sourcesList.filter(s => (s.id.startsWith('src_iptv_org_') && !allowedDefaultIds.has(s.id)) || s.id === 'src_default_public');
-    for (const rem of toRemove) {
-      const idx = sourcesList.findIndex(s => s.id === rem.id);
-      if (idx !== -1) sourcesList.splice(idx, 1);
-      if (window.IptvStorage) {
-        window.IptvStorage.deleteSource(rem.id).catch(() => {});
-      }
-    }
+    // Filter out any broken, empty, unnamed, or dummy sources
+    sourcesList = sourcesList.filter(s => s && s.id && s.name && String(s.name).trim() !== '' && s.id !== 'src_default_public');
 
-    // Ensure 'src_iptv_org_ara' exists and is named 'Default Channels'
-    let mainDef = sourcesList.find(s => s.id === 'src_iptv_org_ara');
-    if (mainDef) {
-      mainDef.name = 'Default Channels';
-      if (!mainDef.channelCount) mainDef.channelCount = DEFAULT_CHANNELS.length;
-      if (window.IptvStorage) {
-        window.IptvStorage.saveSource(mainDef).catch(() => {});
-      }
-    } else {
-      mainDef = { ...DEFAULT_PUBLIC_SOURCES[0], channelCount: DEFAULT_CHANNELS.length };
-      sourcesList.unshift(mainDef);
-      if (window.IptvStorage) {
-        window.IptvStorage.saveSource(mainDef).catch(() => {});
-      }
+    // Clean up empty/unnamed sources from storage
+    if (window.IptvStorage) {
+      window.IptvStorage.getSources().then(all => {
+        if (Array.isArray(all)) {
+          all.filter(s => !s || !s.id || !s.name || String(s.name).trim() === '' || s.id === 'src_default_public').forEach(bad => {
+            if (bad && bad.id) window.IptvStorage.deleteSource(bad.id).catch(() => {});
+          });
+        }
+      }).catch(() => {});
     }
 
     if (!activeSourceId || !sourcesList.some(s => s.id === activeSourceId)) {
-      activeSourceId = mainDef.id;
+      activeSourceId = sourcesList[0]?.id || null;
     }
 
     renderSourcesList();
@@ -212,6 +199,7 @@
     container.innerHTML = '';
 
     sourcesList.forEach(source => {
+      if (!source || !source.name || String(source.name).trim() === '') return;
       const item = document.createElement('div');
       item.className = `iptv-source-item ${source.id === activeSourceId ? 'active' : ''}`;
       
@@ -547,6 +535,10 @@
     const activeTitle = document.getElementById('iptv-active-title');
     if (activeTitle) activeTitle.textContent = channel.name;
 
+    if (typeof window.updateBentoController === 'function') {
+      window.updateBentoController(channel.name, true);
+    }
+
     const activeCat = document.getElementById('iptv-active-category');
     if (activeCat) activeCat.textContent = channel.category || channel.groupTitle || 'Live';
 
@@ -721,10 +713,11 @@
   }
 
   async function deleteSource(sourceId) {
-    if (!confirm('Are you sure you want to delete this IPTV source?')) return;
-    sourcesList = sourcesList.filter(s => s.id !== sourceId);
+    if (!sourceId) return;
+    if (typeof confirm === 'function' && !confirm('Are you sure you want to delete this IPTV source?')) return;
+    sourcesList = sourcesList.filter(s => s && (s.id !== sourceId && s._id !== sourceId));
     if (window.IptvStorage) {
-      await window.IptvStorage.deleteSource(sourceId);
+      await window.IptvStorage.deleteSource(sourceId).catch(err => console.warn('[IPTV] deleteSource error:', err));
     }
     if (activeSourceId === sourceId) {
       activeSourceId = sourcesList[0]?.id || null;
@@ -991,14 +984,19 @@
 
   function stopIptvStream() {
     if (hlsInstance) {
-      try { hlsInstance.destroy(); } catch (e) {}
+      try {
+        hlsInstance.detachMedia();
+        hlsInstance.destroy();
+      } catch (e) {}
       hlsInstance = null;
     }
     const video = document.getElementById('iptv-video-player');
     if (video) {
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
+      try {
+        video.pause();
+        video.src = '';
+        video.removeAttribute('src');
+      } catch (e) {}
     }
     activeChannel = null;
     const noChannel = document.getElementById('iptv-no-channel');
@@ -1007,20 +1005,26 @@
     if (bar) bar.classList.remove('active');
   }
 
-  function toggleIptvPlayback() {
+  let iptvTogglePending = false;
+  async function toggleIptvPlayback() {
     const video = document.getElementById('iptv-video-player');
-    if (!video) return;
-    if (video.paused || video.ended) {
-      const p = video.play();
-      if (p !== undefined) {
-        p.then(() => updateIptvPlayButtonsUI(true)).catch(e => {
-          console.warn('[IPTV] Play error:', e);
-          updateIptvPlayButtonsUI(false);
-        });
+    if (!video || iptvTogglePending) return;
+    iptvTogglePending = true;
+    try {
+      if (video.paused || video.ended) {
+        await video.play();
+        updateIptvPlayButtonsUI(true);
+      } else {
+        video.pause();
+        updateIptvPlayButtonsUI(false);
       }
-    } else {
-      video.pause();
-      updateIptvPlayButtonsUI(false);
+    } catch (e) {
+      if (e && e.name !== 'AbortError' && !e.message?.includes('interrupted')) {
+        console.warn('[IPTV Playback Toggle Error]', e);
+      }
+      updateIptvPlayButtonsUI(!video.paused);
+    } finally {
+      iptvTogglePending = false;
     }
   }
 
