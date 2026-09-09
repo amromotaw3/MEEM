@@ -372,7 +372,7 @@ async function openInMeemPlayer(args) {
     cwd: config.cwd,
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: false
+    windowsHide: true
   });
 
   activeMeemPlayerChild = child;
@@ -569,7 +569,8 @@ async function openInVlc(args) {
 
     const child = spawn(vlcCmd, vlcArgs, {
       detached: true,
-      stdio: 'ignore'
+      stdio: 'ignore',
+      windowsHide: true
     });
 
     child.unref();

@@ -23,7 +23,7 @@ let checkedYtDlp = false;
     return;
   }
 
-  exec('yt-dlp --version', { timeout: 2000 }, (error) => {
+  exec('yt-dlp --version', { timeout: 2000, windowsHide: true }, (error) => {
     checkedYtDlp = true;
     if (!error) {
       cachedYtDlpPath = 'yt-dlp';
@@ -52,7 +52,7 @@ function resolveYtDlpPath() {
 
   // Fallback: check system PATH synchronously only once if async check isn't complete yet
   try {
-    execSync('yt-dlp --version', { stdio: 'ignore', timeout: 2000 });
+    execSync('yt-dlp --version', { stdio: 'ignore', timeout: 2000, windowsHide: true });
     cachedYtDlpPath = 'yt-dlp';
   } catch (e) {
     console.warn('[Adapter] yt-dlp not found in bundle or system PATH (sync fallback)');
