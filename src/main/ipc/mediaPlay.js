@@ -348,7 +348,7 @@ async function openInMeemPlayer(args) {
     cwd: config.cwd,
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true
+    windowsHide: false
   });
 
   activeMeemPlayerChild = child;
