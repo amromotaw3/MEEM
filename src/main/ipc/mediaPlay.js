@@ -121,47 +121,23 @@ function getMeemPlayerConfig() {
     path.join(userHome, 'Documents', 'MEEM-Workspace', 'MEEM Player'),
     path.join(process.cwd(), '..', 'MEEM Player'),
     path.join(process.cwd(), 'MEEM Player'),
-    path.join(__dirname, '..', '..', '..', 'MEEM Player'),
-    path.join(__dirname, '..', '..', '..', 'MEEM Player', 'dist', 'MEEM-Player')
+    path.join(__dirname, '..', '..', '..', 'MEEM Player')
   ].filter(Boolean);
 
   for (const dir of dirCandidates) {
     if (!fs.existsSync(dir)) continue;
 
-    // A. PRIMARY: Check C++ Compiled Executable (MEEM-Player-CPP.exe)
+    // A. Check C++ Executable (MEEM-Player.exe or MEEM-Player-CPP.exe)
+    const rootExe = path.join(dir, exeName);
+    if (fs.existsSync(rootExe)) {
+      return { available: true, type: 'exe', command: rootExe, cwd: dir };
+    }
     const cppExe = path.join(dir, cppExeName);
     if (fs.existsSync(cppExe)) {
       return { available: true, type: 'exe', command: cppExe, cwd: dir };
     }
 
-    // B. Check Standalone Executable in root or dist/MEEM-Player
-    const rootExe = path.join(dir, exeName);
-    if (fs.existsSync(rootExe)) {
-      return { available: true, type: 'exe', command: rootExe, cwd: dir };
-    }
-    const distExe = path.join(dir, 'dist', 'MEEM-Player', exeName);
-    if (fs.existsSync(distExe)) {
-      return { available: true, type: 'exe', command: distExe, cwd: path.dirname(distExe) };
-    }
-
-    // C. Check Python Virtualenv (Dev Mode Fallback)
-    const venvPythonw = path.join(dir, '.venv', 'Scripts', 'pythonw.exe');
-    const venvPython = path.join(dir, '.venv', 'Scripts', 'python.exe');
-    const mainPy = path.join(dir, 'main.py');
-    if (fs.existsSync(mainPy)) {
-      if (fs.existsSync(venvPythonw)) {
-        return { available: true, type: 'python', command: venvPythonw, script: mainPy, cwd: dir };
-      }
-      if (fs.existsSync(venvPython)) {
-        return { available: true, type: 'python', command: venvPython, script: mainPy, cwd: dir };
-      }
-    }
-
-    // D. Check Batch Scripts
-    const batPy = path.join(dir, 'run_player.bat');
-    if (fs.existsSync(batPy)) {
-      return { available: true, type: 'bat', command: batPy, cwd: dir };
-    }
+    // B. Check C++ Runner Script
     const batCpp = path.join(dir, 'run_cpp_player.bat');
     if (fs.existsSync(batCpp)) {
       return { available: true, type: 'bat', command: batCpp, cwd: dir };

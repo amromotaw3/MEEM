@@ -57,10 +57,21 @@
     },
     "extraResources": [
       {
-        "from": "../MEEM Player/dist/MEEM-Player",
+        "from": "../MEEM Player",
         "to": "MEEM-Player",
         "filter": [
-          "**/*"
+          "MEEM-Player.exe",
+          "MEEM-Player-CPP.exe",
+          "*.dll",
+          "plugins/**/*",
+          "platforms/**/*",
+          "imageformats/**/*",
+          "iconengines/**/*",
+          "tls/**/*",
+          "translations/**/*",
+          "generic/**/*",
+          "networkinformation/**/*",
+          "assets/**/*"
         ]
       }
     ],
