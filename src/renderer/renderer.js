@@ -104,7 +104,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Helper: Convert a local file path to a protocol URL that works with webSecurity=true
   // Returns the original value if it's already a URL (http/https/data:)
-  const APP_VERSION = '3.10.0'; // Sync with package.json
+  const APP_VERSION = '3.10.1'; // Sync with package.json
   function getSafeId(itemId) {
     try {
       const utf8Bytes = new TextEncoder().encode(String(itemId));
@@ -1031,9 +1031,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // ---------- AUTH / PROFILE FLOW ----------
   let hardwareIdCache = null;
   let authFlowCompleted = false;
+  const isCapacitorNative = () => {
+    return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  };
+
   const supabaseStorage = {
     getItem: async (key) => {
       try {
+        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+          const { value } = await window.Capacitor.Plugins.Preferences.get({ key });
+          return value ?? null;
+        }
         if (window.api && typeof window.api.storageGet === 'function') {
           return await window.api.storageGet(key);
         }
@@ -1042,6 +1050,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     },
     setItem: async (key, value) => {
       try {
+        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+          await window.Capacitor.Plugins.Preferences.set({ key, value: String(value) });
+          return;
+        }
         if (window.api && typeof window.api.storageSet === 'function') {
           await window.api.storageSet(key, value);
           return;
@@ -1051,6 +1063,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     },
     removeItem: async (key) => {
       try {
+        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+          await window.Capacitor.Plugins.Preferences.remove({ key });
+          return;
+        }
         if (window.api && typeof window.api.storageRemove === 'function') {
           await window.api.storageRemove(key);
           return;
@@ -1062,6 +1078,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   function getSupabaseRendererClient() {
     if (!window.supabase) throw new Error('Supabase not available');
+    const nativePlatform = isCapacitorNative();
+
     if (!window._supabaseRendererClientShared) {
       window._supabaseRendererClientShared = window.supabase.createClient(
         window.MEDIAVAULT_SUPABASE_URL || window.SUPABASE_URL,
@@ -1070,7 +1088,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           auth: {
             persistSession: true,
             autoRefreshToken: true,
-            storage: supabaseStorage
+            flowType: 'pkce',
+            storage: supabaseStorage,
+            detectSessionInUrl: !nativePlatform,
+            lock: nativePlatform
+              ? async (_name, _acquireTimeout, fn) => await fn()
+              : undefined
           }
         }
       );
@@ -1790,7 +1813,33 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         // Always try Shaka Player first for DASH/HLS manifests
         const isDashOrHls = url.includes('.mpd') || url.includes('.m3u8') || url.includes('manifest');
         if (this._shakaPlayer && isDashOrHls) {
-          this._shakaPlayer.load(url).catch(async (e) => {
+          try {
+            this._shakaPlayer.configure({
+              abr: {
+                enabled: true,
+                defaultBandwidthEstimate: 100000000 // 100 Mbps to select 1080p/4K immediately without starting in blurry 240p
+              },
+              streaming: {
+                bufferingGoal: 15,
+                rebufferingGoal: 2,
+                bufferBehind: 30
+              }
+            });
+          } catch (e) {}
+          this._shakaPlayer.load(url).then(() => {
+            try {
+              const tracks = this._shakaPlayer.getVariantTracks();
+              if (tracks && tracks.length > 0) {
+                const bestTrack = tracks.reduce((prev, curr) => ((curr.height || 0) > (prev.height || 0) ? curr : prev), tracks[0]);
+                if (bestTrack) {
+                  this._shakaPlayer.selectVariantTrack(bestTrack, true);
+                }
+              }
+            } catch (trErr) {}
+            if (this._onLoadedListener) {
+              this._onLoadedListener();
+            }
+          }).catch(async (e) => {
             console.error('[Engine] Shaka Load Error:', e);
             // Fallback to HTML5 video if Shaka fails
             if (this._video.readyState < 2) {
@@ -2921,23 +2970,25 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         <div class="search-container" style="width: 1000px; max-width: 90vw; text-align: center;">
           <h2 style="font-size: 3rem; font-weight: 800; color: #fff; margin-bottom: 40px; letter-spacing: -1.5px;">Choose Asset</h2>
           
-          <div class="search-box" style="width: 100%; max-width: none; margin-bottom: 40px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.15); border-radius: 30px; height: 90px; padding: 0 15px 0 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); display: flex; align-items: center; gap: 15px;">
-            <i class="fas fa-search" style="font-size: 30px; color: var(--accent); margin-right: 10px;"></i>
-            <input type="text" id="fav-search-input" placeholder="Search movies, shows or anime..." style="font-size: 24px; font-weight: 700; flex: 1; background: transparent; border: none; outline: none; color: #fff;">
+          <div class="search-box" id="fav-search-box-wrap" onclick="document.getElementById('fav-search-input')?.focus()" style="width: 100%; max-width: none; margin-bottom: 40px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.15); border-radius: 30px; height: 90px; padding: 0 15px 0 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); display: flex; align-items: center; gap: 15px; cursor: text; -webkit-app-region: no-drag !important;">
+            <i class="fas fa-search" style="font-size: 30px; color: var(--accent); margin-right: 10px; pointer-events: none;"></i>
+            <input type="text" id="fav-search-input" placeholder="Search movies, shows or anime..." style="font-size: 24px; font-weight: 700; flex: 1; background: transparent; border: none; outline: none; color: #fff; cursor: text !important; -webkit-app-region: no-drag !important; pointer-events: auto !important; user-select: text !important; -webkit-user-select: text !important;">
             
-            <button id="btn-upload-custom-banner" style="display: none; align-items: center; gap: 8px; background: var(--accent); color: #000; border: none; border-radius: 20px; padding: 10px 20px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: all 0.3s; margin-right: 15px;">
+            <button id="btn-upload-custom-banner" style="display: none; align-items: center; gap: 8px; background: var(--accent); color: #000; border: none; border-radius: 20px; padding: 10px 20px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: all 0.3s; margin-right: 15px; -webkit-app-region: no-drag !important;">
               <i class="fas fa-upload"></i> Upload custom banner
             </button>
 
             <div id="fav-search-source" style="display: none;"></div>
           </div>
 
+          <div id="fav-filter-bar" style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;"></div>
+
           <div id="fav-main-container" style="width: 100%; min-height: 500px; height: 60vh; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.15); border-radius: 30px; overflow: hidden; position: relative; display: flex; flex-direction: column;">
             <div id="fav-back-btn" style="display: none; align-items: center; gap: 10px; padding: 20px 30px; background: rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer; transition: background 0.3s; z-index: 10;">
               <i class="fas fa-arrow-left" style="color: var(--accent);"></i>
               <span style="font-weight: 700; font-size: 1.1rem;">Back to List</span>
             </div>
-            <div id="fav-results-list" class="tmdb-result-grid" style="flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 20px; padding: 30px; align-items: start;"></div>
+            <div id="fav-results-list" class="tmdb-result-grid" style="flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); grid-auto-rows: max-content; gap: 24px 20px; padding: 30px; align-content: start; align-items: stretch;"></div>
             <div id="fav-media-grid" class="tmdb-result-grid" style="display: none; flex: 1; overflow: hidden; position: relative; width: 100%; height: 100%;"></div>
           </div>
         </div>
@@ -2951,10 +3002,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       try { document.body.classList.remove('modal-open'); } catch (e) { /* ignore */ }
     };
     $('#fav-back-btn').onclick = () => {
-      $('#fav-results-list').style.display = 'grid';
-      $('#fav-media-grid').style.display = 'none';
+      const resultsList = $('#fav-results-list');
+      const mediaGrid = $('#fav-media-grid');
+      if (resultsList) {
+        resultsList.classList.remove('fav-hidden');
+        resultsList.classList.remove('fav-slide-up');
+        void resultsList.offsetWidth;
+        resultsList.classList.add('fav-slide-up');
+        resultsList.style.display = 'grid';
+      }
+      if (mediaGrid) {
+        mediaGrid.classList.add('fav-hidden');
+        mediaGrid.style.display = 'none';
+      }
       $('#fav-back-btn').style.display = 'none';
-      // $('#fav-search-source').style.display = 'flex'; // Removed per user request to rely only on AniList
     };
 
     let searchTimeout = null;
@@ -2962,8 +3023,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       clearTimeout(searchTimeout);
       const val = e.target.value;
       searchTimeout = setTimeout(() => {
-        $('#fav-results-list').style.display = 'grid';
-        $('#fav-media-grid').style.display = 'none';
+        const resultsList = $('#fav-results-list');
+        const mediaGrid = $('#fav-media-grid');
+        if (resultsList) {
+          resultsList.classList.remove('fav-hidden');
+          resultsList.style.display = 'grid';
+        }
+        if (mediaGrid) {
+          mediaGrid.classList.add('fav-hidden');
+          mediaGrid.style.display = 'none';
+        }
         $('#fav-back-btn').style.display = 'none';
         populateFavResults(val);
       }, 500);
@@ -3089,12 +3158,52 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   }
 
   function openFavoritesAvatarModal(mode = 'avatar') {
-    if (mode === 'banner' && window.AppCapabilities && !window.AppCapabilities.can('banner-search')) {
-      if (typeof showToast === 'function') {
-        showToast('⚠️ Banner search requires Cinemeta or TMDB add-on to be installed');
+    const addons = appData.installedAddons || appData.addons || [];
+    const hasKitsu = addons.some(a => {
+      const u = (a.url || a.manifestUrl || '').toLowerCase();
+      const id = (a.id || '').toLowerCase();
+      const n = (a.name || '').toLowerCase();
+      return id.includes('kitsu') || u.includes('kitsu') || n.includes('kitsu');
+    });
+    const hasTmdbAddon = addons.some(a => {
+      const u = (a.url || a.manifestUrl || '').toLowerCase();
+      const id = (a.id || '').toLowerCase();
+      const n = (a.name || '').toLowerCase();
+      return id.includes('tmdb') || u.includes('tmdb') || n.includes('tmdb') || n.includes('the movie database');
+    });
+    const hasTmdb = hasTmdbAddon && Boolean(appData.tmdbKey && appData.tmdbKey.trim());
+
+    const hasFanartAddon = addons.some(a => {
+      if (a.enabled === false) return false;
+      const u = (a.url || a.manifestUrl || '').toLowerCase();
+      const id = (a.id || '').toLowerCase();
+      const n = (a.name || '').toLowerCase();
+      return id.includes('fanart') || u.includes('fanart') || n.includes('fanart');
+    });
+    const hasFanart = hasFanartAddon;
+
+    const availableSources = [];
+    if (hasTmdb && hasFanart) availableSources.push({ id: 'all', label: 'All Sources (TMDB + Fanart)' });
+    if (hasTmdb) availableSources.push({ id: 'tmdb', label: 'Movies & TV (TMDB)' });
+    if (hasFanart) availableSources.push({ id: 'fanart', label: 'HD Artwork (Fanart.tv)' });
+
+    if (mode === 'avatar') {
+      if (!hasKitsu) {
+        if (typeof showToast === 'function') {
+          showToast('⚠️ Avatar search requires Kitsu add-on to be installed');
+        }
       }
-      return;
+    } else if (mode === 'banner') {
+      if (availableSources.length === 0) {
+        if (typeof showToast === 'function') {
+          showToast('⚠️ Banner search requires TMDB (with API key) or Fanart.tv add-on');
+        }
+      }
+      if (!availableSources.some(s => s.id === window._currentBannerSource)) {
+        window._currentBannerSource = availableSources[0]?.id || 'none';
+      }
     }
+
     window.currentFavModalMode = mode;
     createFavModal();
     const title = $('#fav-avatar-modal h2');
@@ -3102,10 +3211,44 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     
     const uploadBtn = $('#btn-upload-custom-banner');
     if (uploadBtn) {
-      uploadBtn.style.display = mode === 'banner' ? 'flex' : 'none';
+      uploadBtn.innerHTML = mode === 'avatar' 
+        ? '<i class="fas fa-upload"></i> Upload custom avatar' 
+        : '<i class="fas fa-upload"></i> Upload custom banner';
+      uploadBtn.style.display = 'flex';
     }
 
-    // Dynamic re-binding of DOM listeners to ensure the active file context's callbacks are triggered
+    // Dynamic Filter Bar: Hidden for Avatar Mode, Source Switcher for Banner Mode
+    const filterBar = $('#fav-filter-bar');
+    if (filterBar) {
+      if (mode === 'avatar' || availableSources.length <= 1) {
+        filterBar.innerHTML = '';
+        filterBar.style.display = 'none';
+      } else {
+        filterBar.style.display = 'flex';
+        let buttonsHtml = '';
+        availableSources.forEach(src => {
+          const isActive = window._currentBannerSource === src.id;
+          buttonsHtml += `<button data-src="${src.id}" class="fav-src-btn" style="padding: 7px 20px; border-radius: 20px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: all 0.2s; background: ${isActive ? 'var(--accent)' : 'transparent'}; color: ${isActive ? '#000' : '#fff'};">${src.label}</button>`;
+        });
+
+        filterBar.innerHTML = `
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%;">
+            <div style="display: flex; background: rgba(255,255,255,0.06); padding: 4px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.12); gap: 4px;">
+              ${buttonsHtml}
+            </div>
+          </div>
+        `;
+
+        filterBar.querySelectorAll('.fav-src-btn').forEach(btn => {
+          btn.onclick = () => {
+            window._currentBannerSource = btn.dataset.src;
+            openFavoritesAvatarModal('banner');
+          };
+        });
+      }
+    }
+
+    // Dynamic re-binding of DOM listeners
     const modal = $('#fav-avatar-modal');
     if (modal) {
       const closeBtn = $('#fav-modal-close');
@@ -3121,8 +3264,19 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const backBtn = $('#fav-back-btn');
       if (backBtn) {
         backBtn.onclick = () => {
-          $('#fav-results-list').style.display = 'grid';
-          $('#fav-media-grid').style.display = 'none';
+          const resultsList = $('#fav-results-list');
+          const mediaGrid = $('#fav-media-grid');
+          if (resultsList) {
+            resultsList.classList.remove('fav-hidden');
+            resultsList.classList.remove('fav-slide-up');
+            void resultsList.offsetWidth;
+            resultsList.classList.add('fav-slide-up');
+            resultsList.style.display = 'grid';
+          }
+          if (mediaGrid) {
+            mediaGrid.classList.add('fav-hidden');
+            mediaGrid.style.display = 'none';
+          }
           backBtn.style.display = 'none';
         };
       }
@@ -3130,21 +3284,123 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const searchInput = $('#fav-search-input');
       if (searchInput) {
         searchInput.value = '';
+        searchInput.placeholder = mode === 'avatar' 
+          ? 'Search anime or character name...' 
+          : (window._currentBannerSource === 'kitsu' ? 'Search anime for banners...' : 'Search movies & TV shows for backdrops...');
         searchInput.oninput = (e) => {
           clearTimeout(searchInput._searchTimeout);
           const val = e.target.value;
           searchInput._searchTimeout = setTimeout(() => {
-            $('#fav-results-list').style.display = 'grid';
-            $('#fav-media-grid').style.display = 'none';
+            const resultsList = $('#fav-results-list');
+            const mediaGrid = $('#fav-media-grid');
+            if (resultsList) {
+              resultsList.classList.remove('fav-hidden');
+              resultsList.style.display = 'grid';
+            }
+            if (mediaGrid) {
+              mediaGrid.classList.add('fav-hidden');
+              mediaGrid.style.display = 'none';
+            }
             if (backBtn) backBtn.style.display = 'none';
             populateFavResults(val);
-          }, 500);
+          }, 400);
         };
       }
 
       const uploadCustomBannerBtn = $('#btn-upload-custom-banner');
       if (uploadCustomBannerBtn) {
         uploadCustomBannerBtn.onclick = async () => {
+          const isAvatarMode = (window.currentFavModalMode === 'avatar');
+
+          if (isAvatarMode) {
+            let pathOrDataUrl = null;
+            if (window.api?.isElectron) {
+              try {
+                pathOrDataUrl = await window.api.invoke('select-user-avatar');
+              } catch (err) {
+                console.error('[Avatar Upload Error]', err);
+                showToast('Failed to select avatar.');
+                return;
+              }
+            } else {
+              pathOrDataUrl = await new Promise((resolve) => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.onchange = async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) { resolve(null); return; }
+                  try {
+                    const dataUrl = await compressImageFile(file, 300);
+                    resolve(dataUrl);
+                  } catch (err) {
+                    console.error('[Avatar Upload Error]', err);
+                    showToast('Failed to process image.');
+                    resolve(null);
+                  }
+                };
+                input.click();
+              });
+            }
+
+            if (!pathOrDataUrl) return;
+
+            showImageCropperModal(pathOrDataUrl, async (croppedDataUrl) => {
+              try {
+                if (window.supabase) {
+                  showToast('Uploading avatar to cloud...', 'info');
+                  const client = getSupabaseRendererClient();
+                  
+                  let blob;
+                  if (croppedDataUrl.startsWith('data:')) {
+                    const res = await fetch(croppedDataUrl);
+                    blob = await res.blob();
+                  } else {
+                    const res = await fetch(localImg(croppedDataUrl));
+                    blob = await res.blob();
+                  }
+
+                  const fileName = `avatars/avatar_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
+                  
+                  const { data, error } = await client.storage.from('avatars').upload(fileName, blob, {
+                    cacheControl: '3600',
+                    upsert: false,
+                    contentType: blob.type || 'image/jpeg'
+                  });
+                  
+                  if (error) {
+                    console.error('Supabase upload error:', error);
+                    showToast('Cloud upload failed, using local copy.');
+                    setSelectedAvatar(croppedDataUrl);
+                  } else {
+                    const { data: { publicUrl } } = client.storage.from('avatars').getPublicUrl(data.path);
+                    showToast('Avatar updated successfully!');
+                    setSelectedAvatar(publicUrl);
+                  }
+                } else {
+                  setSelectedAvatar(croppedDataUrl);
+                }
+
+                if (modal) {
+                  modal.style.display = 'none';
+                  modal.classList.remove('modal-active');
+                  try { document.body.classList.remove('modal-open'); } catch (e) {}
+                }
+              } catch (err) {
+                console.error('[Avatar Upload Error]', err);
+                showToast('Failed to upload avatar.');
+                setSelectedAvatar(croppedDataUrl);
+                if (modal) {
+                  modal.style.display = 'none';
+                  modal.classList.remove('modal-active');
+                  try { document.body.classList.remove('modal-open'); } catch (e) {}
+                }
+              }
+            });
+            return;
+          }
+
+          // Banner upload mode
           let pathOrDataUrl = null;
           if (window.api?.isElectron) {
             try {
@@ -3260,7 +3516,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     populateFavResults('');
     const m = $('#fav-avatar-modal'); if (m) {
-      // Remove active flag from other overlays so they hide behind this modal
       document.querySelectorAll('body > .modal-overlay.modal-active').forEach(el => el.classList.remove('modal-active'));
       m.classList.add('modal-active');
       m.style.display = 'flex';
@@ -3269,612 +3524,729 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   }
 
-  async function searchUnified(query) {
-    try {
-      const q = (query || '').trim();
-      if (!q) return [];
-      console.log('[Unified Search] Searching for:', q);
-      const result = await window.api.unifiedSearch(q);
-      return result?.results || [];
-    } catch (err) {
-      console.error('[Search Error]', err);
-      return [];
-    }
-  }
-
   async function populateFavResults(filter) {
     const list = $('#fav-results-list');
     const grid = $('#fav-media-grid');
+    const backBtn = $('#fav-back-btn');
     if (!list || !grid) return;
-    list.innerHTML = '';
-    grid.innerHTML = '';
+
+    const isAvatarMode = (window.currentFavModalMode === 'avatar');
+    const isBannerMode = (window.currentFavModalMode === 'banner');
+    const bannerSource = window._currentBannerSource || 'tmdb';
+
+    list.style.display = 'grid';
+    grid.style.display = 'none';
+    if (backBtn) backBtn.style.display = 'none';
 
     const q = (filter || '').trim();
-    let results = [];
 
     if (!q) {
-      const isBannerMode = window.currentFavModalMode === 'banner';
+      grid.innerHTML = '';
       list.innerHTML = `
-        <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 400px; opacity: 0.6;">
-          <div style="background: rgba(109, 40, 217, 0.1); width: 100px; height: 100px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 25px;">
-            <i class="fas ${isBannerMode ? 'fa-image' : 'fa-search-plus'}" style="font-size: 40px; color: var(--accent);"></i>
+        <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 380px; opacity: 0.65; text-align: center;">
+          <div style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 18px;">
+            <i class="fas ${isBannerMode ? 'fa-image' : 'fa-magnifying-glass'}" style="font-size: 28px; color: var(--accent, #6366f1);"></i>
           </div>
-          <h3 style="font-size: 1.8rem; font-weight: 800; color: #fff; margin-bottom: 10px;">${isBannerMode ? 'Find a Movie or Show' : 'Start your search'}</h3>
-          <p style="color: rgba(255,255,255,0.5); font-weight: 500;">${isBannerMode ? 'Search for a title to find beautiful banners' : 'Search Jikan or TMDB'}</p>
+          <h3 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin-bottom: 6px;">${isBannerMode ? 'Find Profile Banner' : 'Find Profile Avatar'}</h3>
+          <p style="color: rgba(255,255,255,0.5); font-size: 0.88rem; font-weight: 500; margin: 0;">${isBannerMode ? 'Type a movie or series title in the search bar above' : 'Type an anime title or character name in the search bar above'}</p>
         </div>
       `;
       return;
-    }else {
-      list.innerHTML = '<div style="grid-column: 1 / -1; padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin" style="font-size:2rem; color:var(--accent);"></i></div>';
-      try {
-        // If user is choosing an avatar, prefer AniList character search first (better character coverage)
-        if (window.currentFavModalMode === 'avatar') {
-          let animeResults = [];
-          try {
-            const al = await window.api.invoke('anilist-search', q);
-            if (al && al.length) {
-              const chars = al.filter(r => r.type === 'character');
-              if (chars.length) animeResults = chars;
-              else animeResults = al;
-            } else {
-              // AniList returned empty, fallback to Jikan Characters
-              const res = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(q)}&limit=15`);
-              const data = await res.json();
-              animeResults = (data.data || []).map(c => ({
-                id: c.mal_id,
-                title: c.name,
-                poster: c.images?.webp?.image_url || c.images?.jpg?.image_url,
-                source: 'jikan',
+    }
+
+    list.innerHTML = `<div style="grid-column: 1 / -1; padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin" style="font-size:2rem; color:var(--accent);"></i><div style="margin-top:12px; font-weight:600; color:rgba(255,255,255,0.7);">${isAvatarMode ? 'Searching anime & characters...' : 'Searching media...'}</div></div>`;
+    grid.innerHTML = '';
+
+    let results = [];
+    const escapeHTML = (s) => { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; };
+
+    const addons = appData.installedAddons || appData.addons || [];
+    const hasKitsu = addons.some(a => {
+      const u = (a.url || a.manifestUrl || '').toLowerCase();
+      const id = (a.id || '').toLowerCase();
+      const n = (a.name || '').toLowerCase();
+      return id.includes('kitsu') || u.includes('kitsu') || n.includes('kitsu');
+    });
+    const hasTmdbAddon = addons.some(a => {
+      const u = (a.url || a.manifestUrl || '').toLowerCase();
+      const id = (a.id || '').toLowerCase();
+      const n = (a.name || '').toLowerCase();
+      return id.includes('tmdb') || u.includes('tmdb') || n.includes('tmdb') || n.includes('the movie database');
+    });
+    const hasTmdb = hasTmdbAddon && Boolean(appData.tmdbKey && appData.tmdbKey.trim());
+
+    const hasFanartAddon = addons.some(a => {
+      if (a.enabled === false) return false;
+      const u = (a.url || a.manifestUrl || '').toLowerCase();
+      const id = (a.id || '').toLowerCase();
+      const n = (a.name || '').toLowerCase();
+      return id.includes('fanart') || u.includes('fanart') || n.includes('fanart');
+    });
+    const hasFanart = hasFanartAddon;
+
+    if (isAvatarMode && !hasKitsu) {
+      list.innerHTML = `
+        <div style="grid-column: 1 / -1; padding: 40px; text-align: center; color: rgba(255,255,255,0.7);">
+          <i class="fas fa-tv" style="font-size: 2.5rem; margin-bottom: 14px; color: var(--accent);"></i>
+          <h3 style="font-size: 1.2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Kitsu Add-on Required</h3>
+          <p style="font-size: 0.9rem; max-width: 440px; margin: 0 auto 16px; opacity: 0.75; line-height: 1.5;">To browse and search anime character avatars, please install the Kitsu add-on from the Add-ons Store. You can also upload a custom avatar directly using the button above.</p>
+        </div>
+      `;
+      return;
+    }
+
+    try {
+      if (isAvatarMode) {
+        // Direct search query on Kitsu (characters & anime titles)
+        const [kitsuChars, kitsuAnime] = await Promise.allSettled([
+          fetch(`https://kitsu.io/api/edge/characters?filter[name]=${encodeURIComponent(q)}&page[limit]=20`).then(r => r.json()),
+          fetch(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(q)}&page[limit]=20`).then(r => r.json())
+        ]);
+
+        if (kitsuChars.status === 'fulfilled' && Array.isArray(kitsuChars.value?.data)) {
+          kitsuChars.value.data.forEach(c => {
+            const name = c.attributes?.canonicalName || c.attributes?.name;
+            const img = c.attributes?.image?.original || c.attributes?.image?.medium || c.attributes?.image?.large;
+            if (name && img) {
+              results.push({
+                id: 'kitsu_char:' + c.id,
+                title: name,
+                poster: img,
+                source: 'kitsu',
                 type: 'character'
+              });
+            }
+          });
+        }
+
+        if (kitsuAnime.status === 'fulfilled' && Array.isArray(kitsuAnime.value?.data)) {
+          kitsuAnime.value.data.forEach(a => {
+            if (a.attributes?.ageRating === 'R18' || a.attributes?.nsfw) return;
+            const title = a.attributes?.canonicalTitle || a.attributes?.titles?.en || a.attributes?.titles?.en_jp;
+            const poster = a.attributes?.posterImage?.large || a.attributes?.posterImage?.original || a.attributes?.posterImage?.medium;
+            if (title && poster) {
+              results.push({
+                id: 'kitsu_anime:' + a.id,
+                kitsuId: a.id,
+                title: title,
+                poster: poster,
+                source: 'kitsu',
+                type: 'anime'
+              });
+            }
+          });
+        }
+
+        // Deduplicate
+        const seen = new Set();
+        results = results.filter(item => {
+          const imgKey = (item.poster || '').trim();
+          if (!imgKey || seen.has(imgKey)) return false;
+          seen.add(imgKey);
+          return true;
+        });
+
+      } else if (isBannerMode) {
+        // ─── BANNER MODE: Multi-source search (TMDB + Cinemeta) ───
+        const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+        if (hasTmdb || tmdbKey) {
+          try {
+            const searchRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(q)}`).then(r => r.json());
+            if (Array.isArray(searchRes?.results)) {
+              results = searchRes.results.filter(r => r.media_type !== 'person').map(r => ({
+                id: r.id,
+                tmdbId: r.id,
+                title: r.title || r.name,
+                poster: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : 'imgs/no-backdrop.png',
+                banner: r.backdrop_path ? `https://image.tmdb.org/t/p/original${r.backdrop_path}` : '',
+                type: r.media_type === 'tv' ? 'series' : 'movie',
+                source: hasFanart ? 'tmdb+fanart' : 'tmdb'
               }));
             }
           } catch (e) {
-            // AniList failed, fallback to Jikan Characters
-            try {
-              const res = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(q)}&limit=15`);
-              const data = await res.json();
-              animeResults = (data.data || []).map(c => ({
-                id: c.mal_id,
-                title: c.name,
-                poster: c.images?.webp?.image_url || c.images?.jpg?.image_url,
-                source: 'jikan',
-                type: 'character'
-              }));
-            } catch (err2) {
-              animeResults = [];
-            }
+            console.warn('[TMDB Search Error]', e);
           }
-
-          let tmdbResults = [];
-          const tmdbEnabled = appData.tmdbEnabled !== false;
-          const tmdbKey = appData.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
-          if (tmdbEnabled && tmdbKey) {
-            try {
-              const searchUrl = `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(q)}`;
-              const searchResp = await fetch(searchUrl).then(r => r.json()).catch(() => null);
-              if (searchResp && searchResp.results) {
-                tmdbResults = searchResp.results
-                  .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
-                  .map(r => ({
-                    id: r.id,
-                    tmdbId: r.id,
-                    title: r.title || r.name || '',
-                    poster: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : '',
-                    media_type: r.media_type,
-                    type: r.media_type
-                  }));
-              }
-            } catch (err) {
-              console.error('[TMDB Avatar search error]', err);
-            }
-          }
-
-          results = [...animeResults, ...tmdbResults];
-        } else if (window.currentFavModalMode === 'banner') {
-          const tmdbEnabled = appData.tmdbEnabled !== false;
-          const tmdbKey = appData.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
-          if (tmdbEnabled && tmdbKey) {
-            try {
-              const searchUrl = `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(q)}`;
-              const searchResp = await fetch(searchUrl).then(r => r.json()).catch(() => null);
-              if (searchResp && searchResp.results) {
-                results = searchResp.results
-                  .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
-                  .map(r => ({
-                    id: r.id,
-                    tmdbId: r.id,
-                    title: r.title || r.name || '',
-                    poster: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : '',
-                    media_type: r.media_type,
-                    type: r.media_type
-                  }));
-              }
-            } catch (err) {
-              console.error('[TMDB Modal Search Error]', err);
-            }
-          }
-
-          if (!results || !results.length) {
-            if (window.AppCapabilities && !window.AppCapabilities.can('banner-search')) {
-              list.innerHTML = `<div style="grid-column: 1 / -1; padding:40px; text-align:center; color:rgba(255,255,255,0.6);">
-                <i class="fas fa-plug-circle-xmark" style="font-size:2.5rem; color:var(--accent); margin-bottom:15px; display:block;"></i>
-                Banner search requires Cinemeta or TMDB add-on to be installed.
-              </div>`;
-              return;
-            }
-            // User requested explicit Cinemeta search for Banners to avoid Jikan mapping issues
-            const res = await window.api.invoke('cinemeta-search', q);
-            results = res?.results || [];
-          }
-        } else {
-          results = await searchUnified(q);
         }
+
         if (!results.length) {
-          list.innerHTML = `<div style="grid-column: 1 / -1; padding:40px; text-align:center; color:rgba(255,255,255,0.4);">No matches found for "${escapeHTML(q)}" on Jikan/TMDB.</div>`;
-          return;
+          try {
+            const searchRes = await window.api?.invoke('cinemeta-catalog', { type: 'movie', id: 'top', search: q }).catch(() => null);
+            if (Array.isArray(searchRes?.metas)) {
+              const cinemetaResults = searchRes.metas.map(m => ({
+                id: m.id,
+                imdb_id: m.id,
+                title: m.name,
+                poster: m.poster || 'imgs/no-backdrop.png',
+                banner: m.background || '',
+                type: 'movie',
+                source: 'fanart'
+              }));
+              results.push(...cinemetaResults);
+            }
+          } catch (e) {
+            console.warn('[Fanart/Cinemeta Search Error]', e);
+          }
         }
-        list.innerHTML = '';
-      } catch (err) {
-        list.innerHTML = '<div style="grid-column: 1 / -1; padding:40px; text-align:center; color:rgba(255,255,255,0.4);">Search failed.</div>';
+      }
+
+      if (!results.length) {
+        list.innerHTML = `<div style="grid-column: 1 / -1; padding:40px; text-align:center; color:rgba(255,255,255,0.4);"><i class="fas fa-image" style="font-size:2rem; margin-bottom:10px; display:block;"></i>No matches found for "${escapeHTML(q)}".</div>`;
         return;
       }
+      list.innerHTML = '';
+    } catch (err) {
+      list.innerHTML = '<div style="grid-column: 1 / -1; padding:40px; text-align:center; color:rgba(255,255,255,0.4);">Search failed. Please try again.</div>';
+      return;
     }
 
-    results.forEach(item => {
+    list.style.gridTemplateColumns = 'repeat(auto-fill, minmax(160px, 1fr))';
+    list.style.gap = '20px';
+
+    results.forEach((item, index) => {
       const title = item.title || item.name || item.name_en || item.title_english || '';
+      const poster = item.poster || item.url || item.poster_path || 'imgs/no-backdrop.png';
+      const isChar = (item.type === 'character');
+
       const el = document.createElement('div');
-      el.className = 'fav-list-item';
-      el.style = 'cursor:pointer; text-align:center; padding:15px; border-radius:24px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1); display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);';
+      el.className = 'media-card fav-search-card stagger-card';
+      el.style.setProperty('--stagger-i', index);
 
-      // Hover effects via JS since it's inline-styled
-      el.onmouseenter = () => {
-        el.style.transform = 'translateY(-8px) scale(1.03)';
-        el.style.background = 'rgba(255,255,255,0.08)';
-        el.style.borderColor = 'var(--accent)';
-        el.style.boxShadow = '0 15px 35px rgba(0,0,0,0.4)';
-      };
-      el.onmouseleave = () => {
-        el.style.transform = 'translateY(0) scale(1)';
-        el.style.background = 'rgba(255,255,255,0.04)';
-        el.style.borderColor = 'rgba(255,255,255,0.08)';
-        el.style.boxShadow = '0 4px 15px rgba(0,0,0,0.2)';
-      };
+      const year = item.year || item.releaseInfo || item.release_date?.slice(0, 4) || item.first_air_date?.slice(0, 4) || '';
+      const rawType = item.type || item.media_type || (item.title ? 'movie' : 'series');
+      const typeLabel = (rawType === 'anime' || item.source === 'kitsu' || item.source === 'anilist') ? 'Anime' : (rawType === 'series' || rawType === 'tv' ? 'Series' : (rawType === 'character' ? 'Character' : 'Movie'));
 
-      const poster = item.poster || item.poster_path || 'imgs/no-backdrop.png';
-      el.innerHTML = `
-        <div style="width: 100%; aspect-ratio: 2/3; overflow: hidden; border-radius: 16px; margin-bottom: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); position: relative;">
-          <img src="${localImg(poster)}" alt="${escapeHTML(title)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.src='imgs/no-backdrop.png'">
-          <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%); pointer-events: none;"></div>
-        </div>
-        <div style="font-size: 13.5px; font-weight: 800; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; padding: 0 5px; min-height: 2.6em; text-shadow: 0 2px 10px rgba(0,0,0,0.5);">${escapeHTML(title)}</div>
-      `;
+      if (isChar) {
+        // Character Avatar Item (Circle 1:1)
+        el.className = 'fav-character-card stagger-card';
+        el.style.setProperty('--stagger-i', index);
+        el.style.cssText = `cursor: pointer; text-align: center; padding: 10px; border-radius: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); transition: all 0.28s ease; display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); box-sizing: border-box;`;
+        el.onmouseenter = () => {
+          el.style.transform = 'translateY(-6px) scale(1.03)';
+          el.style.borderColor = 'var(--accent)';
+          el.style.boxShadow = '0 12px 30px rgba(0,0,0,0.4)';
+        };
+        el.onmouseleave = () => {
+          el.style.transform = 'translateY(0) scale(1)';
+          el.style.borderColor = 'rgba(255,255,255,0.08)';
+          el.style.boxShadow = '0 4px 15px rgba(0,0,0,0.2)';
+        };
+        el.innerHTML = `
+          <div style="width: 110px; height: 110px; border-radius: 50%; overflow: hidden; margin-bottom: 10px; box-shadow: 0 6px 16px rgba(0,0,0,0.35); position: relative; border: 2px solid rgba(255,255,255,0.15);">
+            <img src="${localImg(poster)}" alt="${escapeHTML(title)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='imgs/no-backdrop.png'">
+          </div>
+          <div style="font-size: 13px; font-weight: 700; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; padding: 0 4px; min-height: 2.4em;">${escapeHTML(title)}</div>
+          <div style="font-size: 11px; color: var(--accent); margin-top: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Character</div>
+        `;
+      } else {
+        // Standard MEEM 2:3 card (Title appears only on hover)
+        el.className = 'media-card fav-search-card stagger-card';
+        el.style.setProperty('--stagger-i', index);
+        el.style.cssText = `
+          position: relative;
+          width: 100%;
+          border-radius: 14px;
+          overflow: hidden;
+          background: #121218;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+          cursor: pointer;
+          transition: transform 0.28s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.28s ease, border-color 0.28s ease;
+          user-select: none;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+        `;
+        el.onmouseenter = () => {
+          el.style.transform = 'translateY(-8px) scale(1.02)';
+          el.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.7), 0 0 18px var(--accent-glow, rgba(99, 102, 241, 0.4))';
+          el.style.borderColor = 'var(--accent)';
+          const info = el.querySelector('.card-info');
+          if (info) {
+            info.style.opacity = '1';
+            info.style.transform = 'translateY(0)';
+          }
+          const img = el.querySelector('.card-poster img');
+          if (img) img.style.transform = 'scale(1.06)';
+        };
+        el.onmouseleave = () => {
+          el.style.transform = 'translateY(0) scale(1)';
+          el.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.35)';
+          el.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+          const info = el.querySelector('.card-info');
+          if (info) {
+            info.style.opacity = '0';
+            info.style.transform = 'translateY(8px)';
+          }
+          const img = el.querySelector('.card-poster img');
+          if (img) img.style.transform = 'scale(1)';
+        };
+        el.innerHTML = `
+          <div class="card-poster" style="position: relative; width: 100%; padding-top: 150%; overflow: hidden; background: #15151e;">
+            <img src="${localImg(poster)}" alt="${escapeHTML(title)}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.35s ease;" onerror="this.src='imgs/poster-placeholder.png'">
+          </div>
+          <div class="card-info" style="position: absolute; bottom: 0; left: 0; right: 0; padding: 24px 12px 12px; background: linear-gradient(to top, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.72) 65%, transparent 100%); opacity: 0; transform: translateY(8px); transition: opacity 0.25s ease, transform 0.25s ease; pointer-events: none; display: flex; flex-direction: column; gap: 4px; z-index: 5;">
+            <div class="card-title" style="font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
+            <div class="card-meta" style="font-size: 11px; color: var(--text-muted, #a1a1aa); display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+              <span style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent);">${typeLabel}</span>
+              ${year ? `<span style="font-weight: 600; color: #fff;">${year}</span>` : ''}
+            </div>
+          </div>
+        `;
+      }
+      
       el.onclick = () => {
-        if (window.currentFavModalMode === 'avatar' && (item.type === 'character' || item.source === 'jikan' || item.source === 'anilist')) {
-          const src = item.poster || item.poster_path || item.image;
-          if (src) {
+        const src = item.poster || item.url || item.poster_path || item.image;
+        if (isAvatarMode) {
+          if (isChar && src) {
             setSelectedAvatar(src.startsWith('http') ? src : localImg(src));
-            showToast('Avatar updated');
+            showToast('Avatar updated!');
             const _m = $('#fav-avatar-modal');
             if (_m) { _m.style.display = 'none'; _m.classList.remove('modal-active'); }
             try { document.body.classList.remove('modal-open'); } catch (e) { }
-
             return;
           }
+          // Anime show clicked -> fetch anime characters
+          const resultsList = $('#fav-results-list');
+          const mediaGrid = $('#fav-media-grid');
+          const backBtn = $('#fav-back-btn');
+          if (resultsList) {
+            resultsList.classList.add('fav-hidden');
+            resultsList.style.display = 'none';
+          }
+          if (mediaGrid) {
+            mediaGrid.classList.remove('fav-hidden');
+            mediaGrid.classList.remove('fav-slide-up');
+            void mediaGrid.offsetWidth;
+            mediaGrid.classList.add('fav-slide-up');
+            mediaGrid.style.display = 'grid';
+          }
+          if (backBtn) backBtn.style.display = 'flex';
+          fetchAnimeCharacters(item, mediaGrid);
+          return;
         }
-        $('#fav-results-list').style.display = 'none';
-        $('#fav-media-grid').style.display = 'grid';
-        $('#fav-back-btn').style.display = 'flex';
-        grid.innerHTML = '<div style="grid-column: 1 / -1; display:flex; flex-direction:column; align-items:center; justify-content:center; height:300px;"><i class="fas fa-spinner fa-spin" style="font-size:2rem; color:var(--accent); margin-bottom:15px;"></i><div>Fetching cinematic assets...</div></div>';
-        fetchFavoriteAssets(item, grid);
+
+        // Banner mode clicked -> fetch banners / backdrops
+        const resultsList = $('#fav-results-list');
+        const mediaGrid = $('#fav-media-grid');
+        const backBtn = $('#fav-back-btn');
+        if (resultsList) {
+          resultsList.classList.add('fav-hidden');
+          resultsList.style.display = 'none';
+        }
+        if (mediaGrid) {
+          mediaGrid.classList.remove('fav-hidden');
+          mediaGrid.classList.remove('fav-slide-up');
+          void mediaGrid.offsetWidth;
+          mediaGrid.classList.add('fav-slide-up');
+          mediaGrid.style.display = 'flex';
+        }
+        if (backBtn) backBtn.style.display = 'flex';
+        fetchFavoriteAssets(item, mediaGrid);
       };
+
       list.appendChild(el);
     });
   }
 
-  async function fetchKitsuAvatars(item, targetGrid) {
+  async function fetchAnimeCharacters(item, targetGrid) {
+    const escapeHTML = (s) => { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; };
     try {
-      let kitsuId = item.kitsuId || item.kitsu_id;
-      const title = item.title || item.name || item.name_en || item.title_english || '';
+      targetGrid.innerHTML = `
+        <div class="fav-slide-up" style="grid-column: 1 / -1; display:flex; flex-direction:column; align-items:center; justify-content:center; height:300px;">
+          <div style="width: 44px; height: 44px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: favSpin 0.8s linear infinite; margin-bottom: 18px;"></div>
+          <div style="color: #fff; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.2px;">Fetching characters for ${escapeHTML(item.title || '')}...</div>
+          <div style="color: var(--text-muted, #a1a1aa); font-size: 0.85rem; margin-top: 6px;">Loading high-res character avatars</div>
+        </div>
+      `;
+      targetGrid.style = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px; padding: 24px; width: 100%; overflow-y: auto; max-height: 520px; box-sizing: border-box;';
 
-      if (!kitsuId && title) {
-        const kSearch = await window.api.invoke('kitsu-search', title);
-        if (kSearch?.results?.length > 0) {
-          kitsuId = kSearch.results[0].id;
+      let cleanKitsuId = item.kitsuId;
+      if (!cleanKitsuId && item.id) {
+        cleanKitsuId = String(item.id).replace(/^kitsu_anime:/, '').replace(/^kitsu:/, '');
+      }
+
+      const searchTitle = item.title || item.name || '';
+      if (!cleanKitsuId && searchTitle) {
+        try {
+          const kSearch = await fetch(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(searchTitle)}&page[limit]=1`).then(r => r.json());
+          if (kSearch?.data?.length) {
+            cleanKitsuId = kSearch.data[0].id;
+          }
+        } catch (_) {}
+      }
+
+      let characters = [];
+      const seen = new Set();
+
+      if (cleanKitsuId) {
+        try {
+          const [p1, p2] = await Promise.allSettled([
+            fetch(`https://kitsu.io/api/edge/anime/${cleanKitsuId}/characters?include=character&page[limit]=20&page[offset]=0`, { headers: { 'Accept': 'application/vnd.api+json' } }).then(r => r.json()),
+            fetch(`https://kitsu.io/api/edge/anime/${cleanKitsuId}/characters?include=character&page[limit]=20&page[offset]=20`, { headers: { 'Accept': 'application/vnd.api+json' } }).then(r => r.json())
+          ]);
+
+          const allIncluded = [
+            ...(p1.status === 'fulfilled' ? p1.value?.included || [] : []),
+            ...(p2.status === 'fulfilled' ? p2.value?.included || [] : [])
+          ];
+
+          allIncluded.forEach(inc => {
+            if (inc.type === 'characters') {
+              const charName = inc.attributes?.canonicalName || inc.attributes?.name;
+              const charImg = inc.attributes?.image?.original || inc.attributes?.image?.medium || inc.attributes?.image?.large;
+              if (charName && charImg && !seen.has(charImg)) {
+                seen.add(charImg);
+                characters.push({
+                  src: charImg,
+                  name: charName
+                });
+              }
+            }
+          });
+        } catch (err) {
+          console.error('[Kitsu Characters Error]', err);
         }
       }
 
-      if (!kitsuId) return [];
-
-      const cast = await window.api.invoke('kitsu-cast', kitsuId);
-      if (cast && cast.length) {
-        return cast.filter(c => c.profile_path || c.image).map(c => ({
-          src: c.profile_path || c.image,
-          label: (c.character || c.name) + (c.role ? ` • ${c.role}` : ''),
-          type: 'avatar'
-        }));
+      // Fallback: AniList media assets if Kitsu returned 0 characters
+      if (characters.length === 0 && searchTitle) {
+        try {
+          const cleanTitle = searchTitle.replace(/\s+(2|II|III|IV|V|Season\s+\d+|S\d+|[0-9]+)$/i, '').trim();
+          const alSearch = await window.api.invoke('anilist-search', cleanTitle).catch(() => []);
+          const mediaMatch = alSearch.find(r => r.type === 'media' || r.type === 'anime');
+          if (mediaMatch) {
+            const alChars = await window.api.invoke('anilist-media-assets', mediaMatch.id).catch(() => []);
+            if (alChars && alChars.length) {
+              alChars.forEach(c => {
+                if (c.src && !seen.has(c.src)) {
+                  seen.add(c.src);
+                  characters.push({
+                    src: c.src,
+                    name: c.label || c.name || 'Character'
+                  });
+                }
+              });
+            }
+          }
+        } catch (_) {}
       }
+
+      if (characters.length === 0) {
+        targetGrid.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 40px; text-align: center; color: rgba(255,255,255,0.5);">
+            <i class="fas fa-user-slash" style="font-size: 2rem; margin-bottom: 12px; color: var(--accent);"></i>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #fff;">No characters found for this anime</div>
+            <div style="font-size: 0.85rem; margin-top: 6px;">Try searching for the character name directly in the search bar above.</div>
+          </div>
+        `;
+        return;
+      }
+
+      targetGrid.innerHTML = '';
+      characters.forEach((char, idx) => {
+        const card = document.createElement('div');
+        card.className = 'fav-character-item stagger-card';
+        card.style.setProperty('--stagger-i', idx);
+        card.style = `cursor: pointer; text-align: center; padding: 12px; border-radius: 18px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); transition: all 0.25s ease; display: flex; flex-direction: column; align-items: center;`;
+
+        card.onmouseenter = () => {
+          card.style.transform = 'translateY(-5px) scale(1.03)';
+          card.style.background = 'rgba(255,255,255,0.08)';
+          card.style.borderColor = 'var(--accent)';
+          card.style.boxShadow = '0 10px 25px rgba(0,0,0,0.4)';
+        };
+        card.onmouseleave = () => {
+          card.style.transform = 'translateY(0) scale(1)';
+          card.style.background = 'rgba(255,255,255,0.04)';
+          card.style.borderColor = 'rgba(255,255,255,0.08)';
+          card.style.boxShadow = 'none';
+        };
+
+        card.innerHTML = `
+          <div style="width: 100px; height: 100px; border-radius: 50%; overflow: hidden; margin-bottom: 10px; border: 2px solid rgba(255,255,255,0.15); box-shadow: 0 6px 16px rgba(0,0,0,0.35);">
+            <img src="${localImg(char.src)}" alt="${escapeHTML(char.name)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='imgs/no-backdrop.png'">
+          </div>
+          <div style="font-size: 13px; font-weight: 700; color: #fff; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.4em; padding: 0 2px;">${escapeHTML(char.name)}</div>
+          <div style="font-size: 11px; color: var(--accent); margin-top: 4px; font-weight: 600;">Select Avatar</div>
+        `;
+
+        card.onclick = () => {
+          setSelectedAvatar(char.src.startsWith('http') ? char.src : localImg(char.src));
+          showToast('Avatar updated!');
+          const _m = $('#fav-avatar-modal');
+          if (_m) {
+            _m.style.display = 'none';
+            _m.classList.remove('modal-active');
+            try { document.body.classList.remove('modal-open'); } catch (e) {}
+          }
+        };
+
+        targetGrid.appendChild(card);
+      });
     } catch (err) {
-      console.error('[Kitsu Error]', err);
+      console.error('[fetchAnimeCharacters Error]', err);
+      targetGrid.innerHTML = '<div style="padding:40px; text-align:center; color:rgba(255,255,255,0.4); grid-column:1/-1;">Error loading characters.</div>';
     }
-    return [];
   }
 
   async function fetchFavoriteAssets(item, targetGrid) {
     try {
       let type = item.media_type || item.type || (item.title ? 'movie' : 'tv');
+      if (type === 'series') type = 'tv';
       let id = item.tmdbId || item.id;
-      const isAnime = (type === 'anime' || item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || item.kitsuId || item.kitsu_id || item.kitsu || item.mal_id || (item.id && (String(item.id).startsWith('kitsu:') || String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:') || String(item.id).startsWith('anilist:'))));
       const searchTitle = item.title || item.name || item.name_en || item.title_english || '';
-      const releaseDate = item.release_date || item.first_air_date || item.startDate || '';
-      const releaseYear = releaseDate ? new Date(releaseDate).getFullYear() : null;
+      const isAnime = (item.source === 'kitsu' || item.type === 'anime' || (item.id && String(item.id).startsWith('kitsu')));
 
-      let resolvedMatches = []; // [{id, type}]
+      targetGrid.innerHTML = `
+        <div class="fav-slide-up" style="grid-column: 1 / -1; width: 100%; height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+          <div style="width: 44px; height: 44px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: favSpin 0.8s linear infinite; margin-bottom: 18px;"></div>
+          <div style="color: #fff; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.2px;">Fetching cinematic backdrops...</div>
+          <div style="color: var(--text-muted, #a1a1aa); font-size: 0.85rem; margin-top: 6px;">Gathering high-resolution wallpapers & artwork</div>
+        </div>
+      `;
+      
+      const searchSource = $('#fav-search-source');
+      if (searchSource) searchSource.style.display = 'none';
 
-      const isKitsuItem = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || !!item.kitsuId || (item.id && (String(item.id).startsWith('kitsu:') || String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:') || String(item.id).startsWith('anilist:')));
-      const isAvatarMode = window.currentFavModalMode === 'avatar';
+      // Setup Horizontal Banner Slider
+      if (targetGrid.classList.contains('fav-avatar-mode')) targetGrid.classList.remove('fav-avatar-mode');
+      targetGrid.style.display = 'flex';
+      targetGrid.style.flexDirection = 'row';
+      targetGrid.style.flexWrap = 'nowrap';
+      targetGrid.style.overflowX = 'auto';
+      targetGrid.style.overflowY = 'hidden';
+      targetGrid.style.scrollSnapType = 'x mandatory';
+      targetGrid.style.gap = '0px';
+      targetGrid.style.width = '100%';
+      targetGrid.style.height = '100%';
+      targetGrid.style.padding = '0px';
+      targetGrid.style.webkitOverflowScrolling = 'touch';
+      targetGrid.style.scrollBehavior = 'smooth';
+      targetGrid.style.scrollbarWidth = 'none';
+      targetGrid.style.msOverflowStyle = 'none';
 
-      targetGrid.innerHTML = '';
-      $('#fav-search-source').style.display = 'none';
-
-      // Initialize Grid
-      if (isAvatarMode) {
-        // Avatar carousel: make it horizontally swipeable like banners
-        if (!targetGrid.classList.contains('fav-avatar-mode')) targetGrid.classList.add('fav-avatar-mode');
-        targetGrid.style.display = 'flex';
-        targetGrid.style.flexDirection = 'row';
-        targetGrid.style.flexWrap = 'nowrap';
-        targetGrid.style.overflowX = 'auto';
-        targetGrid.style.overflowY = 'hidden';
-        targetGrid.style.scrollSnapType = 'x mandatory';
-        targetGrid.style.gap = '12px';
-        targetGrid.style.padding = '12px';
-        targetGrid.style.webkitOverflowScrolling = 'touch';
-        targetGrid.style.scrollBehavior = 'smooth';
-        targetGrid.style.alignItems = 'center';
-        targetGrid.style.width = '100%';
-        targetGrid.style.minWidth = '100%';
-        // hide parent's overflow to create a neat card area
-        if (targetGrid.parentElement) targetGrid.parentElement.style.overflow = 'hidden';
-      } else {
-        // ensure avatar-mode class removed when showing banners
-        if (targetGrid.classList.contains('fav-avatar-mode')) targetGrid.classList.remove('fav-avatar-mode');
-        targetGrid.style.display = 'flex';
-        targetGrid.style.flexDirection = 'row';
-        targetGrid.style.flexWrap = 'nowrap';
-        targetGrid.style.overflowX = 'auto';
-        targetGrid.style.overflowY = 'hidden';
-        targetGrid.style.scrollSnapType = 'x mandatory';
-        targetGrid.style.gap = '0px';
-        targetGrid.style.width = '100%';
-        targetGrid.style.height = '100%';
-        targetGrid.style.padding = '0px';
-        targetGrid.style.webkitOverflowScrolling = 'touch';
-        targetGrid.style.scrollBehavior = 'smooth';
-        targetGrid.style.scrollbarWidth = 'none'; // Firefox
-        targetGrid.style.msOverflowStyle = 'none'; // IE/Edge
-        // Hide scrollbar for Chrome/Safari
-        const styleId = 'fav-media-grid-style';
-        if (!document.getElementById(styleId)) {
-          const style = document.createElement('style');
-          style.id = styleId;
-          style.textContent = '#fav-media-grid::-webkit-scrollbar { display: none; }';
-          document.head.appendChild(style);
-        }
-        if (targetGrid.parentElement) targetGrid.parentElement.style.overflow = 'hidden';
+      const styleId = 'fav-media-grid-style';
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = '#fav-media-grid::-webkit-scrollbar { display: none; }';
+        document.head.appendChild(style);
       }
+      if (targetGrid.parentElement) targetGrid.parentElement.style.overflow = 'hidden';
 
       let items = [];
 
-      // 1. Avatars: Use Kitsu characters AND TMDB cast for maximum coverage
-      if (isAvatarMode) {
+      // 1. Direct assets on item
+      if (item.background) {
+        items.push({ src: item.background, label: 'Cinematic Backdrop', type: 'banner' });
+        if (String(item.background).includes('/medium/')) {
+          items.push({ src: item.background.replace('/medium/', '/orig/'), label: 'Original Backdrop', type: 'banner' });
+          items.push({ src: item.background.replace('/medium/', '/large/'), label: 'Large Backdrop', type: 'banner' });
+        }
+      }
+      if (item.backdrop) {
+        items.push({ src: localImg(item.backdrop), label: 'Backdrop', type: 'banner' });
+      }
+      if (item.backdrop_path) {
+        const bp = item.backdrop_path.startsWith('http') ? item.backdrop_path : `https://image.tmdb.org/t/p/w1280${item.backdrop_path}`;
+        items.push({ src: bp, label: 'TMDB Backdrop', type: 'banner' });
+      }
+      if (item.banner) {
+        items.push({ src: localImg(item.banner), label: 'Original Banner', type: 'banner' });
+      }
+      if (item.cover) {
+        items.push({ src: localImg(item.cover), label: 'Cover Banner', type: 'banner' });
+      }
+
+      // 2. If Anime or title search: Fetch AniList & Kitsu wide banners
+      if (isAnime || searchTitle) {
         try {
-          // A. Try AniList by Title for anime characters
-          let animeChars = [];
-          if (isAnime && searchTitle) {
-            const cleanTitle = searchTitle.replace(/\s+(2|II|III|IV|V|Season\s+\d+|S\d+|[0-9]+)$/i, '').trim();
-            const alSearch = await window.api.invoke('anilist-search', cleanTitle).catch(() => []);
-            const mediaMatch = alSearch.find(r => r.type === 'media' || r.type === 'anime');
-            if (mediaMatch) {
-              animeChars = await window.api.invoke('anilist-media-assets', mediaMatch.id).catch(() => []);
+          const cleanTitle = (searchTitle || '').replace(/\s+(2|II|III|IV|V|Season\s+\d+|S\d+|[0-9]+)$/i, '').trim();
+          const alResp = await fetch('https://graphql.anilist.co', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: 'query ($s: String) { Media(search: $s, type: ANIME) { id bannerImage coverImage { extraLarge large } } }',
+              variables: { s: cleanTitle || searchTitle }
+            })
+          }).then(r => r.json()).catch(() => null);
+
+          if (alResp?.data?.Media?.bannerImage) {
+            items.push({ src: alResp.data.Media.bannerImage, label: 'AniList Official Banner', type: 'banner' });
+          }
+
+          const kResp = await fetch(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(cleanTitle || searchTitle)}&page[limit]=1`).then(r => r.json()).catch(() => null);
+          const kCover = kResp?.data?.[0]?.attributes?.coverImage?.original || kResp?.data?.[0]?.attributes?.coverImage?.large;
+          if (kCover) {
+            items.push({ src: kCover, label: 'Kitsu Official Cover', type: 'banner' });
+          }
+        } catch (e) { console.warn('[Anime Banner Fetch Error]', e.message); }
+      }
+
+      // 3. Resolve Cinemeta details & Fanart.tv
+      let fanartId = item.tmdbId;
+      if (!fanartId && !String(id).startsWith('kitsu')) {
+        fanartId = id;
+      }
+      let fanartType = type === 'tv' ? 'tv' : 'movies';
+
+      if (searchTitle) {
+        try {
+          let targetId = fanartId;
+          let targetType = type;
+
+          if (!targetId) {
+            const res = await window.api.invoke('cinemeta-search', searchTitle).catch(() => null);
+            if (res?.results?.length) {
+              const match = res.results[0];
+              targetId = match.id;
+              targetType = match.type || 'movie';
+              if (match.background) {
+                items.push({ src: match.background, label: 'Cinemeta Backdrop', type: 'banner' });
+              }
             }
           }
 
-          if (animeChars && animeChars.length) {
-            items.push(...animeChars);
+          if (targetId) {
+            const details = await window.api.invoke('cinemeta-details', { id: targetId, type: targetType }).catch(() => null);
+            if (details?.meta) {
+              if (details.meta.background) {
+                items.push({ src: details.meta.background, label: 'Cinemeta Backdrop', type: 'banner' });
+                if (String(details.meta.background).includes('/medium/')) {
+                  items.push({ src: details.meta.background.replace('/medium/', '/orig/'), label: 'Original Backdrop', type: 'banner' });
+                  items.push({ src: details.meta.background.replace('/medium/', '/large/'), label: 'Large Backdrop', type: 'banner' });
+                }
+              }
+              if (details.meta.banner) {
+                items.push({ src: details.meta.banner, label: 'Cinemeta Banner', type: 'banner' });
+              }
+              fanartId = details.meta.tvdb_id || details.meta.tmdb_id || details.meta.moviedb_id || targetId;
+              fanartType = targetType === 'tv' || targetType === 'series' ? 'tv' : 'movies';
+            }
           }
+        } catch (e) { console.error('[Cinemeta Details Error]', e); }
+      }
 
-          // B. Try TMDB Cast (Great for live action and mapped anime)
-          let tmdbId = item.tmdbId || item.id;
-          let tmdbType = item.media_type || item.type || (item.title ? 'movie' : 'tv');
+      if (fanartId) {
+        try {
+          const fanart = await window.api.invoke('fanart-images', fanartType, fanartId).catch(() => null);
+          if (fanart) {
+            const bgs = fanart.moviebackground || fanart.tvbackground || fanart.showbackground || [];
+            bgs.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Background', type: 'banner' }));
+            const thumbs = fanart.moviethumb || fanart.tvthumb || [];
+            thumbs.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Thumbnail', type: 'banner' }));
+          }
+        } catch (e) { console.error('[Banner Fetch Error]', e); }
+      }
+
+      // 4. Fetch ALL backdrops from TMDB with active key fallback
+      const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+      if (tmdbKey) {
+        try {
+          let tmdbId = item.tmdbId;
+          let tmdbType = type;
 
           if (!tmdbId && searchTitle) {
-            const tSearch = await window.api.invoke('tmdb-search-discover', searchTitle).catch(() => null);
-            if (tSearch?.results?.length) {
-              tmdbId = tSearch.results[0].id;
-              tmdbType = tSearch.results[0].media_type || tmdbType;
+            const cleanTitle = searchTitle.replace(/\s+(2|II|III|IV|V|Season\s+\d+|S\d+|[0-9]+)$/i, '').trim();
+            const searchUrl = `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(cleanTitle || searchTitle)}`;
+            const searchResp = await fetch(searchUrl).then(r => r.json()).catch(() => null);
+            if (searchResp && searchResp.results?.length) {
+              const match = searchResp.results.find(r => r.media_type !== 'person') || searchResp.results[0];
+              if (match) {
+                tmdbId = match.id;
+                tmdbType = match.media_type || tmdbType;
+                if (match.backdrop_path) {
+                  items.push({ src: `https://image.tmdb.org/t/p/w1280${match.backdrop_path}`, label: 'TMDB Backdrop', type: 'banner' });
+                }
+              }
             }
           }
 
           if (tmdbId && tmdbType !== 'person') {
-            const tmdbKey = appData.tmdbKey;
-            if (tmdbKey) {
-              try {
-                const creditsUrl = `https://api.themoviedb.org/3/${tmdbType === 'movie' ? 'movie' : 'tv'}/${tmdbId}/credits?api_key=${tmdbKey}`;
-                const creditsResp = await fetch(creditsUrl).then(r => r.json()).catch(() => null);
-                if (creditsResp && creditsResp.cast) {
-                  creditsResp.cast.forEach(cast => {
-                    if (cast.profile_path) {
-                      const url = `https://image.tmdb.org/t/p/h632${cast.profile_path}`;
-                      items.push({ src: url, label: cast.name, type: 'avatar' });
-                    }
-                  });
+            const imagesUrl = `https://api.themoviedb.org/3/${tmdbType === 'movie' ? 'movie' : 'tv'}/${tmdbId}/images?api_key=${tmdbKey}`;
+            const imgResp = await fetch(imagesUrl).then(r => r.json()).catch(() => null);
+            if (imgResp && Array.isArray(imgResp.backdrops)) {
+              imgResp.backdrops.slice(0, 25).forEach(img => {
+                if (img.file_path) {
+                  items.push({ src: `https://image.tmdb.org/t/p/w1280${img.file_path}`, label: 'TMDB Backdrop', type: 'banner' });
+                  items.push({ src: `https://image.tmdb.org/t/p/original${img.file_path}`, label: 'TMDB Backdrop (HD)', type: 'banner' });
                 }
-              } catch (e) {
-                console.error('[TMDB Credits Fetch Error]', e);
-              }
+              });
             }
           }
-
-        } catch (e) {
-          console.error('[Avatar Resolve Error]', e);
+        } catch (err) {
+          console.error('[TMDB Banner Fetch Error]', err);
         }
       }
 
-      // 2. Banners: Use Fanart.tv exclusively for external backgrounds (plus the item's own)
-      if (!isAvatarMode) {
-        let fanartId = item.tmdbId;
-        // Only fallback to item.id if it's not a Jikan/AniList ID (which Fanart doesn't support)
-        if (!fanartId && item.source !== 'jikan' && item.source !== 'anilist') {
-          fanartId = item.id;
-        }
-        let fanartType = item.media_type || item.type || (item.title ? 'movie' : 'tv');
-
-        // Fanart.tv does NOT support IMDB IDs ('tt...') for TV shows. It requires TVDB or TMDB ID.
-        // If we only have an IMDB ID for a series, we MUST resolve it.
-        const isImdbTvShow = fanartId && String(fanartId).startsWith('tt') && (fanartType === 'series' || fanartType === 'tv');
-
-        // If we don't have a valid Fanart ID, or it's an IMDB TV show, RESOLVE it
-        if ((!fanartId || isImdbTvShow) && searchTitle) {
-          try {
-            if (item.source === 'jikan' && item.id) {
-              // It's an Anime, get TVDB ID using MAL ID map
-              const external = await window.api.invoke('map-mal-id', item.id);
-              if (external) {
-                fanartId = external.tvdb || external.tmdb || null;
-                fanartType = external.tvdb ? 'tv' : 'movies';
-              }
-            }
-            
-            // If still no ID or we need to resolve IMDB TV ID
-            if (!fanartId || isImdbTvShow) {
-              // If we already have an IMDB ID, skip search and go straight to details
-              let targetId = fanartId;
-              let targetType = fanartType;
-
-              if (!targetId) {
-                const res = await window.api.invoke('cinemeta-search', searchTitle);
-                if (res?.results?.length) {
-                  const match = res.results[0];
-                  targetId = match.id;
-                  targetType = match.type || 'movie';
-                }
-              }
-
-              if (targetId && (targetType === 'series' || targetType === 'tv')) {
-                const details = await window.api.invoke('cinemeta-details', { id: targetId, type: targetType }).catch(() => null);
-                if (details?.meta) {
-                  // Cinemeta details might return tvdb_id or moviedb_id
-                  fanartId = details.meta.tvdb_id || details.meta.tmdb_id || details.meta.moviedb_id || targetId;
-                  fanartType = 'tv';
-                }
-              } else if (targetId) {
-                fanartId = targetId;
-                fanartType = targetType;
-              }
-            }
-          } catch (e) { console.error('[ID Resolve Error]', e); }
-        }
-
-        if (fanartId) {
-          try {
-            const fanart = await window.api.invoke('fanart-images', fanartType, fanartId).catch(() => null);
-
-            if (fanart) {
-              // 1. Full 16:9 Backgrounds (Textless usually)
-              const bgs = fanart.moviebackground || fanart.tvbackground || fanart.showbackground || [];
-              bgs.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Background', type: 'banner' }));
-              
-              // 2. Wide Banners (1000x185) - Excluded because they are narrow strips that stretch poorly on 16:9 switcher backgrounds
-              // const banners = fanart.moviebanner || fanart.tvbanner || [];
-              // banners.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Banner', type: 'banner' }));
-              
-              // 3. Thumbnails (16:9 usually 1000x562 - great for profile banners)
-              const thumbs = fanart.moviethumb || fanart.tvthumb || [];
-              thumbs.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Thumbnail', type: 'banner' }));
-            }
-          } catch (e) { console.error('[Banner Fetch Error]', e); }
-        }
-
-        // Fetch from TMDB if tmdb is enabled
-        const tmdbEnabled = appData.tmdbEnabled !== false;
-        const tmdbKey = appData.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
-        if (tmdbEnabled && tmdbKey) {
-          try {
-            let tmdbId = item.tmdbId;
-            let tmdbType = item.media_type || item.type || (item.title ? 'movie' : 'tv');
-            if (tmdbType === 'series') tmdbType = 'tv';
-
-            // Resolve IMDB ID to TMDB ID if needed
-            if (!tmdbId && item.id && String(item.id).startsWith('tt')) {
-              const findUrl = `https://api.themoviedb.org/3/find/${item.id}?api_key=${tmdbKey}&external_source=imdb_id`;
-              const findResp = await fetch(findUrl).then(r => r.json()).catch(() => null);
-              if (findResp) {
-                const movie = findResp.movie_results?.[0];
-                const tv = findResp.tv_results?.[0];
-                if (movie) {
-                  tmdbId = movie.id;
-                  tmdbType = 'movie';
-                } else if (tv) {
-                  tmdbId = tv.id;
-                  tmdbType = 'tv';
-                }
-              }
-            }
-
-            // Resolve by title if we still don't have TMDB ID
-            if (!tmdbId && searchTitle) {
-              const cleanTitle = searchTitle.replace(/\s+(2|II|III|IV|V|Season\s+\d+|S\d+|[0-9]+)$/i, '').trim();
-              const searchUrl = `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(cleanTitle)}`;
-              const searchResp = await fetch(searchUrl).then(r => r.json()).catch(() => null);
-              if (searchResp && searchResp.results?.length) {
-                const match = searchResp.results[0];
-                tmdbId = match.id;
-                tmdbType = match.media_type || tmdbType;
-                if (tmdbType === 'person') {
-                  const nextMatch = searchResp.results.find(r => r.media_type !== 'person');
-                  if (nextMatch) {
-                    tmdbId = nextMatch.id;
-                    tmdbType = nextMatch.media_type;
-                  }
-                }
-              }
-            }
-
-            if (tmdbId && tmdbType !== 'person') {
-              const imagesUrl = `https://api.themoviedb.org/3/${tmdbType === 'movie' ? 'movie' : 'tv'}/${tmdbId}/images?api_key=${tmdbKey}`;
-              const imgResp = await fetch(imagesUrl).then(r => r.json()).catch(() => null);
-              if (imgResp && imgResp.backdrops) {
-                imgResp.backdrops.forEach(img => {
-                  const url = `https://image.tmdb.org/t/p/original${img.file_path}`;
-                  items.push({ src: url, label: 'TMDB Backdrop', type: 'banner' });
-                });
-              }
-            }
-          } catch (err) {
-            console.error('[TMDB Banner Fetch Error]', err);
-          }
-        }
-      }
-
-      // Final Fallback: If still no assets found (or in addition), use the item's own poster/banner
-      if (items.length === 0 || !isAvatarMode) {
-        if (item.banner && !isAvatarMode) {
-          items.push({ src: localImg(item.banner), label: 'Original Banner', type: 'banner' });
-        }
-        const mainPoster = item.poster || item.poster_path;
-        if (mainPoster && isAvatarMode) {
-          items.push({ src: localImg(mainPoster), label: 'Main Poster', type: 'avatar' });
-        }
-      }
-      // Deduplicate and filter
-      items = items.filter((v, i, a) => a.findIndex(t => t.src === v.src) === i).slice(0, 60);
+      // Deduplicate all backdrops
+      items = items.filter((v, i, a) => a.findIndex(t => t.src === v.src) === i).slice(0, 80);
 
       if (!items.length) {
-        targetGrid.innerHTML = '<div style="padding:40px; text-align:center; color:rgba(255,255,255,0.4); grid-column:1/-1;">Could not find extra assets.</div>';
+        targetGrid.innerHTML = '<div style="padding:40px; text-align:center; color:rgba(255,255,255,0.4); grid-column:1/-1;">Could not find extra backdrops for this item.</div>';
         return;
       }
 
-      // Render Items
-      items.forEach(it => {
-        const isAvatar = it.type === 'avatar';
+      targetGrid.innerHTML = '';
 
-        if (isAvatar) {
-          // Create a carousel slide for each avatar with name and select button
-          const slide = document.createElement('div');
-          const basis = window.innerWidth < 480 ? '64%' : '36%';
-          slide.style = `flex:0 0 ${basis}; scroll-snap-align:center; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; padding:8px; box-sizing:border-box;`;
+      // Render 16:9 Banner Slider Slides
+      items.forEach((it, idx) => {
+        const slide = document.createElement('div');
+        slide.className = 'stagger-card';
+        slide.style.setProperty('--stagger-i', idx);
+        const slideBasis = window.innerWidth < 480 ? '90%' : '100%';
+        slide.style = `flex: 0 0 ${slideBasis}; height: 100%; scroll-snap-align: center; position: relative; display: flex; align-items: center; justify-content: center; background: transparent; padding: 12px; box-sizing: border-box;`;
 
-          const avatarWrap = document.createElement('div');
-          const avatarSize = window.innerWidth < 420 ? 120 : 160;
-          avatarWrap.style = `width:${avatarSize}px; height:${avatarSize}px; border-radius:50%; overflow:hidden; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; box-shadow: 0 12px 30px rgba(0,0,0,0.4);`;
+        const tile = document.createElement('div');
+        tile.className = 'fav-media-tile';
+        tile.style = `width: 100%; max-width: ${window.innerWidth < 480 ? '92vw' : '900px'}; aspect-ratio: 16/9; border-radius: 16px; position: relative; overflow: hidden; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.2); box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);`;
 
-          const img = document.createElement('img');
-          img.src = localImg(it.src);
-          img.style = 'width:100%; height:100%; object-fit:cover; object-position:center center; display:block;';
-          img.onerror = () => { img.style.opacity = '0'; };
-          avatarWrap.appendChild(img);
+        const imgEl = document.createElement('img');
+        imgEl.src = localImg(it.src);
+        imgEl.style = 'width:100%; height:100%; object-fit:cover; display:block;';
+        imgEl.onerror = () => { imgEl.style.opacity = '0.3'; };
+        tile.appendChild(imgEl);
 
-          const nameEl = document.createElement('div');
-          nameEl.style = 'margin-top:10px; font-size:1rem; font-weight:800; color:#fff; text-align:center; min-height:2.2em;';
-          nameEl.textContent = it.label || '';
+        const selectOverlay = document.createElement('div');
+        selectOverlay.style = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.15); transition: background 0.3s;';
 
-          const selectBtn = document.createElement('button');
-          selectBtn.className = 'btn-primary';
-          selectBtn.style = 'margin-top:10px; padding:10px 16px; border-radius:12px; font-weight:700;';
-          selectBtn.textContent = 'Select Avatar';
-          selectBtn.onclick = () => {
-            setSelectedAvatar(it.src);
-            showToast('Avatar updated');
-            const _m = $('#fav-avatar-modal'); if (_m?._bannerCleanup) { _m._bannerCleanup(); _m._bannerCleanup = null; }
-            if (_m) _m.style.display = 'none';
-          };
+        const selectBtn = document.createElement('button');
+        selectBtn.className = 'btn-primary';
+        selectBtn.style = 'padding:14px 28px; border-radius:14px; font-weight:800; font-size:1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transform: translateY(0); transition: all 0.2s; cursor: pointer;';
+        selectBtn.innerHTML = '<i class="fas fa-check-circle" style="margin-right:8px;"></i> Apply This Banner';
 
-          slide.appendChild(avatarWrap);
-          slide.appendChild(nameEl);
-          slide.appendChild(selectBtn);
-          targetGrid.appendChild(slide);
-        } else {
-          // High-Quality Dynamic Slider for Banners (responsive)
-          const slide = document.createElement('div');
-          // Make slides slightly narrower on mobile to allow peeking and swiping
-          const slideBasis = window.innerWidth < 480 ? '90%' : '100%';
-          slide.style = `flex: 0 0 ${slideBasis}; height: 100%; scroll-snap-align: center; position: relative; display: flex; align-items: center; justify-content: center; background: transparent; padding: 12px; box-sizing: border-box;`;
+        selectBtn.onmouseenter = () => { selectBtn.style.transform = 'scale(1.05)'; };
+        selectBtn.onmouseleave = () => { selectBtn.style.transform = 'scale(1)'; };
 
-          const tile = document.createElement('div');
-          tile.className = 'fav-media-tile';
-          tile.style = `width: 100%; max-width: ${window.innerWidth < 480 ? '92vw' : '900px'}; aspect-ratio: 16/9; border-radius: 16px; position: relative; overflow: hidden; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.2); box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);`;
+        selectBtn.onclick = () => {
+          setSelectedBanner(it.src);
+          showToast('Banner applied');
+          
+          selectBtn.innerHTML = '<i class="fas fa-check-circle" style="margin-right:8px; color: #22C55E;"></i> Applied';
+          selectBtn.style.background = 'rgba(16, 185, 129, 0.2)';
+          selectBtn.style.borderColor = '#10B981';
+          selectBtn.style.color = '#10B981';
+          selectBtn.disabled = true;
 
-          const imgEl = document.createElement('img');
-          imgEl.src = localImg(it.src);
-          imgEl.style = 'width:100%; height:100%; object-fit:cover; display:block;';
-          imgEl.onerror = () => { imgEl.style.opacity = '0.3'; };
-          tile.appendChild(imgEl);
+          setTimeout(() => {
+            const _m = $('#fav-avatar-modal'); 
+            if (_m?._bannerCleanup) { _m._bannerCleanup(); _m._bannerCleanup = null; }
+            if (_m) {
+              _m.style.display = 'none';
+              _m.classList.remove('modal-active');
+              try { document.body.classList.remove('modal-open'); } catch (e) { /* ignore */ }
+            }
+          }, 800);
+        };
 
-          // Centered overlay select button for better visibility on all screens
-          const selectOverlay = document.createElement('div');
-          selectOverlay.style = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.1); transition: background 0.3s;';
-
-          const selectBtn = document.createElement('button');
-          selectBtn.className = 'btn-primary';
-          selectBtn.style = 'padding:14px 28px; border-radius:14px; font-weight:800; font-size:1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transform: translateY(0); transition: all 0.2s;';
-          selectBtn.innerHTML = '<i class="fas fa-check-circle" style="margin-right:8px;"></i> Apply This Banner';
-
-          selectBtn.onmouseenter = () => { selectBtn.style.transform = 'scale(1.05)'; };
-          selectBtn.onmouseleave = () => { selectBtn.style.transform = 'scale(1)'; };
-
-          selectBtn.onclick = () => {
-            setSelectedBanner(it.src);
-            showToast('Banner applied');
-            
-            // Show checkmark on the button and highlight it in green
-            selectBtn.innerHTML = '<i class="fas fa-check-circle" style="margin-right:8px; color: #22C55E;"></i> Applied';
-            selectBtn.style.background = 'rgba(16, 185, 129, 0.2)';
-            selectBtn.style.borderColor = '#10B981';
-            selectBtn.style.color = '#10B981';
-            selectBtn.disabled = true;
-
-            setTimeout(() => {
-              const _m = $('#fav-avatar-modal'); 
-              if (_m?._bannerCleanup) { _m._bannerCleanup(); _m._bannerCleanup = null; }
-              if (_m) {
-                _m.style.display = 'none';
-                _m.classList.remove('modal-active');
-                try { document.body.classList.remove('modal-open'); } catch (e) { /* ignore */ }
-              }
-            }, 1000);
-          };
-
-
-          selectOverlay.appendChild(selectBtn);
-          tile.appendChild(selectOverlay);
-
-          slide.appendChild(tile);
-          targetGrid.appendChild(slide);
-        }
+        selectOverlay.appendChild(selectBtn);
+        tile.appendChild(selectOverlay);
+        slide.appendChild(tile);
+        targetGrid.appendChild(slide);
       });
 
-      // ── Arrow Key Navigation for Banner Carousel (PC only) ──
-      if (!isAvatarMode && items.length > 1) {
+      // ── Arrow Key & Button Navigation for Banner Carousel ──
+      if (items.length > 1) {
         let currentSlideIndex = 0;
         const slides = targetGrid.querySelectorAll(':scope > div');
 
@@ -3900,57 +4272,24 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
         document.addEventListener('keydown', keyHandler);
 
-        // Prev/Next arrows (visible on wider screens)
         const leftBtn = document.createElement('button');
         const rightBtn = document.createElement('button');
         leftBtn.className = 'fav-carousel-arrow';
         rightBtn.className = 'fav-carousel-arrow';
         leftBtn.innerHTML = '&#9664;';
         rightBtn.innerHTML = '&#9654;';
-        leftBtn.style = rightBtn.style = 'position:absolute; top:50%; transform:translateY(-50%); width:48px; height:48px; border-radius:24px; background:rgba(0,0,0,0.5); color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:30;';
+        leftBtn.style = rightBtn.style = 'position:absolute; top:50%; transform:translateY(-50%); width:48px; height:48px; border-radius:24px; background:rgba(0,0,0,0.6); color:#fff; border:1px solid rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:30; font-size:16px; transition:all 0.2s;';
         leftBtn.style.left = '12px';
         rightBtn.style.right = '12px';
-        // Show arrows on most phones too (smaller) so users can tap to move slides
-        const shouldShowArrows = true; // enabled for all sizes
-        leftBtn.style.display = shouldShowArrows ? 'flex' : 'none';
-        rightBtn.style.display = shouldShowArrows ? 'flex' : 'none';
-        // Make arrows more touch-friendly on small screens
-        if (window.innerWidth < 480) {
-          leftBtn.style.width = leftBtn.style.height = '44px';
-          leftBtn.style.borderRadius = '22px';
-          rightBtn.style.width = rightBtn.style.height = '44px';
-          rightBtn.style.borderRadius = '22px';
-          leftBtn.style.left = '8px';
-          rightBtn.style.right = '8px';
-          leftBtn.style.opacity = '0.95';
-        }
+
         leftBtn.onclick = () => scrollToSlide(currentSlideIndex - 1);
         rightBtn.onclick = () => scrollToSlide(currentSlideIndex + 1);
         targetGrid.parentElement.appendChild(leftBtn);
         targetGrid.parentElement.appendChild(rightBtn);
-        const resizeHandler = () => {
-          // Keep arrows visible across sizes; adjust sizing on resize
-          if (window.innerWidth < 480) {
-            leftBtn.style.width = leftBtn.style.height = '44px';
-            leftBtn.style.borderRadius = '22px';
-            rightBtn.style.width = rightBtn.style.height = '44px';
-            rightBtn.style.borderRadius = '22px';
-            leftBtn.style.left = '8px';
-            rightBtn.style.right = '8px';
-          } else {
-            leftBtn.style.width = leftBtn.style.height = '48px';
-            leftBtn.style.borderRadius = '24px';
-            rightBtn.style.width = rightBtn.style.height = '48px';
-            rightBtn.style.borderRadius = '24px';
-            leftBtn.style.left = '12px';
-            rightBtn.style.right = '12px';
-          }
-        };
-        window.addEventListener('resize', resizeHandler);
 
         // Dot indicator bar
         const counter = document.createElement('div');
-        counter.style = 'position:absolute; bottom:20px; left:50%; transform:translateX(-50%); display:flex; gap:8px; z-index:20; padding:6px 12px; background:rgba(0,0,0,0.4); border-radius:20px; backdrop-filter:blur(8px);';
+        counter.style = 'position:absolute; bottom:20px; left:50%; transform:translateX(-50%); display:flex; gap:8px; z-index:20; padding:6px 12px; background:rgba(0,0,0,0.5); border-radius:20px; backdrop-filter:blur(8px); border:1px solid rgba(255,255,255,0.1);';
         slides.forEach((_, i) => {
           const dot = document.createElement('div');
           dot.style = `width:8px; height:8px; border-radius:50%; background:${i === 0 ? '#fff' : 'rgba(255,255,255,0.3)'}; transition:all 0.3s; cursor:pointer;`;
@@ -3968,7 +4307,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           }
         };
 
-        // Sync scroll position via scroll event (fallback for manual swipes)
         let isInternalScroll = false;
         targetGrid.onscroll = () => {
           if (isInternalScroll) return;
@@ -3979,14 +4317,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           }
         };
 
-        // Cleanup when modal closes
         const cleanup = () => {
           document.removeEventListener('keydown', keyHandler);
           targetGrid.onscroll = null;
           if (counter.parentElement) counter.remove();
           if (leftBtn.parentElement) leftBtn.remove();
           if (rightBtn.parentElement) rightBtn.remove();
-          window.removeEventListener('resize', resizeHandler);
         };
         const modal = $('#fav-avatar-modal');
         if (modal) {
@@ -4046,11 +4382,26 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   function setSelectedBanner(url) {
     appData.globalBanner = url;
+    if (appData.user) {
+      appData.user.banner = url;
+    }
+    if (typeof currentProfile !== 'undefined' && currentProfile) {
+      currentProfile.banner = url;
+    }
     if (Array.isArray(appData.profiles)) {
       appData.profiles.forEach((p) => { p.banner = url; });
     }
     applyProfilePickerBackdrop(url);
-    persist();
+    if (url) {
+      const resolvedImg = window.localImg ? window.localImg(url) : url;
+      document.body.style.backgroundImage = `linear-gradient(to top, var(--bg-main) 0%, rgba(18,18,28,0.7) 100%), url('${resolvedImg}')`;
+      document.body.style.backgroundSize = 'cover';
+      document.body.style.backgroundPosition = 'top center';
+      document.body.style.backgroundAttachment = 'fixed';
+    } else {
+      document.body.style.backgroundImage = '';
+    }
+    persist(true);
     renderProfilePicker();
     renderProfileWidget();
     renderAccount();
@@ -4411,32 +4762,32 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   if ($('#btn-minimize')) $('#btn-minimize').onclick = () => window.api.minimizeWindow();
   if ($('#btn-maximize')) $('#btn-maximize').onclick = () => window.api.maximizeWindow();
   if ($('#btn-close')) $('#btn-close').onclick = () => window.api.closeWindow();
-  if ($('#btn-player-minimize')) $('#btn-player-minimize').onclick = () => {
-    if (window.api && window.api.minimizeWindow) window.api.minimizeWindow();
-  };
+  if ($('#btn-player-minimize')) $('#btn-player-minimize').onclick = () => window.api?.minimizeWindow?.();
+  if ($('#btn-player-win-min')) $('#btn-player-win-min').onclick = () => window.api?.minimizeWindow?.();
+  if ($('#btn-player-win-max')) $('#btn-player-win-max').onclick = () => window.api?.maximizeWindow?.();
+  if ($('#btn-player-win-close')) $('#btn-player-win-close').onclick = () => $('#btn-back-player')?.click();
+  const playerTopBarEl = $('#player-topbar');
+  if (playerTopBarEl) {
+    playerTopBarEl.ondblclick = (e) => {
+      if (e.target.closest('button, input, select, a, .action-pill-btn, .player-close-btn, .player-settings-dropdown')) return;
+      window.api?.maximizeWindow?.();
+    };
+  }
   if ($('#btn-player-fullscreen')) $('#btn-player-fullscreen').onclick = toggleFullscreen;
   if ($('#btn-account-logout')) $('#btn-account-logout').onclick = performLogout;
   window.applyTheme = function(themeName = null) {
-    const targetTheme = themeName || (window.appData && window.appData.theme) || 'minimalist';
-    document.body.classList.remove('theme-minimalist', 'dark-theme', 'theme-dark', 'light-theme');
-
-    if (targetTheme === 'dark' || targetTheme === 'theme-dark') {
-      document.body.classList.add('dark-theme');
-    } else if (targetTheme === 'light' || targetTheme === 'light-theme') {
-      document.body.classList.add('light-theme');
-    } else {
-      document.body.classList.add('theme-minimalist');
-    }
+    document.body.classList.remove('dark-theme', 'theme-dark', 'light-theme');
+    document.body.classList.add('theme-minimalist');
 
     if (window.appData) {
-      window.appData.theme = targetTheme;
+      window.appData.theme = 'minimalist';
       if (typeof persist === 'function') persist();
     }
 
     // Update UI active indicator on theme preview cards
     document.querySelectorAll('.theme-card-preview').forEach(card => {
       const cardTheme = card.getAttribute('data-theme');
-      if (cardTheme === targetTheme || (cardTheme === 'dark' && (targetTheme === 'dark' || targetTheme === 'theme-dark')) || (cardTheme === 'minimalist' && targetTheme === 'minimalist')) {
+      if (cardTheme === 'minimalist') {
         card.classList.add('active');
       } else {
         card.classList.remove('active');
@@ -4444,8 +4795,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     });
   };
 
-  // Apply default theme on init
-  window.applyTheme(window.appData?.theme || 'minimalist');
+  // Apply Pitch Black minimalist theme permanently
+  window.applyTheme('minimalist');
 
 
   const performRescan = async (btn) => {
@@ -4738,6 +5089,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // ── Player Subtitle Studio Listeners ──
   $('#sub-style-size')?.addEventListener('input', applySubtitleStyles);
   $('#sub-style-bg')?.addEventListener('input', applySubtitleStyles);
+  $('#sub-style-color')?.addEventListener('input', applySubtitleStyles);
+  $('#sub-style-bgcolor')?.addEventListener('input', applySubtitleStyles);
+  document.querySelectorAll('.sub-preset-color').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const col = $('#sub-style-color');
+      if (col && btn.dataset.color) { col.value = btn.dataset.color; applySubtitleStyles(); }
+    });
+  });
+  document.querySelectorAll('.sub-preset-bgcolor').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const bg = $('#sub-style-bgcolor');
+      if (bg && btn.dataset.bgcolor) { bg.value = btn.dataset.bgcolor; applySubtitleStyles(); }
+    });
+  });
   $('#btn-sub-bold')?.addEventListener('click', (e) => { e.currentTarget.classList.toggle('active'); applySubtitleStyles(); });
   const btnSubItalic = $('#btn-sub-italic');
   if (btnSubItalic) {
@@ -4976,18 +5341,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   const resolveAddonLogo = (addon) => {
     const u = (addon.url || addon.manifestUrl || '').toLowerCase();
     const name = (addon.name || '').toLowerCase();
-    if (u.includes('anime.schedule') || u.includes('anime-schedule') || name.includes('anime schedule') || name.includes('anime release schedule')) {
-      return 'imgs/jikan-logo.png';
+    const id = (addon.id || '').toLowerCase();
+    if (u.includes('anime.schedule') || u.includes('anime-schedule') || name.includes('anime schedule') || name.includes('anime release schedule') || id.includes('anime.schedule')) {
+      return 'imgs/Anime Release Schedule.png';
     }
-    if (u.includes('vidsrc') || name.includes('vidsrc')) return 'imgs/vidsrc-logo.svg';
     if (u.includes('cinemeta') || name.includes('cinemeta')) return 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/stremio.png';
     if (u.includes('torrentio') || name.includes('torrentio')) return 'https://torrentio.strem.fun/images/logo_v1.png';
     if (u.includes('comet') || name.includes('comet')) return 'https://raw.githubusercontent.com/g0ldyy/comet/refs/heads/main/comet/assets/icon.png';
     if (u.includes('peario') || name.includes('peario')) return 'https://addon.peario.xyz/public/icon.png';
-    if (u.includes('tmdb') || name.includes('tmdb') || name.includes('the movie database')) return 'https://94c8cb9f702d-tmdb-addon.baby-beamup.club/logo.png';
-    if (u.includes('mytrakt') || name.includes('trakt')) return 'https://mytrakt.elfhosted.com/logo.png';
-    if (u.includes('youtube') || name.includes('youtube')) return 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/120px-YouTube_full-color_icon_%282017%29.svg.png';
-    if (u.includes('music') || name.includes('music') || name.includes('spotify') || (addon.id && addon.id.includes('music'))) return 'imgs/appicon.png';
+    if (u.includes('tmdb') || name.includes('tmdb') || name.includes('the movie database') || id.includes('tmdb')) return 'imgs/themoviedb.svg';
+    if (u.includes('mytrakt') || name.includes('trakt') || id.includes('trakt')) return 'imgs/trakt.svg';
+    if (u.includes('youtube') || name.includes('youtube') || id.includes('youtube')) return 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/120px-YouTube_full-color_icon_%282017%29.svg.png';
+    if (u.includes('subdl') || name.includes('subdl') || id.includes('subdl')) return 'imgs/subdl.png';
+    if (u.includes('kitsu') || name.includes('kitsu') || id.includes('kitsu')) return 'imgs/kitsu.png';
+    if (u.includes('fanart') || name.includes('fanart') || id.includes('fanart')) return 'imgs/Fanart.tv.png';
+    if (u.includes('music') || name.includes('music') || name.includes('spotify') || id.includes('music')) return 'imgs/white ico.png';
 
     if (addon.icon && typeof addon.icon === 'string') {
       return addon.icon;
@@ -5000,13 +5368,75 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   const DEFAULT_COMMUNITY_ADDONS = [
     {
+      id: 'org.stremio.opensubtitlesv3',
+      name: 'OpenSubtitles v3',
+      version: '1.0.0',
+      description: 'Official OpenSubtitles v3 addon. Provides multi-language subtitles (Arabic, English, etc.) for movies and TV series directly without any API key.',
+      url: 'https://opensubtitles-v3.strem.io',
+      manifestUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
+      iconClass: 'fas fa-closed-captioning',
+      iconColor: '#f5c518',
+      types: ['subtitles'],
+      category: 'subtitles'
+    },
+    {
+      id: 'com.mediavault.subdl',
+      name: 'SubDL Subtitles',
+      version: '1.0.0',
+      description: 'Official SubDL subtitles integration with Arabic & multi-language subtitle search, auto-download, and synchronization.',
+      url: 'local://addon-subdl',
+      manifestUrl: 'local://addon-subdl/manifest.json',
+      icon: 'imgs/subdl.png',
+      types: ['subtitles'],
+      category: 'subtitles'
+    },
+    {
+      id: 'com.mediavault.kitsu',
+      name: 'Kitsu Anime',
+      version: '1.0.0',
+      description: 'Anime catalog, character avatars, and anime banners from Kitsu.io.',
+      url: 'https://anime-kitsu.strem.fun/manifest.json',
+      manifestUrl: 'https://anime-kitsu.strem.fun/manifest.json',
+      icon: 'imgs/kitsu.png',
+      iconClass: 'fas fa-tv',
+      iconColor: '#fd755c',
+      types: ['anime', 'catalog'],
+      category: 'anime'
+    },
+    {
+      id: 'com.mediavault.tmdb',
+      name: 'The Movie Database (TMDB)',
+      version: '1.0.0',
+      description: 'Comprehensive Movie & Series metadata, ratings, trending suggestions, and backdrops.',
+      url: 'https://94c8cb9f702d-tmdb-addon.baby-beamup.club/manifest.json',
+      manifestUrl: 'https://94c8cb9f702d-tmdb-addon.baby-beamup.club/manifest.json',
+      icon: 'imgs/themoviedb.svg',
+      iconClass: 'fas fa-film',
+      iconColor: '#01b4e4',
+      types: ['movie', 'series', 'catalogs'],
+      category: 'catalogs'
+    },
+    {
+      id: 'com.mediavault.fanart',
+      name: 'Fanart.tv',
+      version: '1.0.0',
+      description: 'High-definition fanart, clearlogos, thumbs, and cinematic movie/series backdrops from Fanart.tv.',
+      url: 'local://addon-fanart',
+      manifestUrl: 'local://addon-fanart/manifest.json',
+      icon: 'imgs/Fanart.tv.png',
+      iconClass: 'fas fa-image',
+      iconColor: '#ff0055',
+      types: ['movie', 'series', 'catalogs'],
+      category: 'catalogs'
+    },
+    {
       id: 'com.meem.music.player',
       name: 'MEEM Music',
       version: '1.0.0',
       description: 'Ultra high-fidelity Music & Audio streaming with Discover dashboard, Lyrics, Offline Downloads, and Playlists.',
       url: 'local://addon-music-player',
       manifestUrl: 'local://addon-music-player/manifest.json',
-      icon: 'imgs/appicon.png',
+      icon: 'imgs/white ico.png',
       iconClass: 'fas fa-music',
       iconColor: '#ffffff',
       types: ['music', 'audio', 'lyrics'],
@@ -5022,17 +5452,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       icon: 'imgs/jikan-logo.png',
       types: ['anime', 'catalog'],
       category: 'anime'
-    },
-    {
-      id: 'com.vidsrc.sbs',
-      name: 'VidSrc',
-      version: '1.0.0',
-      description: 'Direct stream provider for Movies & TV Series with 1080p instant playback and multi-source fallbacks.',
-      url: 'https://vidsrc.sbs',
-      manifestUrl: 'https://vidsrc.sbs/manifest.json',
-      icon: 'imgs/vidsrc-logo.svg',
-      types: ['movie', 'series', 'anime'],
-      category: 'movie'
     },
     {
       id: 'com.mediavault.youtube',
@@ -5134,20 +5553,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
       const installedNormalized = new Set((appData.installedAddons || []).map(a => normalizeAddonUrl(a.url)));
       
-      // Exclude SubDL, OpenSubtitles, and Anime Kitsu per user instruction
-      const REMOVED_PATTERNS = ['subdl', 'opensubtitles', 'subtitles.strem.io', 'subtitles.official', 'kitsu'];
+      // Filter out deprecated legacy addons (do not exclude modern OpenSubtitles v3)
       const isExcluded = (addon) => {
         const id = (addon.id || '').toLowerCase();
         const name = (addon.name || '').toLowerCase();
         const url = (addon.url || addon.manifestUrl || '').toLowerCase();
-        return REMOVED_PATTERNS.some(p => id.includes(p) || name.includes(p) || url.includes(p));
+        if (id.includes('v3') || name.includes('v3') || url.includes('v3')) return false;
+        const LEGACY_PATTERNS = ['subtitles.strem.io', 'subtitles.official'];
+        return LEGACY_PATTERNS.some(p => id.includes(p) || name.includes(p) || url.includes(p));
       };
 
       if (Array.isArray(appData.installedAddons)) {
         appData.installedAddons = appData.installedAddons.filter(a => !isExcluded(a));
       }
 
-      // Merge Supabase addons + built-in addons (Anime Schedule, VidSrc, YouTube)
+      // Merge Supabase addons + built-in addons (Anime Schedule, MEEM Music, YouTube)
       let baseCatalog = [...supabaseAddonsCatalog];
       DEFAULT_COMMUNITY_ADDONS.forEach(builtIn => {
         const alreadyIn = baseCatalog.some(a =>
@@ -5311,7 +5731,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           let configUrl = (addon.manifestUrl || addon.url || '').replace(/\/manifest\.json$/i, '');
           // Handle built-in local addons
           if (configUrl.startsWith('local://')) {
-            if (addon.id === 'com.mediavault.youtube') {
+            if (addon.id === 'com.mediavault.subdl') {
+              switchView('settings');
+              setTimeout(() => {
+                const card = document.getElementById('subdl-connection-card');
+                if (card) {
+                  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  card.style.borderColor = 'var(--accent)';
+                  setTimeout(() => { card.style.borderColor = ''; }, 2000);
+                }
+              }, 150);
+              showToast('⚙️ SubDL Subtitle Settings');
+            } else if (addon.id === 'com.mediavault.youtube') {
               if (typeof window.openYouTubeSettingsModal === 'function') {
                 window.openYouTubeSettingsModal();
               } else {
@@ -6022,13 +6453,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       // Guarantee appData.installedAddons exists
       if (!appData.installedAddons) appData.installedAddons = [];
 
-      // Clean up legacy OpenSubtitles or old SubDL addons
+      // Clean up legacy OpenSubtitles v2 or old SubDL addons (keep modern OpenSubtitles v3)
       appData.installedAddons = appData.installedAddons.filter(addon => {
         const url = String(addon?.url || addon?.manifestUrl || '').toLowerCase();
         const id = String(addon?.id || '').toLowerCase();
         const name = String(addon?.name || '').toLowerCase();
-        const isLegacyOpenSubs = url.includes('opensubtitles') || id.includes('opensubtitles') || name.includes('opensubtitles');
-        const isOldSubdl = url.includes('subdl') || id.includes('subdl') || name.includes('subdl');
+        const isV3 = id.includes('v3') || name.includes('v3') || url.includes('v3');
+        if (isV3) return true;
+        const isLegacyOpenSubs = url.includes('subtitles.strem.io') || url.includes('subtitles.official');
+        const isOldSubdl = (url.includes('subdl') || id.includes('subdl') || name.includes('subdl')) && !id.includes('com.mediavault.subdl');
         return !isLegacyOpenSubs && !isOldSubdl;
       });
 
@@ -8558,12 +8991,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             return;
           }
 
-          if (pb.meta && pb.meta.type === 'tv') {
-            openDiscoverDetail(item).then(() => {
-              if (typeof window.selectUnifiedEpisode === 'function') {
-                window.selectUnifiedEpisode(pb.meta.season, pb.meta.episode, pb.meta.title || `Episode ${pb.meta.episode}`, pb.meta.thumbnail || '', pb.meta.path || '');
-              }
-            });
+          if (pb.meta && (pb.meta.type === 'tv' || pb.meta.type === 'series' || pb.meta.season != null) && pb.meta.season != null && pb.meta.episode != null && typeof window.selectUnifiedEpisode === 'function') {
+            window.selectUnifiedEpisode(pb.meta.season, pb.meta.episode, pb.meta.title || `Episode ${pb.meta.episode}`, pb.meta.thumbnail || '', pb.meta.path || '');
+          } else if (typeof window.loadStreams === 'function') {
+            const resolvedImdb = pb.meta?.imdb_id || pb.meta?.imdbId || (String(pb.meta?.id).startsWith('tt') ? pb.meta.id : null);
+            const streamType = (pb.meta?.source === 'jikan' || pb.meta?.source === 'mal' || pb.meta?.source === 'kitsu' || pb.meta?.kitsuId) ? 'anime' : ((pb.meta?.type === 'tv' || pb.meta?.type === 'series') ? 'tv' : 'movie');
+            const payload = {
+              ...pb.meta,
+              imdb_id: resolvedImdb,
+              imdbId: resolvedImdb,
+              season: pb.meta?.season,
+              episode: pb.meta?.episode,
+              epTitle: pb.meta?.title,
+              media_type: (pb.meta?.type === 'tv' || pb.meta?.type === 'series') ? 'tv' : 'movie',
+              startTime: resumeTime
+            };
+            window.loadStreams(payload, streamType);
           } else {
             openDiscoverDetail(item);
           }
@@ -8574,12 +9017,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     } else {
       section.style.display = 'block';
       row.innerHTML = `
-        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 36px 20px; background: rgba(255,255,255,0.03); border-radius: 16px; border: 1px dashed rgba(255,255,255,0.15); margin: 0 10px; text-align: center;">
-          <div style="width: 48px; height: 48px; background: rgba(255,255,255,0.06); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.1);">
-             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" style="opacity: 0.85;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <div style="flex: 1; width: 100%; height: 100%; min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; background: transparent; border: none; box-sizing: border-box; text-align: center;">
+          <div style="width: 64px; height: 64px; background: rgba(255,255,255,0.06); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.1);">
+             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.2" style="opacity: 0.9; margin-left: 2px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           </div>
-          <h3 style="font-size: 16px; margin: 0; opacity: 0.95; font-weight: 800; color: #fff;">Start Watching Now!</h3>
-          <p style="font-size: 12px; margin: 5px 0 0; opacity: 0.45;">Your in-progress library items will appear here automatically.</p>
+          <h3 style="font-size: 19px; margin: 0; opacity: 0.95; font-weight: 800; color: #fff; letter-spacing: 0.5px;">Start Watching Now!</h3>
+          <p style="font-size: 13px; margin: 8px 0 0; opacity: 0.45; max-width: 320px; line-height: 1.45;">Your in-progress library items will appear here automatically.</p>
         </div>
       `;
     }
@@ -10180,20 +10623,39 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (!g) return;
     const q = ($('#search-social')?.value || '').toLowerCase();
 
-    // Combine Profile Social videos + Legacy Folder videos
+    // Combine Profile Social videos + Legacy Folder videos + Music from appData.music & downloads
     const profileVideos = (appData.socialVideos || []).map(v => ({ ...v, name: v.filename, date: v.date || Date.now(), isLocal: true, social: true }));
     const legacyVideos = (appData.youtubeVideos || []).map(v => ({ ...v, name: v.filename, date: v.date || Date.now(), isLocal: true, social: true }));
     const dlHistory = (appData.downloadHistory || []).filter(d => d.status === 'complete' && (d.social || d.isYoutube) && d.path);
 
+    // Music files (including 3mro\Music and downloaded audio)
+    const musicTracks = (appData.music || []).filter(m => m.path || m.url).map(m => ({
+      ...m,
+      name: m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Music Track'),
+      date: m.date || Date.now(),
+      isLocal: true,
+      isMusic: true,
+      type: 'music'
+    }));
+
+    const dlMusic = (appData.downloadHistory || []).filter(d => d.status === 'complete' && (d.type === 'music' || d.isMusic || (d.path && /\.(m4a|mp3|flac|wav|ogg)$/i.test(d.path)))).map(m => ({
+      ...m,
+      name: m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Downloaded Track'),
+      date: m.date || Date.now(),
+      isLocal: true,
+      isMusic: true,
+      type: 'music'
+    }));
+
     const seen = new Set();
-    const all = [...profileVideos, ...legacyVideos, ...dlHistory].filter(v => {
-      if (!v.path || seen.has(v.path)) return false;
-      seen.add(v.path);
+    const all = [...profileVideos, ...legacyVideos, ...dlHistory, ...musicTracks, ...dlMusic].filter(v => {
+      const key = v.path || v.id || v.url;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
-    // console.log('[RENDER-SOCIAL] Total videos after filter:', all.length);
 
-    const list = q ? all.filter(v => (v.name || '').toLowerCase().includes(q)) : all;
+    const list = q ? all.filter(v => (v.name || v.title || '').toLowerCase().includes(q)) : all;
     g.innerHTML = '';
     if (!list.length) {
       if (empty) empty.style.display = 'flex';
@@ -10206,34 +10668,47 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     list.forEach(v => {
       const card = document.createElement('div'); card.className = 'media-card';
-      const title = (v.name || 'Untitled Content').replace(/\.[^.]+$/, '');
+      const title = (v.name || v.title || 'Untitled Content').replace(/\.[^.]+$/, '');
       let imgHTML = '<svg viewBox="0 0 48 48" width="40" height="40" fill="var(--accent)"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>';
 
-      let isYtThumb = false;
-      if (v.url) {
-        const ytMatch = v.url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
-        if (ytMatch && ytMatch[1]) {
-          imgHTML = `<img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
-          isYtThumb = true;
-        }
-      }
-
-      if (!isYtThumb && v.path) {
-        const custom = appData.banners[v.path];
-        if (custom) {
-          imgHTML = `<img src="${localImg(custom)}" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
-        } else if (v.image) {
-          imgHTML = `<img src="${localImg(v.image)}" style="width:100%;height:100%;object-fit:cover;border-radius:0;" onerror="this.style.display='none'">`;
+      if (v.isMusic) {
+        const coverSrc = v.thumbnail || v.cover || v.image;
+        if (coverSrc) {
+          const cUrl = coverSrc.startsWith('http') || coverSrc.startsWith('data:') ? coverSrc : localImg(coverSrc);
+          imgHTML = `<img src="${cUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:0;" onerror="this.style.display='none'">`;
         } else {
-          // Canvas-based high quality thumbnail for local files
-          const thumb = ensureThumbnail(v);
-          if (thumb) {
-            imgHTML = `<img src="${thumb}" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
+          imgHTML = `<div style="width:100%;height:100%;background:linear-gradient(135deg, #1e1e2e, #0a0a14);display:flex;align-items:center;justify-content:center;color:#10b981;font-size:32px;"><i class="fas fa-music"></i></div>`;
+        }
+      } else {
+        let isYtThumb = false;
+        if (v.url) {
+          const ytMatch = v.url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+          if (ytMatch && ytMatch[1]) {
+            imgHTML = `<img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
+            isYtThumb = true;
+          }
+        }
+
+        if (!isYtThumb && v.path) {
+          const custom = appData.banners[v.path];
+          if (custom) {
+            imgHTML = `<img src="${localImg(custom)}" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
+          } else if (v.image) {
+            imgHTML = `<img src="${localImg(v.image)}" style="width:100%;height:100%;object-fit:cover;border-radius:0;" onerror="this.style.display='none'">`;
           } else {
-            imgHTML = `<div style="width:100%;height:100%;background:rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center;"><i class="fas fa-spinner fa-spin" style="opacity:0.2"></i></div>`;
+            // Canvas-based high quality thumbnail for local files
+            const thumb = ensureThumbnail(v);
+            if (thumb) {
+              imgHTML = `<img src="${thumb}" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
+            } else {
+              imgHTML = `<div style="width:100%;height:100%;background:rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center;"><i class="fas fa-spinner fa-spin" style="opacity:0.2"></i></div>`;
+            }
           }
         }
       }
+
+      const badgeText = v.isMusic ? 'MUSIC' : 'SOCIAL';
+      const badgeStyle = v.isMusic ? 'background:#10b981;color:#fff;' : '';
 
       card.innerHTML = `
         <div style="position:relative;width:100%;padding-top:56.25%;background:#0a0a0a;overflow:hidden;">
@@ -10241,16 +10716,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           <div class="card-play-overlay">
             <div class="play-circle"><svg viewBox="0 0 24 24" width="22" height="22"><polygon points="8 5 20 12 8 19"/></svg></div>
           </div>
-          ${v.isLocal ? '<div class="local-badge" title="Local Video Folder">SOCIAL</div>' : ''}
+          ${v.isLocal ? `<div class="local-badge" style="${badgeStyle}" title="${badgeText}">${badgeText}</div>` : ''}
         </div>
         <div class="card-info">
           <div class="card-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
-          <div class="card-meta">${new Date(v.date || Date.now()).toLocaleDateString()}</div>
+          <div class="card-meta">${v.artist || new Date(v.date || Date.now()).toLocaleDateString()}</div>
         </div>`;
 
-      card.onclick = () => playVideo({ ...v, id: v.path, title, path: v.path, type: 'social', isSocial: true }, null);
+      card.onclick = () => {
+        if (v.isMusic) {
+          playMusic(v);
+        } else {
+          playVideo({ ...v, id: v.path, title, path: v.path, type: 'social', isSocial: true }, null);
+        }
+      };
       card.oncontextmenu = e => {
-        window.openContextMenuForItem({ ...v, id: v.path, title, path: v.path, type: 'social', filename: v.name, isLocal: true }, e);
+        window.openContextMenuForItem({ ...v, id: v.path || v.id, title, path: v.path, type: v.isMusic ? 'music' : 'social', filename: v.name, isLocal: true, isMusic: !!v.isMusic }, e);
       };
       g.appendChild(card);
     });
@@ -11069,14 +11550,27 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       renderEps();
 
       // ── Async episode enrichment via TMDB (with key) or Cinemeta (fallback) ──
-      if (!cachedSeasons[sn]) {
-        const tmdbKey = appData.tmdbKey;
+      // ── Async episode enrichment via TMDB (with key) or Cinemeta (fallback) ──
+      if (!cachedSeasons[sn] || Object.keys(cachedSeasons[sn] || {}).length === 0) {
+        const tmdbKey = appData.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
         const tmdbEnabled = appData.tmdbEnabled !== false;
         const mappedSn = (appData.seasonOffset && appData.seasonOffset[`${show.id}_${sn}`]) || sn;
-        const showId = tmdb?.tmdbId || tmdb?.id || tmdb?.cinemetaId || null;
+        let showId = show.tmdbId || show.imdbId || tmdb?.tmdbId || tmdb?.imdb_id || tmdb?.imdbId || (tmdb?.id && !String(tmdb.id).includes('/') && !String(tmdb.id).includes('\\') ? tmdb.id : null) || tmdb?.cinemetaId || null;
 
-        const fetchFromCinemeta = () => {
-          const cinemetaId = tmdb?.cinemetaId || (tmdb?.tmdbId ? String(tmdb.tmdbId) : (tmdb?.id || null));
+        const fetchFromCinemeta = async () => {
+          let cinemetaId = tmdb?.cinemetaId || (tmdb?.tmdbId ? String(tmdb.tmdbId) : (showId && !String(showId).includes('/') && !String(showId).includes('\\') ? showId : null));
+          if (!cinemetaId && window.api?.cinemetaSearch) {
+            try {
+              const cRes = await window.api.cinemetaSearch(show.cleanTitle || show.title);
+              if (cRes?.results?.length) {
+                const match = cRes.results.find(r => r.id && r.id.startsWith('tt')) || cRes.results[0];
+                if (match?.id) {
+                  cinemetaId = match.id;
+                  if (tmdb) tmdb.cinemetaId = cinemetaId;
+                }
+              }
+            } catch(e) {}
+          }
           if (cinemetaId) {
             window.api.invoke('cinemeta-details', { id: cinemetaId, type: 'series' }).then(data => {
               const meta = data?.meta || data;
@@ -11092,82 +11586,96 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                   }
                 });
               }
-              if (tmdb) {
+              if (tmdb && Object.keys(tmdbEps).length > 0) {
                 tmdb.seasons = tmdb.seasons || {};
                 tmdb.seasons[sn] = tmdbEps;
                 persist();
                 renderEps();
               }
-            }).catch(() => {
-              if (tmdb) {
-                tmdb.seasons = tmdb.seasons || {};
-                tmdb.seasons[sn] = tmdb.seasons[sn] || {};
-                persist();
-                renderEps();
-              }
-            });
-          } else {
-            if (tmdb) {
-              tmdb.seasons = tmdb.seasons || {};
-              tmdb.seasons[sn] = tmdb.seasons[sn] || {};
-              persist();
-              renderEps();
-            }
+            }).catch(() => {});
           }
         };
 
-        if (tmdbEnabled && tmdbKey && showId) {
-          const getTvDetails = async (tvId) => {
-            const seasonUrl = `https://api.themoviedb.org/3/tv/${tvId}/season/${mappedSn}?api_key=${tmdbKey}`;
-            try {
-              const resp = await fetch(seasonUrl);
-              const data = await resp.json();
-              if (data && data.episodes) {
-                data.episodes.forEach(e => {
-                  tmdbEps[e.episode_number] = {
-                    episode_number: e.episode_number,
-                    name: e.name || null,
-                    overview: e.overview || null,
-                    still_path: e.still_path || null
-                  };
-                });
-                if (tmdb) {
-                  tmdb.seasons = tmdb.seasons || {};
-                  tmdb.seasons[sn] = tmdbEps;
-                  persist();
-                  renderEps();
+        const executeEnrichment = async () => {
+          if (tmdbEnabled && tmdbKey) {
+            // If showId is not known, search TMDB by title
+            if (!showId) {
+              try {
+                const sTitle = show.cleanTitle || show.title;
+                if (sTitle) {
+                  const sYear = show.year ? `&first_air_date_year=${show.year}` : '';
+                  const sUrl = `https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${encodeURIComponent(sTitle)}${sYear}`;
+                  const sResp = await fetch(sUrl);
+                  const sData = await sResp.json();
+                  if (sData?.results?.[0]?.id) {
+                    showId = sData.results[0].id;
+                    show.tmdbId = showId;
+                    if (tmdb) tmdb.tmdbId = showId;
+                    persist();
+                  }
+                }
+              } catch(e) {
+                console.warn('[TMDB Title Search] failed:', e);
+              }
+            }
+
+            if (showId) {
+              const getTvDetails = async (tvId) => {
+                const seasonUrl = `https://api.themoviedb.org/3/tv/${tvId}/season/${mappedSn}?api_key=${tmdbKey}`;
+                try {
+                  const resp = await fetch(seasonUrl);
+                  const data = await resp.json();
+                  if (data && data.episodes && data.episodes.length) {
+                    data.episodes.forEach(e => {
+                      tmdbEps[e.episode_number] = {
+                        episode_number: e.episode_number,
+                        name: e.name || null,
+                        overview: e.overview || null,
+                        still_path: e.still_path || null
+                      };
+                    });
+                    if (tmdb) {
+                      tmdb.seasons = tmdb.seasons || {};
+                      tmdb.seasons[sn] = tmdbEps;
+                      persist();
+                      renderEps();
+                    }
+                  } else {
+                    await fetchFromCinemeta();
+                  }
+                } catch (err) {
+                  console.warn('[TMDB Season Fetch] failed, falling back to Cinemeta:', err.message);
+                  await fetchFromCinemeta();
+                }
+              };
+
+              if (String(showId).startsWith('tt')) {
+                try {
+                  const findUrl = `https://api.themoviedb.org/3/find/${showId}?api_key=${tmdbKey}&external_source=imdb_id`;
+                  const r = await fetch(findUrl);
+                  const data = await r.json();
+                  const tvItem = data?.tv_results?.[0];
+                  if (tvItem && tvItem.id) {
+                    await getTvDetails(tvItem.id);
+                  } else {
+                    await fetchFromCinemeta();
+                  }
+                } catch (err) {
+                  console.warn('[TMDB Find TV ID] failed:', err.message);
+                  await fetchFromCinemeta();
                 }
               } else {
-                fetchFromCinemeta();
+                await getTvDetails(showId);
               }
-            } catch (err) {
-              console.warn('[TMDB Season Fetch] failed, falling back to Cinemeta:', err.message);
-              fetchFromCinemeta();
+            } else {
+              await fetchFromCinemeta();
             }
-          };
-
-          if (String(showId).startsWith('tt')) {
-            const findUrl = `https://api.themoviedb.org/3/find/${showId}?api_key=${tmdbKey}&external_source=imdb_id`;
-            fetch(findUrl)
-              .then(r => r.json())
-              .then(data => {
-                const tvItem = data?.tv_results?.[0];
-                if (tvItem && tvItem.id) {
-                  getTvDetails(tvItem.id);
-                } else {
-                  fetchFromCinemeta();
-                }
-              })
-              .catch(err => {
-                console.warn('[TMDB Find TV ID] failed:', err.message);
-                fetchFromCinemeta();
-              });
           } else {
-            getTvDetails(showId);
+            await fetchFromCinemeta();
           }
-        } else {
-          fetchFromCinemeta();
-        }
+        };
+
+        executeEnrichment();
       }
     });
     switchView('show-detail');
@@ -11397,6 +11905,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const fallback = safeViews[0] || 'settings';
       switchView(fallback);
     }
+
+    // Keep mod-gated settings in Settings view synchronized in real-time
+    if (typeof renderSettings === 'function') {
+      renderSettings();
+    }
   }
 
   // ── Sidebar ──
@@ -11460,16 +11973,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // (sessionStorage) so the user is not prompted on every single click,
   // but the modal reappears after every app restart.
   const DISCLAIMER_SESSION_KEY = 'mediavault_disclaimer_accepted';
+  const DISCLAIMER_DONT_SHOW_KEY = 'meem_disclaimer_dont_show';
 
   function showDisclaimerAndProceed(callback) {
-    // If already accepted this session, proceed immediately
-    if (sessionStorage.getItem(DISCLAIMER_SESSION_KEY) === '1') {
+    // If user previously checked "Don't show again", or accepted this session, proceed immediately
+    if (localStorage.getItem(DISCLAIMER_DONT_SHOW_KEY) === '1' || localStorage.getItem('mv_disclaimer_stream_seen') === 'true' || window.appData?.disclaimerDontShow === true || window.appData?.disclaimerStreamSeen === true || sessionStorage.getItem(DISCLAIMER_SESSION_KEY) === '1') {
       callback();
       return;
     }
 
     const overlay = $('#modal-responsibility-disclaimer');
     const checkbox = $('#disclaimer-checkbox');
+    const dontShowCheckbox = $('#disclaimer-dont-show-checkbox');
     const confirmBtn = $('#disclaimer-confirm-btn');
     const cancelBtn = $('#disclaimer-cancel-btn');
 
@@ -11482,6 +11997,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     // Reset state
     checkbox.checked = false;
+    if (dontShowCheckbox) dontShowCheckbox.checked = true;
     confirmBtn.style.opacity = '0.45';
     confirmBtn.style.pointerEvents = 'none';
 
@@ -11509,8 +12025,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     confirmBtn.onclick = () => {
       if (!checkbox.checked) return;
-      // Remember acceptance for the rest of this session
       sessionStorage.setItem(DISCLAIMER_SESSION_KEY, '1');
+      if (dontShowCheckbox && dontShowCheckbox.checked) {
+        try {
+          localStorage.setItem(DISCLAIMER_DONT_SHOW_KEY, '1');
+          localStorage.setItem('mv_disclaimer_stream_seen', 'true');
+          if (window.appData) {
+            window.appData.disclaimerDontShow = true;
+            window.appData.disclaimerStreamSeen = true;
+            if (typeof window.persist === 'function') window.persist(true);
+          }
+        } catch (e) {}
+      }
       cleanup();
       callback();
     };
@@ -11874,14 +12400,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             return;
           }
 
-          window.activeSubtitleUrl = (sub.source === 'subdl' || sub.source === 'opensubtitles') ? sub.url : null;
-          window.activeSubtitlePath = sub.source === 'local' ? sub.url : null;
-          currentInternalSubIndex = 'no';
-
-          if (sub.source === 'subdl' || sub.source === 'opensubtitles') {
-            await loadSubtitleFromUrl(sub.url, `${sub.lang} (${sub.sourceLabel})`);
-          } else if (sub.source === 'local') {
+          if (sub.source === 'local') {
+            window.activeSubtitlePath = sub.url;
+            window.activeSubtitleUrl = null;
+            currentInternalSubIndex = 'no';
             await loadSubtitleLocal(sub.url);
+          } else {
+            window.activeSubtitleUrl = sub.url;
+            window.activeSubtitlePath = null;
+            currentInternalSubIndex = 'no';
+            await loadSubtitleFromUrl(sub.url, `${sub.lang} (${sub.sourceLabel || sub.source})`);
           }
 
           if (currentMediaMetadata) renderTracksPanel(currentMediaMetadata);
@@ -12362,6 +12890,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   };
 
   async function loadDiscoverByGenre(id, name) {
+    window._activeDiscoverGenre = { id, name };
     $('#discover-content').style.display = 'none';
     $('#discover-results').style.display = 'none';
     $('#discover-genre-view').style.display = 'block';
@@ -12419,6 +12948,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
       }
 
+      finalItems = finalItems.filter(item => item.isLocal || !!(item.poster || item.poster_path || item.cover || item.thumbnail || item.banner || item.backdrop_path));
       renderDiscoverGrid('#genre-grid', finalItems);
     } catch (err) {
       console.error('[loadDiscoverByGenre]', err);
@@ -12433,41 +12963,84 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     const menu = document.createElement('div');
     menu.id = 'continue-watching-menu';
+    
+    // Boundary check so menu doesn't spawn off-screen
+    const posX = Math.min(e.clientX, window.innerWidth - 200);
+    const posY = Math.min(e.clientY, window.innerHeight - 180);
+
     menu.style.cssText = `
       position: fixed;
-      top: ${e.clientY}px;
-      left: ${e.clientX}px;
-      background: #1a1a1e;
-      border: 1px solid rgba(255,255,255,0.1);
+      top: ${posY}px;
+      left: ${posX}px;
+      background: rgba(18, 18, 22, 0.95);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 12px;
-      padding: 8px;
+      padding: 5px;
       z-index: 1000000;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      min-width: 200px;
-      animation: fadeIn 0.2s ease-out;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      min-width: 175px;
+      max-width: 220px;
+      animation: menuPopIn 0.15s ease-out;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     `;
+
+    // Title / Header Preview
+    const itemTitle = item.title || item.name || showObj?.title || showObj?.name || 'Media';
+    const subTitle = (item.season != null && item.episode != null) ? `Season ${item.season} · Ep ${item.episode}` : (item.showTitle || item.showName || '');
+    
+    const header = document.createElement('div');
+    header.style.cssText = `
+      padding: 5px 8px 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      margin-bottom: 3px;
+    `;
+    header.innerHTML = `
+      <div style="font-size: 0.8rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(itemTitle)}</div>
+      ${subTitle ? `<div style="font-size: 0.7rem; font-weight: 500; color: rgba(255, 255, 255, 0.5); margin-top: 1px;">${escapeHTML(subTitle)}</div>` : ''}
+    `;
+    menu.appendChild(header);
 
     const createBtn = (icon, text, onClick) => {
       const btn = document.createElement('button');
       btn.style.cssText = `
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 9px;
         width: 100%;
-        padding: 10px 15px;
+        padding: 6px 9px;
         background: transparent;
         border: none;
-        color: #fff;
-        font-size: 14px;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 12.5px;
         font-weight: 600;
         cursor: pointer;
         border-radius: 8px;
-        transition: background 0.2s;
+        transition: all 0.15s ease;
         text-align: left;
       `;
-      btn.innerHTML = `<i class="fas ${icon}" style="width: 16px; opacity: 0.7;"></i> ${text}`;
-      btn.onmouseenter = () => btn.style.background = 'rgba(255,255,255,0.05)';
-      btn.onmouseleave = () => btn.style.background = 'transparent';
+
+      btn.innerHTML = `
+        <i class="fas ${icon}" style="font-size: 11px; width: 14px; text-align: center; color: #fff; opacity: 0.8;"></i>
+        <span style="flex: 1;">${text}</span>
+      `;
+
+      btn.onmouseenter = () => {
+        btn.style.background = 'rgba(255, 255, 255, 0.1)';
+        btn.style.color = '#fff';
+        const iconEl = btn.querySelector('i');
+        if (iconEl) iconEl.style.opacity = '1';
+      };
+      btn.onmouseleave = () => {
+        btn.style.background = 'transparent';
+        btn.style.color = 'rgba(255, 255, 255, 0.85)';
+        const iconEl = btn.querySelector('i');
+        if (iconEl) iconEl.style.opacity = '0.8';
+      };
+
       btn.onclick = () => {
         menu.remove();
         onClick();
@@ -12477,10 +13050,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     // Option 1: Resume Playback
     menu.appendChild(createBtn('fa-play', 'Resume Playback', () => {
+      const resumeTime = (pb && pb.time > 2 && !pb.watched) ? pb.time : 0;
       if (item.isStream) {
-        playVideo(item, item.showName ? { title: item.showName, id: item.showId } : null);
+        playVideo(item, item.showName ? { title: item.showName, id: item.showId } : null, { startTime: resumeTime });
       } else {
-        playVideo(item, showObj);
+        playVideo(item, showObj, { startTime: resumeTime });
       }
     }));
 
@@ -12500,7 +13074,24 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const key = getPlaybackKey(item);
       if (currentProfile?.playback && currentProfile.playback[key]) {
         delete currentProfile.playback[key];
-        persist();
+        if (window.currentProfile?.playback) delete window.currentProfile.playback[key];
+        if (window.appData && Array.isArray(window.appData.profiles)) {
+          const matched = window.appData.profiles.find(p => p.id === currentProfile.id);
+          if (matched && matched.playback) delete matched.playback[key];
+        }
+        if (window.appData && window.appData.playback) delete window.appData.playback[key];
+
+        if (typeof window.persist === 'function') {
+          try { await window.persist(true); } catch (_) {}
+        }
+
+        // Direct renderer Supabase delete
+        try {
+          const rClient = typeof window.getSupabaseRendererClient === 'function' ? window.getSupabaseRendererClient() : null;
+          if (rClient && currentProfile.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(currentProfile.id)) {
+            rClient.from('playback_history').delete().eq('profile_id', currentProfile.id).eq('media_id', key).catch(() => {});
+          }
+        } catch (_) {}
 
         if (window.api && window.api.invoke) {
           try {
@@ -12516,18 +13107,19 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         if (typeof renderContinueWatchingDiscover === 'function') {
           renderContinueWatchingDiscover();
         }
+        if (typeof renderLibContinueWatching === 'function') {
+          renderLibContinueWatching();
+        }
         if (typeof renderEmptySearchState === 'function') {
           renderEmptySearchState();
         }
         showToast('Removed from Continue Watching');
       }
     });
-    removeBtn.style.color = '#ff4d4d';
     menu.appendChild(removeBtn);
 
     document.body.appendChild(menu);
 
-    // Close on click outside
     const closeMenu = (ev) => {
       if (!menu.contains(ev.target)) {
         menu.remove();
@@ -12569,6 +13161,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         const cleanImdb = String(rawImdb).startsWith('tt') ? rawImdb : `tt${rawImdb}`;
         posterUrl = `https://images.metahub.space/poster/medium/${cleanImdb}/img`;
       }
+      if (!posterUrl && !inLib && !item.isLocal && item.type !== 'iptv' && item.type !== 'channel' && item.type !== 'radio') {
+        return; // Hide items with no poster
+      }
+
       const inLib = localTitles.has(title.toLowerCase());
       const label = item.media_type === 'tv' ? 'SERIES' : 'MOVIE';
       const year = (item.release_date || item.first_air_date || '').slice(0, 4);
@@ -12586,7 +13182,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             <i class="fas ${fallbackIcon}"></i>
             <span class="placeholder-title">${escapeHTML(title)}</span>
           </div>
-          ${posterUrl ? `<img src="${localImg(posterUrl)}" class="${imgClass}" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+          ${posterUrl ? `<img src="${localImg(posterUrl)}" class="${imgClass}" loading="lazy" onerror="this.closest('.discover-card')?.remove();">` : ''}
           ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
         </div>
         <div class="discover-info">
@@ -12641,6 +13237,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     return url;
   }
 
+  let activeHeroLayer = 0;
+
   function updateDiscoverHeroDisplay() {
     const hero = $('#discover-hero');
     if (!hero || discoverHeroItems.length === 0) return;
@@ -12654,65 +13252,131 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const isAnime = item.source === 'anilist' || item.source === 'mal' || item.format;
     const type = isAnime ? 'ANIME' : (item.media_type === 'tv' ? 'SERIES' : 'MOVIE');
     const imdbId = item.imdb_id || item.imdbId || (String(item.id || '').startsWith('tt') ? item.id : null);
+    const totalCount = discoverHeroItems.length;
 
-    hero.innerHTML = `
-      <div class="hero-backdrop" id="hero-backdrop-bg" style="background-image: url('${backdrop}')"></div>
-      <div class="hero-overlay">
-        <div class="hero-content">
-          <div class="hero-badge">Featured ${type}</div>
-          <h1 class="hero-title">${escapeHTML(title)}</h1>
-          <div class="hero-meta">
-            <span><i class="fas fa-star" style="color:#F59E0B"></i> ${rating}</span>
-            <span>${year}</span>
-            <span>HD 4K</span>
+    // Check if the slider shell already exists inside #discover-hero
+    let stage = hero.querySelector('#hero-slider-stage');
+    if (!stage) {
+      hero.innerHTML = `
+        <div id="hero-slider-stage" style="position:absolute; inset:0; overflow:hidden; border-radius:inherit;">
+          <div id="hero-layer-0" class="hero-slide-layer" style="position:absolute; inset:0; opacity:1; transition:opacity 0.4s ease-in-out; z-index:1;">
+            <div class="hero-backdrop" id="hero-bg-0"></div>
+            <div class="hero-overlay">
+              <div class="hero-content" id="hero-content-0"></div>
+            </div>
           </div>
-          <div style="margin-top: 15px; font-size: 11px; font-weight: 700; opacity: 0.8; letter-spacing: 1px; text-transform: uppercase;">
-             <i class="fas fa-info-circle"></i> Click for Details
+          <div id="hero-layer-1" class="hero-slide-layer" style="position:absolute; inset:0; opacity:0; transition:opacity 0.4s ease-in-out; z-index:2; pointer-events:none;">
+            <div class="hero-backdrop" id="hero-bg-1"></div>
+            <div class="hero-overlay">
+              <div class="hero-content" id="hero-content-1"></div>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="hero-pagination" id="discover-hero-dots"></div>
-    `;
 
-    // Smart Fallback Preloader for Hero Backdrop Image
-    if (backdrop) {
-      const imgTester = new Image();
-      imgTester.src = backdrop;
-      imgTester.onerror = () => {
-        let fallback = '';
-        if (imdbId && !backdrop.includes('metahub.space')) {
-          fallback = `https://images.metahub.space/background/medium/${imdbId}/img`;
-        } else if (item.poster_path) {
-          fallback = `https://image.tmdb.org/t/p/w1280${item.poster_path}`;
-        } else if (imdbId) {
-          fallback = `https://images.metahub.space/poster/medium/${imdbId}/img`;
-        }
-        if (fallback) {
-          if (typeof window.localImg === 'function') fallback = window.localImg(fallback);
-          const bgEl = hero.querySelector('#hero-backdrop-bg');
-          if (bgEl) bgEl.style.backgroundImage = `url('${fallback}')`;
-        }
+        <div class="hero-pagination" id="discover-hero-dots"></div>
+      `;
+
+      hero.onclick = (e) => {
+        if (e.target.closest('.hero-dot') || e.target.closest('.hero-pagination')) return;
+        const currentItem = discoverHeroItems[discoverHeroIndex];
+        if (currentItem) openDiscoverDetail(currentItem);
       };
+
+      hero.onmouseenter = () => {
+        if (discoverHeroInterval) clearInterval(discoverHeroInterval);
+      };
+      hero.onmouseleave = () => {
+        resetDiscoverHeroInterval();
+      };
+
+      activeHeroLayer = 0;
     }
 
-    hero.onclick = (e) => {
-      if (e.target.classList.contains('hero-dot')) return;
-      openDiscoverDetail(item);
-    };
+    // Toggle target layer for seamless cross-fade
+    const nextLayerIdx = activeHeroLayer === 0 ? 1 : 0;
+    const currentLayer = hero.querySelector(`#hero-layer-${activeHeroLayer}`);
+    const nextLayer = hero.querySelector(`#hero-layer-${nextLayerIdx}`);
+    const nextBg = hero.querySelector(`#hero-bg-${nextLayerIdx}`);
+    const nextContent = hero.querySelector(`#hero-content-${nextLayerIdx}`);
 
+    if (nextBg && nextContent && currentLayer && nextLayer) {
+      if (backdrop) nextBg.style.backgroundImage = `url('${backdrop}')`;
+
+      nextContent.innerHTML = `
+        <div class="hero-badge">Featured ${type}</div>
+        ${item.logoUrl ? 
+          `<img id="hero-logo" src="${(typeof window.localImg === 'function') ? window.localImg(item.logoUrl) : item.logoUrl}" onerror="this.style.display='none'; const sibling = this.parentElement?.querySelector('.hero-fallback-title'); if(sibling) sibling.style.display='block';" style="display: block; max-width: 320px; max-height: 80px; object-fit: contain; margin-bottom: 12px; transition: opacity 0.25s ease;">
+           <h1 class="hero-title hero-fallback-title" style="display:none">${escapeHTML(title)}</h1>` : 
+          `<h1 class="hero-title">${escapeHTML(title)}</h1>`
+        }
+        <div class="hero-meta">
+          <span><i class="fas fa-star" style="color:#F59E0B"></i> ${rating}</span>
+          <span>${year}</span>
+          <span>HD 4K</span>
+        </div>
+        <div style="margin-top: 15px; font-size: 11px; font-weight: 700; opacity: 0.8; letter-spacing: 1px; text-transform: uppercase;">
+           <i class="fas fa-info-circle"></i> Click for Details
+        </div>
+      `;
+
+      // Smart Fallback Preloader for Hero Backdrop Image
+      if (backdrop) {
+        const imgTester = new Image();
+        imgTester.src = backdrop;
+        imgTester.onerror = () => {
+          let fallback = '';
+          if (imdbId && !backdrop.includes('metahub.space')) {
+            fallback = `https://images.metahub.space/background/medium/${imdbId}/img`;
+          } else if (item.poster_path) {
+            fallback = `https://image.tmdb.org/t/p/w1280${item.poster_path}`;
+          } else if (imdbId) {
+            fallback = `https://images.metahub.space/poster/medium/${imdbId}/img`;
+          }
+          if (fallback) {
+            if (typeof window.localImg === 'function') fallback = window.localImg(fallback);
+            if (nextBg) nextBg.style.backgroundImage = `url('${fallback}')`;
+          }
+        };
+      }
+
+      // Perform the smooth GPU crossfade transition
+      nextLayer.style.opacity = '1';
+      nextLayer.style.pointerEvents = 'auto';
+      nextLayer.style.zIndex = '2';
+      currentLayer.style.opacity = '0';
+      currentLayer.style.pointerEvents = 'none';
+      currentLayer.style.zIndex = '1';
+      activeHeroLayer = nextLayerIdx;
+    }
+
+    // Update Dots indicator
     const dots = hero.querySelector('#discover-hero-dots');
     if (dots) {
-      discoverHeroItems.forEach((_, i) => {
-        const dot = document.createElement('div');
-        dot.className = 'hero-dot' + (i === discoverHeroIndex ? ' active' : '');
-        dot.onclick = (e) => {
-          e.stopPropagation();
-          discoverHeroIndex = i;
-          updateDiscoverHeroDisplay();
-          resetDiscoverHeroInterval();
-        };
-        dots.appendChild(dot);
-      });
+      if (totalCount <= 1) {
+        dots.style.display = 'none';
+      } else {
+        dots.style.display = 'flex';
+        if (dots.children.length !== discoverHeroItems.length) {
+          dots.innerHTML = '';
+          discoverHeroItems.forEach((_, i) => {
+            const dot = document.createElement('div');
+            dot.className = 'hero-dot' + (i === discoverHeroIndex ? ' active' : '');
+            dot.onclick = (e) => {
+              e.stopPropagation();
+              if (discoverHeroIndex !== i) {
+                discoverHeroIndex = i;
+                updateDiscoverHeroDisplay();
+                resetDiscoverHeroInterval();
+              }
+            };
+            dots.appendChild(dot);
+          });
+        } else {
+          Array.from(dots.children).forEach((dot, i) => {
+            dot.className = 'hero-dot' + (i === discoverHeroIndex ? ' active' : '');
+          });
+        }
+      }
     }
   }
 
@@ -12722,13 +13386,25 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       discoverHeroInterval = setInterval(() => {
         discoverHeroIndex = (discoverHeroIndex + 1) % discoverHeroItems.length;
         updateDiscoverHeroDisplay();
-      }, 6000);
+      }, 5500);
     }
   }
 
   function addDiscoverHeroItem(item) {
     if (!item) return;
-    if (!discoverHeroItems.find(i => (i.id === item.id) || (i.imdb_id === item.imdb_id))) {
+    if (discoverHeroItems.length >= 10) return;
+
+    const isDuplicate = discoverHeroItems.some(i => {
+      if (item.id != null && i.id != null && String(i.id) === String(item.id)) return true;
+      if (item.imdb_id && i.imdb_id && String(i.imdb_id) === String(item.imdb_id)) return true;
+      if (item.tmdbId && i.tmdbId && String(i.tmdbId) === String(item.tmdbId)) return true;
+      const titleA = (i.title || i.name || '').trim().toLowerCase();
+      const titleB = (item.title || item.name || '').trim().toLowerCase();
+      if (titleA && titleB && titleA === titleB) return true;
+      return false;
+    });
+
+    if (!isDuplicate) {
       discoverHeroItems.push(item);
       
       const isAnime = item.type === 'anime' || item.source === 'jikan' || item.source === 'kitsu' || item.source === 'mal' || item.source === 'anilist';
@@ -12794,7 +13470,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   }
 
-  window.clearContinueWatching = clearContinueWatching;
+  if (typeof clearContinueWatching === 'function') {
+    window.clearContinueWatching = clearContinueWatching;
+  }
 
   function renderPills(detail) {
     const container = document.getElementById('dd-extra-info');
@@ -13638,6 +14316,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (saved?.authenticated) appData.authenticated = saved.authenticated;
       if (saved?.user) appData.user = saved.user;
       
+      try { window.dispatchEvent(new CustomEvent('meem-auth-updated')); } catch (_) {}
+      if (typeof checkAndApplyAdminState === 'function') checkAndApplyAdminState();
+
       // Re-apply stored theme from disk
       if (typeof window.applyTheme === 'function') {
         window.applyTheme(appData.theme || 'minimalist');
@@ -13900,8 +14581,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         prevView = currentView;
         window.prevView = currentView;
       }
-      // Only set source view if we're not already in a player/detail view to avoid overwriting with 'player'
-      if (name !== 'discover-detail' && name !== 'custom-list-detail' && currentView !== 'player' && currentView !== 'music-player' && currentView !== 'discover-detail') {
+      // Set source view when going to player — allow discover-detail as a valid source
+      if (name === 'player' || name === 'music-player') {
+        if (currentView && currentView !== 'player' && currentView !== 'music-player') {
+          playerSourceView = currentView;
+        }
+      } else if (name !== 'discover-detail' && name !== 'custom-list-detail' && currentView !== 'player' && currentView !== 'music-player' && currentView !== 'discover-detail') {
         playerSourceView = currentView;
       }
     }
@@ -14146,15 +14831,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     };
 
     if (name === 'discover') {
+      if (window._activeDiscoverGenre) {
+        if ($('#discover-genre-view')) $('#discover-genre-view').style.display = 'block';
+        if ($('#discover-content')) $('#discover-content').style.display = 'none';
+        if ($('#discover-results')) $('#discover-results').style.display = 'none';
+      } else {
+        if ($('#discover-genre-view')) $('#discover-genre-view').style.display = 'none';
+        if ($('#discover-content')) $('#discover-content').style.display = 'block';
+      }
       if (typeof renderContinueWatchingDiscover === 'function') {
         renderContinueWatchingDiscover();
       }
       if (typeof renderBentoWatchlist === 'function') {
         renderBentoWatchlist();
       }
-      const trending = $('#trending-row');
-      const isBlank = !trending || trending.children.length === 0 || trending.querySelector('.discover-card-skeleton');
-      if (isBlank && !isDiscoverLoading) loadDiscover();
+      const cinemaRow = $('#in-cinemas-row') || $('#popular-movies-row') || $('#top10-movie-row');
+      const isBlank = !cinemaRow || cinemaRow.children.length === 0 || cinemaRow.querySelector('.discover-card-skeleton');
+      if (isBlank && !isDiscoverLoading && !window._activeDiscoverGenre) loadDiscover();
     }
     if (name === 'watchlist') {
       renderWatchlist();
@@ -15026,8 +15719,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       } else {
         console.log('[Subtitles] Loading direct subtitle from URL:', url);
         const ext = url.toLowerCase().split('?')[0].split('.').pop();
+
+        // 1. If explicitly ASS/SSA by extension, try libass-wasm direct attach first
         if (ext === 'ass' || ext === 'ssa') {
-          // ASS/SSA from URL: Use libass-wasm directly (pass URL, no fetch needed)
           if (window.AssSubtitleEngine) window.AssSubtitleEngine.destroy();
           video.querySelectorAll('track').forEach(t => { try { if (t.src && t.src.startsWith('blob:')) URL.revokeObjectURL(t.src); t.remove(); } catch (_) {} });
           const inst = await (window.AssSubtitleEngine && window.AssSubtitleEngine.attach(video, url));
@@ -15038,22 +15732,40 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             showToast('✅ ASS subtitle loaded with full effects!');
             return { success: true };
           }
-          // If libass unavailable, fall through to VTT conversion below
-          const response2 = await fetch(url);
-          const buf2 = await response2.arrayBuffer();
-          const bytes2 = new Uint8Array(buf2);
-          let content2 = new TextDecoder('utf-8').decode(bytes2);
-          if (content2.includes('\uFFFD')) content2 = new TextDecoder('windows-1256').decode(bytes2);
-          const vtt2 = assToVtt(content2);
-          const vblob2 = new Blob([vtt2], { type: 'text/vtt' });
-          finalUrl = URL.createObjectURL(vblob2);
-        } else if (ext === 'srt') {
-          const response = await fetch(url);
-          const buf = await response.arrayBuffer();
-          const decodedBytes = new Uint8Array(buf);
-          let content = new TextDecoder('utf-8').decode(decodedBytes);
-          if (content.includes('\uFFFD')) content = new TextDecoder('windows-1256').decode(decodedBytes);
-          const vtt = srtToVtt(content);
+        }
+
+        // 2. Fetch subtitle content for parsing, encoding detection, and VTT conversion
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status} fetching subtitle`);
+        const buf = await response.arrayBuffer();
+        const decodedBytes = new Uint8Array(buf);
+        let content = new TextDecoder('utf-8').decode(decodedBytes);
+        if (content.includes('\uFFFD')) {
+          content = new TextDecoder('windows-1256').decode(decodedBytes);
+        }
+
+        const isAssContent = content.includes('[Script Info]') || ext === 'ass' || ext === 'ssa';
+        if (isAssContent) {
+          if (window.AssSubtitleEngine) window.AssSubtitleEngine.destroy();
+          video.querySelectorAll('track').forEach(t => { try { if (t.src && t.src.startsWith('blob:')) URL.revokeObjectURL(t.src); t.remove(); } catch (_) {} });
+          const assBlob = new Blob([content], { type: 'text/plain' });
+          const assUrl = URL.createObjectURL(assBlob);
+          const inst = await (window.AssSubtitleEngine && window.AssSubtitleEngine.attach(video, assUrl));
+          if (inst) {
+            subtitlesEnabled = true;
+            $('#btn-subtitle').classList.remove('subtitle-off');
+            $('#btn-subtitle').classList.add('subtitle-on');
+            showToast('✅ ASS subtitle loaded with full effects!');
+            return { success: true };
+          }
+          const vtt = assToVtt(content);
+          const vblob = new Blob([vtt], { type: 'text/vtt' });
+          finalUrl = URL.createObjectURL(vblob);
+          URL.revokeObjectURL(assUrl);
+        } else {
+          // Standard text subtitle (SRT or WebVTT)
+          const trimmed = content.trim();
+          let vtt = trimmed.startsWith('WEBVTT') ? content : srtToVtt(content);
           const vblob = new Blob([vtt], { type: 'text/vtt' });
           finalUrl = URL.createObjectURL(vblob);
         }
@@ -15278,6 +15990,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // ── Watchlist ──
   function renderWatchlist() {
+    if (typeof renderLibCustomLists === 'function') renderLibCustomLists();
     const grid = $('#watchlist-grid');
     const watchedGrid = $('#watched-grid');
     const liveGrid = $('#watchlist-live-grid');
@@ -15953,6 +16666,36 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     let continueItemsToRender = [];
     if (history.length === 0 && currentProfile?.playback) {
       const pbEntries = Object.entries(currentProfile.playback).map(([key, pb]) => {
+        const isYt = Boolean(
+          (typeof key === 'string' && (/^[a-zA-Z0-9_-]{11}$/.test(key) || key.startsWith('yt:') || key.startsWith('yt_'))) ||
+          pb.isYoutube || pb.type === 'youtube' ||
+          pb.meta?.isYoutube || pb.meta?.type === 'youtube' ||
+          (typeof pb.meta?.id === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(pb.meta.id))
+        );
+        if (isYt) {
+          const vId = (key.startsWith('yt:') || key.startsWith('yt_')) ? key.replace(/^yt[:_]/, '') : (pb.meta?.videoId || pb.meta?.id || key);
+          const ytCached = (window.appData?.ytCache && window.appData.ytCache[vId]) || {};
+          const ytThumb = ytCached.thumbnail || pb.meta?.thumbnail || pb.meta?.poster || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+          const rawTitle = pb.meta?.title || pb.title;
+          const cleanTitle = (rawTitle && rawTitle !== vId && rawTitle !== 'Media' && rawTitle !== 'Playback') ? rawTitle : (ytCached.title || 'YouTube Video');
+          pb.meta = {
+            ...(pb.meta || {}),
+            id: vId,
+            videoId: vId,
+            path: `https://www.youtube.com/watch?v=${vId}`,
+            url: `https://www.youtube.com/watch?v=${vId}`,
+            type: 'youtube',
+            isYoutube: true,
+            title: cleanTitle,
+            author: ytCached.author || pb.meta?.author || 'YouTube',
+            duration: ytCached.duration || pb.meta?.duration || pb.duration || 0,
+            poster: ytThumb,
+            thumbnail: ytThumb,
+            backdrop_path: ytThumb,
+            backdrop: ytThumb
+          };
+          return pb;
+        }
         if (pb.meta) return pb;
         const tmdbCache = appData.tmdbCache || {};
         let libItem = null;
@@ -16142,6 +16885,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             } else if (pPath) {
               backdropUrl = 'imgs/no-backdrop.png';
             }
+
+            const isYt = item.type === 'youtube' || item.isYoutube || (typeof item.id === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(item.id));
+            if (isYt) {
+              const vId = (item.videoId || item.id || pb.key || '').replace(/^yt[:_]/, '');
+              const cachedYt = (window.appData?.ytCache && window.appData.ytCache[vId]) || {};
+              if (!displayTitle || displayTitle === vId || displayTitle === 'Media' || displayTitle === 'Playback') {
+                displayTitle = cachedYt.title || 'YouTube Video';
+              }
+              subtitle = cachedYt.author || item.author || 'YouTube';
+              backdropUrl = cachedYt.thumbnail || item.thumbnail || item.poster || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+            }
             
             card.innerHTML = `
               <img class="continue-card-img" src="${backdropUrl}" onerror="this.src='imgs/no-backdrop.png'; this.onerror=null;">
@@ -16158,6 +16912,26 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             card.onclick = (e) => {
               e.preventDefault();
               e.stopPropagation();
+              if (isYt) {
+                const vId = (item.videoId || item.id || pb.key || '').replace(/^yt[:_]/, '');
+                const currentYtMeta = (window.appData?.ytCache && window.appData.ytCache[vId]) || {};
+                const resumeTime = (pb && pb.time > 2 && !pb.watched) ? pb.time : 0;
+                if (typeof window.playVideo === 'function') {
+                  window.playVideo({
+                    type: 'youtube',
+                    isYoutube: true,
+                    id: vId,
+                    videoId: vId,
+                    title: currentYtMeta.title || item.title || 'YouTube Video',
+                    author: currentYtMeta.author || item.author || 'YouTube',
+                    poster: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                    thumbnail: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                    backdrop_path: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                    startTime: resumeTime
+                  }, null, { startTime: resumeTime });
+                }
+                return;
+              }
               showContinueWatchingMenu(e, pb, item, showObj);
             };
             
@@ -16377,9 +17151,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       appData.searchHistory = history;
       persist();
     }
-    // Create beautiful cinematic skeleton grid cards
+    // Create beautiful cinematic skeleton grid cards that fill the entire space
     let skeletonHTML = '';
-    for (let i = 0; i < 20; i++) {
+    const cols = Math.max(4, Math.floor((window.innerWidth || 1200) / 160));
+    const rows = Math.max(5, Math.ceil((window.innerHeight || 900) / 220));
+    const skeletonCount = Math.max(48, cols * rows);
+    for (let i = 0; i < skeletonCount; i++) {
       skeletonHTML += `
         <div class="discover-card search-skeleton-card" style="pointer-events: none; position: relative; overflow: hidden; border-radius: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); padding: 8px;">
           <div class="discover-poster-wrap" style="aspect-ratio: 2/3; width: 100%; border-radius: 12px; background: rgba(255, 255, 255, 0.06); position: relative; overflow: hidden;"></div>
@@ -16502,10 +17279,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               grid.appendChild(ytContainer);
             }
 
-            items.slice(0, 30).forEach(item => {
+            items.slice(0, 30).forEach((item, idx) => {
               const card = document.createElement('div');
-              card.className = 'yt-search-card';
-              card.style.cssText = 'display: flex; flex-direction: column; background: rgba(255,255,255,0.02); border-radius: 12px; overflow: hidden; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.2s, box-shadow 0.2s, border-color 0.2s;';
+              card.className = 'yt-search-card stagger-card';
+              card.style.setProperty('--stagger-i', Math.min(idx, 25));
+              card.style.cssText += 'display: flex; flex-direction: column; background: rgba(255,255,255,0.02); border-radius: 12px; overflow: hidden; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.2s, box-shadow 0.2s, border-color 0.2s;';
 
               const itemTitle = item.title || 'YouTube Video';
               const thumb = item.thumbnail || item.poster || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
@@ -16518,6 +17296,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 <div style="position: relative; width: 100%; aspect-ratio: 16 / 9; background: #111; overflow: hidden;">
                   <img src="${thumb}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease;" loading="lazy" onerror="this.src='imgs/no-backdrop.png'">
                   ${duration ? `<div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; z-index: 2; letter-spacing: 0.5px;">${escapeHTML(String(duration))}</div>` : ''}
+                  <button class="yt-copy-link-btn" title="Copy YouTube Link" style="position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 8px; background: rgba(0,0,0,0.75); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.2); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 10; transition: all 0.2s ease;">
+                    <i class="fas fa-link" style="font-size: 13px;"></i>
+                  </button>
                   <div class="yt-play-hover" style="position: absolute; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s;">
                     <div style="width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.5);">
                       <i class="fas fa-play" style="color: #000; font-size: 18px; margin-left: 2px;"></i>
@@ -16542,6 +17323,37 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 </div>
               `;
 
+              const copyBtn = card.querySelector('.yt-copy-link-btn');
+              if (copyBtn) {
+                copyBtn.onmouseenter = (e) => {
+                  e.stopPropagation();
+                  copyBtn.style.transform = 'scale(1.1)';
+                  copyBtn.style.background = 'rgba(0,0,0,0.9)';
+                  copyBtn.style.borderColor = 'rgba(255,255,255,0.4)';
+                };
+                copyBtn.onmouseleave = (e) => {
+                  e.stopPropagation();
+                  copyBtn.style.transform = 'scale(1)';
+                  copyBtn.style.background = 'rgba(0,0,0,0.75)';
+                  copyBtn.style.borderColor = 'rgba(255,255,255,0.2)';
+                };
+                copyBtn.onclick = (e) => {
+                  e.stopPropagation();
+                  const ytUrl = `https://www.youtube.com/watch?v=${item.id}`;
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(ytUrl);
+                  }
+                  if (typeof showToast === 'function') {
+                    showToast('YouTube link copied!');
+                  }
+                  const icon = copyBtn.querySelector('i');
+                  if (icon) {
+                    icon.className = 'fas fa-check';
+                    setTimeout(() => { icon.className = 'fas fa-link'; }, 2000);
+                  }
+                };
+              }
+
               card.onmouseenter = () => {
                 card.style.transform = 'translateY(-4px)';
                 card.style.background = 'rgba(255,255,255,0.06)';
@@ -16564,6 +17376,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               };
 
               card.onclick = () => {
+                window.appData = window.appData || {};
+                window.appData.ytCache = window.appData.ytCache || {};
+                window.appData.ytCache[item.id] = {
+                  id: item.id,
+                  title: item.title,
+                  author: item.author,
+                  thumbnail: thumb || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+                  duration: item.duration
+                };
                 if (typeof window.playVideo === 'function') {
                   window.playVideo({
                     type: 'youtube',
@@ -16584,9 +17405,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             return;
           }
 
-          items.slice(0, 36).forEach(item => {
+          items.slice(0, 36).forEach((item, idx) => {
             const card = document.createElement('div');
-            card.className = 'discover-card search-result-card';
+            card.className = 'discover-card search-result-card stagger-card';
+            card.style.setProperty('--stagger-i', Math.min(idx, 30));
             const itemTitle = item.title || item.name || 'Unknown';
 
             let posterUrl = '';
@@ -16609,7 +17431,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             const overrideEnabled = appData.tmdbEnabled !== false && appData.tmdbImageOverride !== false;
             const scope = appData.tmdbImageScope || 'both';
             const hasTmdbOverride = overrideEnabled && tmdbKey && resolvedImdb && String(resolvedImdb).startsWith('tt') && (scope === 'both' || scope === 'posters');
-            if (hasTmdbOverride) posterUrl = '';
+            if (!posterUrl && !inLib && !item.isLocal && !hasTmdbOverride) {
+              return; // Hide search results with no poster
+            }
 
             const year = (item.release_date || item.first_air_date || item.seasonYear || item.releaseYear || item.year || '').toString().slice(0, 4);
             const rating = item.vote_average || item.score || item.rating || 0;
@@ -16617,7 +17441,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             card.innerHTML = `
               <div class="discover-poster-wrap">
                 <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
-                ${posterUrl ? `<img src="${posterUrl}" class="discover-poster search-poster-img" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+                ${posterUrl ? `<img src="${posterUrl}" class="discover-poster search-poster-img" loading="lazy" onerror="this.closest('.discover-card, .search-result-card')?.remove();">` : ''}
                 ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
               </div>
               <div class="discover-info">
@@ -16632,6 +17456,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
             if (item.type === 'youtube' || item.isYoutube) {
               card.onclick = () => {
+                const ytThumb = item.thumbnail || item.poster || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
+                window.appData = window.appData || {};
+                window.appData.ytCache = window.appData.ytCache || {};
+                window.appData.ytCache[item.id] = {
+                  id: item.id,
+                  title: item.title,
+                  author: item.author,
+                  thumbnail: ytThumb,
+                  duration: item.duration
+                };
                 if (typeof window.playVideo === 'function') {
                   window.playVideo({
                     type: 'youtube',
@@ -16639,7 +17473,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                     id: item.id,
                     videoId: item.id,
                     title: item.title,
-                    poster: item.thumbnail || item.poster,
+                    poster: ytThumb,
+                    thumbnail: ytThumb,
                     author: item.author,
                     duration: item.duration
                   });
@@ -16694,18 +17529,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         // Bail if a newer search was started
         if (searchId !== performUnifiedSearch._searchId) return;
 
+        // Search local items from library
+        const localQ = qClean.toLowerCase();
+        const localMatchesMovies = (appData.movies || []).filter(m => (m.title || m.name || '').toLowerCase().includes(localQ)).map(m => ({ ...m, type: 'movie', isLocal: true, inLib: true }));
+        const localMatchesShows = (appData.shows || []).filter(s => (s.title || s.name || '').toLowerCase().includes(localQ)).map(s => ({ ...s, type: 'series', isLocal: true, inLib: true }));
+
         const allUnified = unifiedRes?.results || [];
-        const unifiedMovies = mergeDedup(allUnified.filter(r => r.type === 'movie')).filter(isAgeAllowed);
-        const unifiedSeries = mergeDedup(allUnified.filter(r => r.type === 'series' || r.type === 'tv')).filter(isAgeAllowed);
+        const unifiedMovies = mergeDedup([...localMatchesMovies, ...allUnified.filter(r => r.type === 'movie')]).filter(isAgeAllowed);
+        const unifiedSeries = mergeDedup([...localMatchesShows, ...allUnified.filter(r => r.type === 'series' || r.type === 'tv')]).filter(isAgeAllowed);
         const ytVideos = (ytSearchRes && ytSearchRes.success && ytSearchRes.results) ? ytSearchRes.results : [];
 
         // Show results now (clear skeleton)
         grid.innerHTML = '';
         let hasAnyResults = false;
 
-        if (ytVideos.length) { hasAnyResults = true; renderSearchSection('YouTube Videos', ytVideos, 'youtube'); }
-        if (unifiedSeries.length) { hasAnyResults = true; renderSearchSection('Series', unifiedSeries, 'series'); }
         if (unifiedMovies.length) { hasAnyResults = true; renderSearchSection('Movies', unifiedMovies, 'movies'); }
+        if (unifiedSeries.length) { hasAnyResults = true; renderSearchSection('Series', unifiedSeries, 'series'); }
+        if (ytVideos.length) { hasAnyResults = true; renderSearchSection('YouTube Videos', ytVideos, 'youtube'); }
 
         if (!hasAnyResults) {
           grid.innerHTML = `<div style="padding:60px 40px;text-align:center;color:var(--text-muted);line-height:1.6;grid-column: 1/-1">No results found for "${escapeHTML(qClean)}"</div>`;
@@ -16731,9 +17571,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
           if (newMovieCount > 0 || newSeriesCount > 0) {
             grid.innerHTML = '';
-            if (ytVideos.length) renderSearchSection('YouTube Videos', ytVideos, 'youtube');
-            if (allSeriesItems.length) renderSearchSection('Series', allSeriesItems, 'series');
             if (allMovieItems.length) renderSearchSection('Movies', allMovieItems, 'movies');
+            if (allSeriesItems.length) renderSearchSection('Series', allSeriesItems, 'series');
+            if (ytVideos.length) renderSearchSection('YouTube Videos', ytVideos, 'youtube');
           }
         }
 
@@ -17692,7 +18532,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Finalize UI with current version
   try {
-    const ver = APP_VERSION || '3.10.0';
+    const ver = APP_VERSION || '3.10.1';
     if ($('#app-version-label')) $('#app-version-label').textContent = `MEEM v${ver}`;
     if ($('#settings-app-version')) $('#settings-app-version').textContent = `v${ver}`;
   } catch (e) { }

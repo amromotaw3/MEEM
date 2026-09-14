@@ -22,13 +22,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Custom Deep Link Scheme (meem:// & mediavault://) -->
+            <!-- Custom Deep Link Scheme (meem://, mediavault://, & com.meem.app://) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="meem" />
                 <data android:scheme="mediavault" />
+                <data android:scheme="com.meem.app" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -38,6 +39,8 @@
                 <data android:scheme="meem" android:host="callback" />
                 <data android:scheme="mediavault" android:host="auth" />
                 <data android:scheme="mediavault" android:host="callback" />
+                <data android:scheme="com.meem.app" android:host="auth" />
+                <data android:scheme="com.meem.app" android:host="callback" />
             </intent-filter>
         </activity>
 

@@ -1,6 +1,6 @@
 {
   "name": "meem",
-  "version": "3.10.0",
+  "version": "3.10.1",
   "description": "MEEM — Play Anything. Anytime.",
   "main": "main.js",
   "repository": {
@@ -126,6 +126,7 @@
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.0",
+    "@capacitor/preferences": "^8.0.1",
     "@distube/ytdl-core": "^4.16.12",
     "@supabase/supabase-js": "^2.106.1",
     "adm-zip": "^0.5.17",

@@ -162,11 +162,30 @@
 
         const playback = {};
         (playbackData || []).forEach(row => {
+            const isYt = /^[a-zA-Z0-9_-]{11}$/.test(row.media_id) || String(row.media_id).startsWith('yt:');
+            const vId = isYt ? String(row.media_id).replace(/^yt[:_]/, '') : null;
+            const localMeta = localProf?.playback?.[row.media_id]?.meta;
+            let meta = localMeta;
+            if (!meta && isYt) {
+                const ytThumb = `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+                meta = {
+                    id: vId,
+                    videoId: vId,
+                    title: 'YouTube Video',
+                    type: 'youtube',
+                    isYoutube: true,
+                    poster: ytThumb,
+                    thumbnail: ytThumb,
+                    backdrop_path: ytThumb,
+                    backdrop: ytThumb
+                };
+            }
             playback[row.media_id] = {
                 time: row.progress ? Number(row.progress) : 0,
                 duration: row.duration ? Number(row.duration) : 0,
                 lastWatched: row.last_watched_at ? new Date(row.last_watched_at).getTime() : Date.now(),
-                watched: row.watched || false
+                watched: row.watched || false,
+                ...(meta ? { meta } : {})
             };
         });
 
@@ -315,7 +334,16 @@
         }
         if (_supabaseClient) return _supabaseClient;
         if (window.supabase && typeof window.supabase.createClient === 'function') {
-            _supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            const isNative = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+            _supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                auth: {
+                    persistSession: true,
+                    autoRefreshToken: true,
+                    flowType: 'pkce',
+                    detectSessionInUrl: !isNative,
+                    lock: isNative ? async (_name, _acquireTimeout, fn) => await fn() : undefined
+                }
+            });
             return _supabaseClient;
         }
         return null;
@@ -2165,9 +2193,18 @@
                 result.clearlogos = cinemetaMeta?.logo ? [cinemetaMeta.logo] : [];
                 result.banners = cinemetaMeta?.banner ? [cinemetaMeta.banner] : [];
                 
-                const fanartKey = await storageGet('mediavault_fanart_key');
+                const installedAddons = (window.appData && window.appData.installedAddons) || [];
+                const isFanartInstalled = installedAddons.some(a => {
+                    if (a.enabled === false) return false;
+                    const id = String(a.id || '').toLowerCase();
+                    const u = String(a.url || a.manifestUrl || '').toLowerCase();
+                    const n = String(a.name || '').toLowerCase();
+                    return id.includes('fanart') || u.includes('fanart') || n.includes('fanart');
+                });
+                const userFanartKey = await storageGet('mediavault_fanart_key');
+                const fanartKey = userFanartKey || '9b894a8fe501790e488c98a5ee605e34';
                 let fanartId = result.imdb_id || (type === 'tv' ? result.tvdb_id : result.tmdb_id);
-                if (fanartKey && fanartId) {
+                if (isFanartInstalled && fanartKey && fanartId) {
                     try {
                         const fanartType = type === 'tv' ? 'tv' : 'movies';
                         const fanartUrl = `https://webservice.fanart.tv/v3/${fanartType}/${fanartId}?api_key=${fanartKey}`;

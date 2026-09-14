@@ -49,7 +49,7 @@
     else if (/linux/i.test(userAgent)) platform = 'Linux';
 
     return {
-      app_version: '3.10.0',
+      app_version: '3.10.1',
       platform: platform,
       screen_resolution: `${window.screen.width}x${window.screen.height}`,
       window_size: `${window.innerWidth}x${window.innerHeight}`,
@@ -217,7 +217,7 @@
       submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Submitting...';
     }
 
-    const systemInfo = includeDiag ? getSystemInfo() : { app_version: '3.10.0' };
+    const systemInfo = includeDiag ? getSystemInfo() : { app_version: '3.10.1' };
     const userEmail = appData?.user?.email || null;
     const userId = appData?.user?.id || null;
 
@@ -300,6 +300,13 @@
 
       if (error) throw error;
       if (data && data.success) {
+        if (!data.is_admin && !isCurrentUserAdmin()) {
+          const tabAdminBtn = document.getElementById('bug-tab-btn-admin');
+          if (tabAdminBtn) tabAdminBtn.style.display = 'none';
+          const tabSubmitBtn = document.getElementById('bug-tab-btn-submit');
+          if (tabSubmitBtn) tabSubmitBtn.click();
+          return;
+        }
         adminReportsCache = data.reports || [];
         updateAdminStats(data.stats || {});
         renderAdminReportsFeed();
@@ -400,7 +407,7 @@
               <div class="bug-item-meta">
                 <span><i class="fa-regular fa-user"></i> ${escapeHtml(user)}</span>
                 <span><i class="fa-regular fa-clock"></i> ${dateStr}</span>
-                ${sysInfo.platform ? `<span><i class="fa-solid fa-desktop"></i> ${escapeHtml(sysInfo.platform)} (${escapeHtml(sysInfo.app_version || 'v3.10.0')})</span>` : ''}
+                ${sysInfo.platform ? `<span><i class="fa-solid fa-desktop"></i> ${escapeHtml(sysInfo.platform)} (${escapeHtml(sysInfo.app_version || 'v3.10.1')})</span>` : ''}
               </div>
             </div>
           </div>
@@ -689,6 +696,9 @@
 
   function checkAndApplyAdminState() {
     const tabAdminBtn = document.getElementById('bug-tab-btn-admin');
+    const tabSubmitBtn = document.getElementById('bug-tab-btn-submit');
+    const formSection = document.getElementById('bug-form-section');
+    const adminSection = document.getElementById('bug-admin-section');
     const isAdmin = isCurrentUserAdmin();
 
     if (tabAdminBtn) {
@@ -698,6 +708,13 @@
         loadAdminBugReports();
       } else {
         tabAdminBtn.style.display = 'none';
+        if (currentAdminTab === 'admin') {
+          if (tabSubmitBtn) tabSubmitBtn.classList.add('active');
+          tabAdminBtn.classList.remove('active');
+          if (formSection) formSection.style.display = 'grid';
+          if (adminSection) adminSection.style.display = 'none';
+          currentAdminTab = 'submit';
+        }
       }
     }
   }

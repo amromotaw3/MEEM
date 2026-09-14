@@ -14,10 +14,60 @@
   let runAuthFlowPromise = null;
   let oauthCompletionLocked = false;
 
+  // Detect if running inside Capacitor native Android container
+  const isCapacitorNative = () => {
+    return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  };
+
+  // Resilient Multi-Environment Storage Adapter:
+  // - Android Native: Native SharedPreferences via @capacitor/preferences (persists across kills & WebViews)
+  // - Electron: window.api storage
+  // - Web: window.localStorage
   const supabaseStorage = {
-    getItem: (key) => window.localStorage.getItem(key),
-    setItem: (key, value) => window.localStorage.setItem(key, value),
-    removeItem: (key) => window.localStorage.removeItem(key)
+    getItem: async (key) => {
+      try {
+        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+          const { value } = await window.Capacitor.Plugins.Preferences.get({ key });
+          return value ?? null;
+        }
+        if (window.api && typeof window.api.storageGet === 'function') {
+          return await window.api.storageGet(key);
+        }
+      } catch (e) {
+        console.warn('[SupabaseStorage] getItem error:', e);
+      }
+      return window.localStorage.getItem(key);
+    },
+    setItem: async (key, value) => {
+      try {
+        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+          await window.Capacitor.Plugins.Preferences.set({ key, value: String(value) });
+          return;
+        }
+        if (window.api && typeof window.api.storageSet === 'function') {
+          await window.api.storageSet(key, value);
+          return;
+        }
+      } catch (e) {
+        console.warn('[SupabaseStorage] setItem error:', e);
+      }
+      window.localStorage.setItem(key, value);
+    },
+    removeItem: async (key) => {
+      try {
+        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+          await window.Capacitor.Plugins.Preferences.remove({ key });
+          return;
+        }
+        if (window.api && typeof window.api.storageRemove === 'function') {
+          await window.api.storageRemove(key);
+          return;
+        }
+      } catch (e) {
+        console.warn('[SupabaseStorage] removeItem error:', e);
+      }
+      window.localStorage.removeItem(key);
+    }
   };
 
   function getSupabaseRendererClient() {
@@ -28,6 +78,9 @@
       return window.getSupabaseRendererClient();
     }
     if (!window.supabase) throw new Error('Supabase not available');
+
+    const nativePlatform = isCapacitorNative();
+
     if (!_supabaseRendererClientLocal) {
       _supabaseRendererClientLocal = window.supabase.createClient(
         window.MEDIAVAULT_SUPABASE_URL || window.SUPABASE_URL,
@@ -36,9 +89,15 @@
           auth: {
             persistSession: true,
             autoRefreshToken: true,
-            detectSessionInUrl: true,
             flowType: 'pkce',
-            storage: supabaseStorage
+            storage: supabaseStorage,
+            // Disable detectSessionInUrl on native Android because intent URLs are captured by appUrlOpen
+            detectSessionInUrl: !nativePlatform,
+            // CRITICAL FIX FOR ANDROID WEBVIEW HANG:
+            // Bypass navigator.locks on native Android to eliminate the deadlocks that freeze auth calls
+            lock: nativePlatform
+              ? async (_name, _acquireTimeout, fn) => await fn()
+              : undefined
           }
         }
       );
@@ -495,6 +554,7 @@
     const clean = urlStr.trim();
     return clean.includes('meem://') ||
       clean.includes('mediavault://') ||
+      clean.includes('com.meem.app://') ||
       clean.includes('intent://') ||
       clean.includes('/auth/callback') ||
       clean.includes('code=') ||
@@ -2763,7 +2823,7 @@
               <i class="fas fa-arrow-left" style="color: var(--accent);"></i>
               <span style="font-weight: 700; font-size: 1.1rem;">Back to List</span>
             </div>
-            <div id="fav-results-list" class="tmdb-result-grid" style="flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 20px; padding: 30px; align-items: start;"></div>
+            <div id="fav-results-list" class="tmdb-result-grid" style="flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); grid-auto-rows: max-content; gap: 24px 20px; padding: 30px; align-content: start; align-items: stretch;"></div>
             <div id="fav-media-grid" class="tmdb-result-grid" style="display: none; flex: 1; overflow: hidden; position: relative; width: 100%; height: 100%;"></div>
           </div>
         </div>
@@ -2788,8 +2848,17 @@
       backBtn.onclick = () => {
         const resultsList = document.getElementById('fav-results-list');
         const mediaGrid = document.getElementById('fav-media-grid');
-        if (resultsList) resultsList.style.display = 'grid';
-        if (mediaGrid) mediaGrid.style.display = 'none';
+        if (resultsList) {
+          resultsList.classList.remove('fav-hidden');
+          resultsList.classList.remove('fav-slide-up');
+          void resultsList.offsetWidth;
+          resultsList.classList.add('fav-slide-up');
+          resultsList.style.display = 'grid';
+        }
+        if (mediaGrid) {
+          mediaGrid.classList.add('fav-hidden');
+          mediaGrid.style.display = 'none';
+        }
         backBtn.style.display = 'none';
       };
     }
@@ -2802,8 +2871,14 @@
         searchTimeout = setTimeout(() => {
           const resultsList = document.getElementById('fav-results-list');
           const mediaGrid = document.getElementById('fav-media-grid');
-          if (resultsList) resultsList.style.display = 'grid';
-          if (mediaGrid) mediaGrid.style.display = 'none';
+          if (resultsList) {
+            resultsList.classList.remove('fav-hidden');
+            resultsList.style.display = 'grid';
+          }
+          if (mediaGrid) {
+            mediaGrid.classList.add('fav-hidden');
+            mediaGrid.style.display = 'none';
+          }
           if (backBtn) backBtn.style.display = 'none';
           populateFavResults(val);
         }, 500);
@@ -2963,8 +3038,17 @@
         backBtn.onclick = () => {
           const resultsList = document.getElementById('fav-results-list');
           const mediaGrid = document.getElementById('fav-media-grid');
-          if (resultsList) resultsList.style.display = 'grid';
-          if (mediaGrid) mediaGrid.style.display = 'none';
+          if (resultsList) {
+            resultsList.classList.remove('fav-hidden');
+            resultsList.classList.remove('fav-slide-up');
+            void resultsList.offsetWidth;
+            resultsList.classList.add('fav-slide-up');
+            resultsList.style.display = 'grid';
+          }
+          if (mediaGrid) {
+            mediaGrid.classList.add('fav-hidden');
+            mediaGrid.style.display = 'none';
+          }
           backBtn.style.display = 'none';
         };
       }
@@ -2978,8 +3062,14 @@
           searchInput._searchTimeout = setTimeout(() => {
             const resultsList = document.getElementById('fav-results-list');
             const mediaGrid = document.getElementById('fav-media-grid');
-            if (resultsList) resultsList.style.display = 'grid';
-            if (mediaGrid) mediaGrid.style.display = 'none';
+            if (resultsList) {
+              resultsList.classList.remove('fav-hidden');
+              resultsList.style.display = 'grid';
+            }
+            if (mediaGrid) {
+              mediaGrid.classList.add('fav-hidden');
+              mediaGrid.style.display = 'none';
+            }
             if (backBtn) backBtn.style.display = 'none';
             populateFavResults(val);
           }, 500);
@@ -3140,12 +3230,12 @@
     if (!q) {
       const isBannerMode = window.currentFavModalMode === 'banner';
       list.innerHTML = `
-        <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 400px; opacity: 0.6;">
-          <div style="background: rgba(109, 40, 217, 0.1); width: 100px; height: 100px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 25px;">
-            <i class="fas ${isBannerMode ? 'fa-image' : 'fa-search-plus'}" style="font-size: 40px; color: var(--accent);"></i>
+        <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 380px; opacity: 0.65; text-align: center;">
+          <div style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 18px;">
+            <i class="fas ${isBannerMode ? 'fa-image' : 'fa-magnifying-glass'}" style="font-size: 28px; color: var(--accent, #6366f1);"></i>
           </div>
-          <h3 style="font-size: 1.8rem; font-weight: 800; color: #fff; margin-bottom: 10px;">${isBannerMode ? 'Find a Movie or Show' : 'Start your search'}</h3>
-          <p style="color: rgba(255,255,255,0.5); font-weight: 500;">${isBannerMode ? 'Search for a title to find beautiful banners' : 'Search Jikan or TMDB'}</p>
+          <h3 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin-bottom: 6px;">${isBannerMode ? 'Find Profile Banner' : 'Find Profile Avatar'}</h3>
+          <p style="color: rgba(255,255,255,0.5); font-size: 0.88rem; font-weight: 500; margin: 0;">${isBannerMode ? 'Type a movie or series title in the search bar above' : 'Type an anime title or character name in the search bar above'}</p>
         </div>
       `;
       return;
@@ -3209,33 +3299,94 @@
       }
     }
 
-    results.forEach(item => {
+    results.forEach((item, index) => {
       const title = item.title || item.name || item.name_en || item.title_english || '';
       const el = document.createElement('div');
-      el.className = 'fav-list-item';
-      el.style = 'cursor:pointer; text-align:center; padding:15px; border-radius:24px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1); display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);';
+      const poster = item.poster || item.poster_path || 'imgs/poster-placeholder.png';
+      const year = item.year || item.releaseInfo || item.release_date?.slice(0, 4) || item.first_air_date?.slice(0, 4) || '';
+      const rawType = item.type || item.media_type || (item.title ? 'movie' : 'series');
+      const isChar = (rawType === 'character' || item.source === 'jikan');
+      const typeLabel = (rawType === 'anime' || item.source === 'kitsu' || item.source === 'anilist') ? 'Anime' : (rawType === 'series' || rawType === 'tv' ? 'Series' : (rawType === 'character' ? 'Character' : 'Movie'));
 
-      el.onmouseenter = () => {
-        el.style.transform = 'translateY(-8px) scale(1.03)';
-        el.style.background = 'rgba(255,255,255,0.08)';
-        el.style.borderColor = 'var(--accent)';
-        el.style.boxShadow = '0 15px 35px rgba(0,0,0,0.4)';
-      };
-      el.onmouseleave = () => {
-        el.style.transform = 'translateY(0) scale(1)';
-        el.style.background = 'rgba(255,255,255,0.04)';
-        el.style.borderColor = 'rgba(255,255,255,0.08)';
-        el.style.boxShadow = '0 4px 15px rgba(0,0,0,0.2)';
-      };
+      if (isChar) {
+        el.className = 'fav-character-card stagger-card';
+        el.style.setProperty('--stagger-i', index);
+        el.style.cssText = `cursor: pointer; text-align: center; padding: 10px; border-radius: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); transition: all 0.28s ease; display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); box-sizing: border-box;`;
+        el.onmouseenter = () => {
+          el.style.transform = 'translateY(-6px) scale(1.03)';
+          el.style.borderColor = 'var(--accent)';
+          el.style.boxShadow = '0 12px 30px rgba(0,0,0,0.4)';
+        };
+        el.onmouseleave = () => {
+          el.style.transform = 'translateY(0) scale(1)';
+          el.style.borderColor = 'rgba(255,255,255,0.08)';
+          el.style.boxShadow = '0 4px 15px rgba(0,0,0,0.2)';
+        };
+        el.innerHTML = `
+          <div style="width: 110px; height: 110px; border-radius: 50%; overflow: hidden; margin-bottom: 10px; box-shadow: 0 6px 16px rgba(0,0,0,0.35); position: relative; border: 2px solid rgba(255,255,255,0.15);">
+            <img src="${window.localImg(poster)}" alt="${escapeHTML(title)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='imgs/no-backdrop.png'">
+          </div>
+          <div style="font-size: 13px; font-weight: 700; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; padding: 0 4px; min-height: 2.4em;">${escapeHTML(title)}</div>
+          <div style="font-size: 11px; color: var(--accent); margin-top: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Character</div>
+        `;
+      } else {
+        el.className = 'media-card fav-search-card stagger-card';
+        el.style.setProperty('--stagger-i', index);
+        el.style.cssText = `
+          position: relative;
+          width: 100%;
+          border-radius: 14px;
+          overflow: hidden;
+          background: #121218;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+          cursor: pointer;
+          transition: transform 0.28s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.28s ease, border-color 0.28s ease;
+          user-select: none;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+        `;
 
-      const poster = item.poster || item.poster_path || 'imgs/no-backdrop.png';
-      el.innerHTML = `
-        <div style="width: 100%; aspect-ratio: 2/3; overflow: hidden; border-radius: 16px; margin-bottom: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); position: relative;">
-          <img src="${window.localImg(poster)}" alt="${escapeHTML(title)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.src='imgs/no-backdrop.png'">
-          <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%); pointer-events: none;"></div>
-        </div>
-        <div style="font-size: 13.5px; font-weight: 800; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; padding: 0 5px; min-height: 2.6em; text-shadow: 0 2px 10px rgba(0,0,0,0.5);">${escapeHTML(title)}</div>
-      `;
+        el.onmouseenter = () => {
+          el.style.transform = 'translateY(-8px) scale(1.02)';
+          el.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.7), 0 0 18px var(--accent-glow, rgba(99, 102, 241, 0.4))';
+          el.style.borderColor = 'var(--accent)';
+          const info = el.querySelector('.card-info');
+          if (info) {
+            info.style.opacity = '1';
+            info.style.transform = 'translateY(0)';
+          }
+          const img = el.querySelector('.card-poster img');
+          if (img) img.style.transform = 'scale(1.06)';
+        };
+
+        el.onmouseleave = () => {
+          el.style.transform = 'translateY(0) scale(1)';
+          el.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.35)';
+          el.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+          const info = el.querySelector('.card-info');
+          if (info) {
+            info.style.opacity = '0';
+            info.style.transform = 'translateY(8px)';
+          }
+          const img = el.querySelector('.card-poster img');
+          if (img) img.style.transform = 'scale(1)';
+        };
+
+        el.innerHTML = `
+          <div class="card-poster" style="position: relative; width: 100%; padding-top: 150%; overflow: hidden; background: #15151e;">
+            <img src="${window.localImg(poster)}" alt="${escapeHTML(title)}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.35s ease;" onerror="this.src='imgs/poster-placeholder.png'">
+          </div>
+          <div class="card-info" style="position: absolute; bottom: 0; left: 0; right: 0; padding: 24px 12px 12px; background: linear-gradient(to top, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.72) 65%, transparent 100%); opacity: 0; transform: translateY(8px); transition: opacity 0.25s ease, transform 0.25s ease; pointer-events: none; display: flex; flex-direction: column; gap: 4px; z-index: 5;">
+            <div class="card-title" style="font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
+            <div class="card-meta" style="font-size: 11px; color: var(--text-muted, #a1a1aa); display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+              <span style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent);">${typeLabel}</span>
+              ${year ? `<span style="font-weight: 600; color: #fff;">${year}</span>` : ''}
+            </div>
+          </div>
+        `;
+      }
       
       el.onclick = () => {
         if (window.currentFavModalMode === 'avatar' && (item.type === 'character' || item.source === 'jikan' || item.source === 'anilist')) {
@@ -3252,10 +3403,25 @@
         const resultsList = document.getElementById('fav-results-list');
         const mediaGrid = document.getElementById('fav-media-grid');
         const backBtn = document.getElementById('fav-back-btn');
-        if (resultsList) resultsList.style.display = 'none';
-        if (mediaGrid) mediaGrid.style.display = 'grid';
+        if (resultsList) {
+          resultsList.classList.add('fav-hidden');
+          resultsList.style.display = 'none';
+        }
+        if (mediaGrid) {
+          mediaGrid.classList.remove('fav-hidden');
+          mediaGrid.classList.remove('fav-slide-up');
+          void mediaGrid.offsetWidth;
+          mediaGrid.classList.add('fav-slide-up');
+          mediaGrid.style.display = 'grid';
+          mediaGrid.innerHTML = `
+            <div class="fav-slide-up" style="grid-column: 1 / -1; width: 100%; height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+              <div style="width: 44px; height: 44px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: favSpin 0.8s linear infinite; margin-bottom: 18px;"></div>
+              <div style="color: #fff; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.2px;">Fetching cinematic assets...</div>
+              <div style="color: var(--text-muted, #a1a1aa); font-size: 0.85rem; margin-top: 6px;">Loading high-resolution items</div>
+            </div>
+          `;
+        }
         if (backBtn) backBtn.style.display = 'flex';
-        if (mediaGrid) mediaGrid.innerHTML = '<div style="grid-column: 1 / -1; display:flex; flex-direction:column; align-items:center; justify-content:center; height:300px;"><i class="fas fa-spinner fa-spin" style="font-size:2rem; color:var(--accent); margin-bottom:15px;"></i><div>Fetching cinematic assets...</div></div>';
         fetchFavoriteAssets(item, mediaGrid);
       };
       list.appendChild(el);
@@ -3385,6 +3551,56 @@
       }
 
       if (!isAvatarMode) {
+        // A. Immediately capture direct backdrop / background assets on item
+        if (item.background) {
+          items.push({ src: item.background, label: 'Cinematic Backdrop', type: 'banner' });
+          if (String(item.background).includes('/medium/')) {
+            items.push({ src: item.background.replace('/medium/', '/orig/'), label: 'Original Backdrop', type: 'banner' });
+            items.push({ src: item.background.replace('/medium/', '/large/'), label: 'Large Backdrop', type: 'banner' });
+          }
+        }
+        if (item.backdrop) {
+          items.push({ src: window.localImg(item.backdrop), label: 'Backdrop', type: 'banner' });
+        }
+        if (item.backdrop_path) {
+          const bp = item.backdrop_path.startsWith('http') ? item.backdrop_path : `https://image.tmdb.org/t/p/w1280${item.backdrop_path}`;
+          items.push({ src: bp, label: 'TMDB Backdrop', type: 'banner' });
+        }
+        if (item.banner) {
+          items.push({ src: window.localImg(item.banner), label: 'Banner', type: 'banner' });
+        }
+        if (item.cover) {
+          items.push({ src: window.localImg(item.cover), label: 'Cover Banner', type: 'banner' });
+        }
+
+        // B. If Anime or title search, fetch AniList & Kitsu official wide banners
+        if (isAnime || searchTitle) {
+          try {
+            const cleanTitle = searchTitle.replace(/\s+(2|II|III|IV|V|Season\s+\d+|S\d+|[0-9]+)$/i, '').trim();
+            const alResp = await fetch('https://graphql.anilist.co', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                query: 'query ($s: String) { Media(search: $s, type: ANIME) { id bannerImage coverImage { extraLarge large } } }',
+                variables: { s: cleanTitle || searchTitle }
+              })
+            }).then(r => r.json()).catch(() => null);
+
+            if (alResp?.data?.Media?.bannerImage) {
+              items.push({ src: alResp.data.Media.bannerImage, label: 'AniList Official Banner', type: 'banner' });
+            }
+
+            const kResp = await fetch(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(cleanTitle || searchTitle)}&page[limit]=1`).then(r => r.json()).catch(() => null);
+            const kCover = kResp?.data?.[0]?.attributes?.coverImage?.original || kResp?.data?.[0]?.attributes?.coverImage?.large;
+            if (kCover) {
+              items.push({ src: kCover, label: 'Kitsu Official Cover', type: 'banner' });
+            }
+          } catch (e) {
+            console.warn('[Anime Banner Fetch Error]', e.message);
+          }
+        }
+
+        // C. Resolve Cinemeta details & Fanart
         let fanartId = item.tmdbId;
         if (!fanartId && item.source !== 'jikan' && item.source !== 'anilist') {
           fanartId = item.id;
@@ -3393,7 +3609,7 @@
 
         const isImdbTvShow = fanartId && String(fanartId).startsWith('tt') && (fanartType === 'series' || fanartType === 'tv');
 
-        if ((!fanartId || isImdbTvShow) && searchTitle) {
+        if ((!fanartId || isImdbTvShow || !items.length) && searchTitle) {
           try {
             if (item.source === 'jikan' && item.id) {
               const external = await window.api.invoke('map-mal-id', item.id);
@@ -3403,26 +3619,37 @@
               }
             }
             
-            if (!fanartId || isImdbTvShow) {
-              let targetId = fanartId;
-              let targetType = fanartType;
+            let targetId = fanartId;
+            let targetType = fanartType;
 
-              if (!targetId) {
-                const res = await window.api.invoke('cinemeta-search', searchTitle);
-                if (res?.results?.length) {
-                  const match = res.results[0];
-                  targetId = match.id;
-                  targetType = match.type || 'movie';
+            if (!targetId) {
+              const res = await window.api.invoke('cinemeta-search', searchTitle).catch(() => null);
+              if (res?.results?.length) {
+                const match = res.results[0];
+                targetId = match.id;
+                targetType = match.type || 'movie';
+                if (match.background) {
+                  items.push({ src: match.background, label: 'Cinemeta Backdrop', type: 'banner' });
                 }
               }
+            }
 
-              if (targetId && (targetType === 'series' || targetType === 'tv')) {
-                const details = await window.api.invoke('cinemeta-details', { id: targetId, type: targetType }).catch(() => null);
-                if (details?.meta) {
-                  fanartId = details.meta.tvdb_id || details.meta.tmdb_id || details.meta.moviedb_id || targetId;
-                  fanartType = 'tv';
+            if (targetId) {
+              const details = await window.api.invoke('cinemeta-details', { id: targetId, type: targetType }).catch(() => null);
+              if (details?.meta) {
+                if (details.meta.background) {
+                  items.push({ src: details.meta.background, label: 'Cinemeta Backdrop', type: 'banner' });
+                  if (String(details.meta.background).includes('/medium/')) {
+                    items.push({ src: details.meta.background.replace('/medium/', '/orig/'), label: 'Original Backdrop', type: 'banner' });
+                    items.push({ src: details.meta.background.replace('/medium/', '/large/'), label: 'Large Backdrop', type: 'banner' });
+                  }
                 }
-              } else if (targetId) {
+                if (details.meta.banner) {
+                  items.push({ src: details.meta.banner, label: 'Cinemeta Banner', type: 'banner' });
+                }
+                fanartId = details.meta.tvdb_id || details.meta.tmdb_id || details.meta.moviedb_id || targetId;
+                fanartType = (targetType === 'series' || targetType === 'tv') ? 'tv' : 'movies';
+              } else if (!fanartId) {
                 fanartId = targetId;
                 fanartType = targetType;
               }
@@ -3430,26 +3657,22 @@
           } catch (e) { console.error('[ID Resolve Error]', e); }
         }
 
+        // D. Fanart.tv Images
         if (fanartId) {
           try {
             const fanart = await window.api.invoke('fanart-images', fanartType, fanartId).catch(() => null);
-
             if (fanart) {
               const bgs = fanart.moviebackground || fanart.tvbackground || fanart.showbackground || [];
               bgs.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Background', type: 'banner' }));
-              
-              // Excluded because they are narrow strips (1000x185) that stretch poorly
-              // const banners = fanart.moviebanner || fanart.tvbanner || [];
-              // banners.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Banner', type: 'banner' }));
-              
               const thumbs = fanart.moviethumb || fanart.tvthumb || [];
               thumbs.forEach(bg => items.push({ src: bg.url, label: 'Fanart.tv Thumbnail', type: 'banner' }));
             }
           } catch (e) { console.error('[Banner Fetch Error]', e); }
         }
 
+        // E. TMDB Backdrops (using verified active API key fallback)
         const tmdbEnabled = appData.tmdbEnabled !== false;
-        const tmdbKey = appData.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
+        const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
         if (tmdbEnabled && tmdbKey) {
           try {
             let actualTmdbId = tmdbId;
@@ -3476,14 +3699,30 @@
               }
             }
 
+            // Fallback: search TMDB by title if still no TMDB ID
+            if (!actualTmdbId && searchTitle) {
+              const cleanTitle = searchTitle.replace(/\s+(2|II|III|IV|V|Season\s+\d+|S\d+|[0-9]+)$/i, '').trim();
+              const sUrl = `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(cleanTitle || searchTitle)}`;
+              const sData = await fetch(sUrl).then(r => r.json()).catch(() => null);
+              const bestMatch = sData?.results?.find(r => r.media_type !== 'person') || sData?.results?.[0];
+              if (bestMatch) {
+                actualTmdbId = bestMatch.id;
+                actualTmdbType = bestMatch.media_type || actualTmdbType;
+                if (bestMatch.backdrop_path) {
+                  items.push({ src: `https://image.tmdb.org/t/p/w1280${bestMatch.backdrop_path}`, label: 'TMDB Backdrop', type: 'banner' });
+                }
+              }
+            }
+
             if (actualTmdbId && !String(actualTmdbId).startsWith('tt')) {
               const tmdbTypeClean = (actualTmdbType === 'series' || actualTmdbType === 'tv') ? 'tv' : 'movie';
               const cleanTmdbId = String(actualTmdbId).replace('tmdb:', '');
               const res = await fetch(`https://api.themoviedb.org/3/${tmdbTypeClean}/${cleanTmdbId}/images?api_key=${tmdbKey}`);
               const data = await res.json();
               if (data && data.backdrops && data.backdrops.length) {
-                data.backdrops.slice(0, 15).forEach(bg => {
+                data.backdrops.slice(0, 25).forEach(bg => {
                    items.push({ src: `https://image.tmdb.org/t/p/w1280${bg.file_path}`, label: 'TMDB Backdrop', type: 'banner' });
+                   items.push({ src: `https://image.tmdb.org/t/p/original${bg.file_path}`, label: 'TMDB Backdrop (HD)', type: 'banner' });
                 });
               }
             }
@@ -3497,24 +3736,29 @@
         if (item.banner && !isAvatarMode) {
           items.push({ src: window.localImg(item.banner), label: 'Original Banner', type: 'banner' });
         }
+        if (item.background && !isAvatarMode) {
+          items.push({ src: window.localImg(item.background), label: 'Original Background', type: 'banner' });
+        }
         const mainPoster = item.poster || item.poster_path;
         if (mainPoster && isAvatarMode) {
           items.push({ src: window.localImg(mainPoster), label: 'Main Poster', type: 'avatar' });
         }
       }
       
-      items = items.filter((v, i, a) => a.findIndex(t => t.src === v.src) === i).slice(0, 60);
+      items = items.filter((v, i, a) => a.findIndex(t => t.src === v.src) === i).slice(0, 80);
 
       if (!items.length) {
         targetGrid.innerHTML = '<div style="padding:40px; text-align:center; color:rgba(255,255,255,0.4); grid-column:1/-1;">Could not find extra assets.</div>';
         return;
       }
 
-      items.forEach(it => {
+      items.forEach((it, idx) => {
         const isAvatar = it.type === 'avatar';
 
         if (isAvatar) {
           const slide = document.createElement('div');
+          slide.className = 'stagger-card';
+          slide.style.setProperty('--stagger-i', idx);
           const basis = window.innerWidth < 480 ? '64%' : '36%';
           slide.style = `flex:0 0 ${basis}; scroll-snap-align:center; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; padding:8px; box-sizing:border-box;`;
 
@@ -3550,6 +3794,8 @@
           targetGrid.appendChild(slide);
         } else {
           const slide = document.createElement('div');
+          slide.className = 'stagger-card';
+          slide.style.setProperty('--stagger-i', idx);
           const slideBasis = window.innerWidth < 480 ? '90%' : '100%';
           slide.style = `flex: 0 0 ${slideBasis}; height: 100%; scroll-snap-align: center; position: relative; display: flex; align-items: center; justify-content: center; background: transparent; padding: 12px; box-sizing: border-box;`;
 
