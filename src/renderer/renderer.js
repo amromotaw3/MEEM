@@ -48,6 +48,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // Disable local agent telemetry by default (set true to re-enable)
   window.__ENABLE_AGENT_LOGS = false;
 
+  function escapeAttr(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+  window.escapeAttr = escapeAttr;
+
   // Global error capture for unhandled promise rejections and uncaught errors (dev aids)
   window.addEventListener('unhandledrejection', (ev) => {
     try {
@@ -104,7 +115,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Helper: Convert a local file path to a protocol URL that works with webSecurity=true
   // Returns the original value if it's already a URL (http/https/data:)
-  const APP_VERSION = '3.10.1'; // Sync with package.json
+  const APP_VERSION = '3.10.6'; // Sync with package.json
   function getSafeId(itemId) {
     try {
       const utf8Bytes = new TextEncoder().encode(String(itemId));
@@ -128,10 +139,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
 
     let cleanP = p.trim();
+    if (cleanP.startsWith('data:') || cleanP.startsWith('blob:')) {
+      return cleanP;
+    }
     if (cleanP.startsWith('//')) {
       cleanP = 'https:' + cleanP;
     } else if (cleanP.startsWith('www.')) {
       cleanP = 'https://' + cleanP;
+    }
+
+    if (
+      cleanP.includes('phantomsw.com') ||
+      cleanP.includes('cdn.raddio.net') ||
+      cleanP.includes('radiosfax.tn') ||
+      cleanP.includes('radiokef.tn') ||
+      cleanP.includes('ANd9GcRLDeG4UfceNKx39_KEr8RQhM3QX5kSdpK6zQ')
+    ) {
+      return 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg==';
     }
 
 
@@ -192,7 +216,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     let finalUrl = cleanP;
     if (p.includes('.metahub.space')) {
-      return p.replace(/(live|episodes)\.metahub\.space/gi, 'images.metahub.space');
+      return p.replace(/live\.metahub\.space/gi, 'images.metahub.space');
     }
     if (!(p.startsWith("http") || p.startsWith("data:") || p.startsWith("blob:") || p.startsWith("src/") || p.startsWith("assets/") || p.startsWith("imgs/") || p.startsWith("local-file:") || p.startsWith("media-img:"))) {
       // If it's a relative path fragment (starts with / and doesn't look like a drive letter), assume it's from Cinemeta Metahub
@@ -500,12 +524,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   }
 
   function getItemCertification(item) {
-    if (!item) return 'NR';
+    if (!item) return null;
     
     // 1. Check direct properties
     let cert = item.certification || item.contentRating || item.content_rating;
     if (cert && typeof cert === 'string' && cert.trim().length > 0) {
-      return cert.trim();
+      const clean = cert.trim().toUpperCase();
+      if (clean !== 'NR' && clean !== 'NOT RATED' && clean !== 'UNRATED') return cert.trim();
     }
     
     // 2. Check metadata cache
@@ -513,7 +538,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (meta) {
       cert = meta.certification || meta.contentRating || meta.content_rating;
       if (cert && typeof cert === 'string' && cert.trim().length > 0) {
-        return cert.trim();
+        const clean = cert.trim().toUpperCase();
+        if (clean !== 'NR' && clean !== 'NOT RATED' && clean !== 'UNRATED') return cert.trim();
       }
     }
     
@@ -521,7 +547,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (item.tmdbData) {
       cert = item.tmdbData.certification || item.tmdbData.contentRating || item.tmdbData.content_rating;
       if (cert && typeof cert === 'string' && cert.trim().length > 0) {
-        return cert.trim();
+        const clean = cert.trim().toUpperCase();
+        if (clean !== 'NR' && clean !== 'NOT RATED' && clean !== 'UNRATED') return cert.trim();
       }
     }
     
@@ -529,32 +556,38 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (item.meta) {
       cert = item.meta.certification || item.meta.contentRating || item.meta.content_rating;
       if (cert && typeof cert === 'string' && cert.trim().length > 0) {
-        return cert.trim();
+        const clean = cert.trim().toUpperCase();
+        if (clean !== 'NR' && clean !== 'NOT RATED' && clean !== 'UNRATED') return cert.trim();
       }
     }
     
-    return 'NR';
+    return null;
   }
 
   function getAgeBadgeHTML(cert) {
-    const cleanCert = (cert || 'NR').trim().toUpperCase();
-    const isUnrated = cleanCert === 'NR' || cleanCert === 'NOT RATED' || cleanCert === 'UNRATED';
+    if (!cert || typeof cert !== 'string') return '';
+    const cleanCert = cert.trim().toUpperCase();
+    if (cleanCert === 'NR' || cleanCert === 'NOT RATED' || cleanCert === 'UNRATED') {
+      return '';
+    }
     
     const bgColor = 'rgba(255, 255, 255, 0.05)';
-    const textColor = isUnrated ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.85)';
+    const textColor = 'rgba(255,255,255,0.85)';
     const borderColor = 'rgba(255, 255, 255, 0.08)';
-    const label = isUnrated ? 'NR' : cleanCert;
     
-    return `<span class="discover-age-badge" style="background: ${bgColor}; padding: 2px 8px; border-radius: 12px; font-size: 9px; font-weight: 600; color: ${textColor}; margin-left: 6px; border: 1px solid ${borderColor}; display: inline-flex; align-items: center; white-space: nowrap; line-height: 1.2; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);">${label}</span>`;
+    return `<span class="discover-age-badge" style="background: ${bgColor}; padding: 2px 8px; border-radius: 12px; font-size: 9px; font-weight: 600; color: ${textColor}; margin-left: 6px; border: 1px solid ${borderColor}; display: inline-flex; align-items: center; white-space: nowrap; line-height: 1.2; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);">${cleanCert}</span>`;
   }
 
   function isAgeAllowed(item) {
     return true;
   }
 
-  function getTraktOrImdbPoster(item, imgElement, cardElement = null) {
+  function getTraktOrImdbPoster(item, imgElement, cardElement = null, onFail = null) {
     const id = item.imdb_id || item.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
-    if (!id) return;
+    if (!id) {
+      if (typeof onFail === 'function') onFail();
+      return;
+    }
 
     // ── Addon Gate ────────────────────────────────────────────────────────────
     // Only fetch remote posters when a media metadata addon is installed & enabled.
@@ -1038,41 +1071,46 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   const supabaseStorage = {
     getItem: async (key) => {
       try {
-        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+        if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
           const { value } = await window.Capacitor.Plugins.Preferences.get({ key });
-          return value ?? null;
+          if (value != null) return value;
         }
         if (window.api && typeof window.api.storageGet === 'function') {
-          return await window.api.storageGet(key);
+          const val = await window.api.storageGet(key);
+          if (val != null) return val;
         }
       } catch (e) { console.warn('[SupabaseStorage] getItem failed:', e); }
-      return window.localStorage.getItem(key);
+      try {
+        return window.localStorage.getItem(key);
+      } catch (_) {
+        return null;
+      }
     },
     setItem: async (key, value) => {
       try {
-        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+        window.localStorage.setItem(key, String(value));
+      } catch (_) {}
+      try {
+        if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
           await window.Capacitor.Plugins.Preferences.set({ key, value: String(value) });
-          return;
         }
         if (window.api && typeof window.api.storageSet === 'function') {
-          await window.api.storageSet(key, value);
-          return;
+          await window.api.storageSet(key, String(value));
         }
       } catch (e) { console.warn('[SupabaseStorage] setItem failed:', e); }
-      window.localStorage.setItem(key, value);
     },
     removeItem: async (key) => {
       try {
-        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+        window.localStorage.removeItem(key);
+      } catch (_) {}
+      try {
+        if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
           await window.Capacitor.Plugins.Preferences.remove({ key });
-          return;
         }
         if (window.api && typeof window.api.storageRemove === 'function') {
           await window.api.storageRemove(key);
-          return;
         }
       } catch (e) { console.warn('[SupabaseStorage] removeItem failed:', e); }
-      window.localStorage.removeItem(key);
     }
   };
 
@@ -1082,8 +1120,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     if (!window._supabaseRendererClientShared) {
       window._supabaseRendererClientShared = window.supabase.createClient(
-        window.MEDIAVAULT_SUPABASE_URL || window.SUPABASE_URL,
-        window.MEDIAVAULT_SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY,
+        window.MEEM_SUPABASE_URL || window.MEDIAVAULT_SUPABASE_URL || window.SUPABASE_URL,
+        window.MEEM_SUPABASE_ANON_KEY || window.MEDIAVAULT_SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY,
         {
           auth: {
             persistSession: true,
@@ -1098,21 +1136,26 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
       );
 
-      // Auto-sync refreshed session to main process
-      window._supabaseRendererClientShared.auth.onAuthStateChange(async (event, session) => {
-        if (session) {
-          console.log('[AUTH] onAuthStateChange event in renderer.js:', event);
-          await window.api.invoke('cloud-sync-user-session', {
-            userId: session.user.id,
-            email: session.user.email,
-            username: session.user.user_metadata?.username || '',
-            session: {
-              access_token: session.access_token,
-              refresh_token: session.refresh_token
+      // Auto-sync refreshed session to main process (deduplicated)
+      if (!window.__supabaseAuthStateChangeRegistered) {
+        window.__supabaseAuthStateChangeRegistered = true;
+        window._supabaseRendererClientShared.auth.onAuthStateChange(async (event, session) => {
+          if (session) {
+            console.log('[AUTH] onAuthStateChange event in renderer.js:', event);
+            if (window.api && typeof window.api.invoke === 'function') {
+              await window.api.invoke('cloud-sync-user-session', {
+                userId: session.user.id,
+                email: session.user.email || session.user.user_metadata?.email || `${session.user.id}@oauth.local`,
+                username: session.user.user_metadata?.username || session.user.user_metadata?.name || '',
+                session: {
+                  access_token: session.access_token,
+                  refresh_token: session.refresh_token
+                }
+              }).catch(err => console.error('[AUTH] Failed to sync session on auth state change:', err));
             }
-          }).catch(err => console.error('[AUTH] Failed to sync session on auth state change:', err));
-        }
-      });
+          }
+        });
+      }
     }
     return window._supabaseRendererClientShared;
   }
@@ -1140,11 +1183,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   async function finalizeLogout() {
     try {
       console.log('[LOGOUT] Starting final logout cleanup...');
+      if (window.periodicSessionCheckInterval) {
+        clearInterval(window.periodicSessionCheckInterval);
+        window.periodicSessionCheckInterval = null;
+      }
       if (window.supabase) {
         try {
           const client = getSupabaseRendererClient();
           await client.auth.signOut();
-          window._supabaseRendererClientShared = null;
+          if (window._supabaseRendererClientShared) window._supabaseRendererClientShared = null;
           console.log('[LOGOUT] Supabase session signed out');
         } catch (e) {
           console.warn('[LOGOUT] Supabase signOut error (non-critical):', e.message);
@@ -1158,14 +1205,47 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         console.warn('[LOGOUT] Local session clear error:', e.message);
       }
       
-      localStorage.clear();
-      appData.user = null;
-      appData.authenticated = false;
-      // Do not call persist() here to avoid overwriting the clean logout state with cached renderer data.
-      
-      console.log('[LOGOUT] Clearing app data and reloading...');
-      await new Promise(r => setTimeout(r, 500));
-      window.location.href = window.location.pathname;
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch (e) {}
+
+      if (typeof appData !== 'undefined') {
+        appData.user = null;
+        appData.authenticated = false;
+        appData.profiles = [];
+        appData.activeProfileId = null;
+      }
+      window.currentProfile = null;
+
+      // Close all modals / overlays and reset UI to clean unauthenticated state
+      const logoutModal = document.getElementById('modal-account-logout');
+      if (logoutModal) logoutModal.style.display = 'none';
+
+      const picker = document.getElementById('profile-picker');
+      if (picker) {
+        picker.style.display = 'none';
+        picker.classList.remove('modal-active');
+      }
+      try { document.body.classList.remove('modal-open'); } catch (e) {}
+
+      const mainApp = document.getElementById('main-app');
+      if (mainApp) mainApp.style.display = 'none';
+
+      const appLayout = document.getElementById('app-layout');
+      if (appLayout) appLayout.style.display = 'none';
+
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar) sidebar.style.display = 'none';
+
+      console.log('[LOGOUT] Showing auth screen...');
+      if (typeof showAuthOverlay === 'function') {
+        showAuthOverlay();
+      } else if (typeof window.showAuthOverlay === 'function') {
+        window.showAuthOverlay();
+      } else {
+        window.location.href = window.location.pathname;
+      }
     } catch (err) {
       console.error('[LOGOUT] Error during final logout:', err);
       showToast('Error during logout: ' + err.message);
@@ -1222,7 +1302,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           </svg>
         </div>
         <h1 style="font-size:28px;font-weight:800;letter-spacing:-0.5px;margin-bottom:12px;color:#ef4444;text-shadow:0 0 10px rgba(239,68,68,0.3);">Access Restricted</h1>
-        <p style="font-size:15px;color:rgba(255,255,255,0.8);line-height:1.6;margin-bottom:24px;">This device is permanently blacklisted from the MediaVault network due to a hardware restriction or security ban.</p>
+        <p style="font-size:15px;color:rgba(255,255,255,0.8);line-height:1.6;margin-bottom:24px;">This device is permanently blacklisted from the MEEM network due to a hardware restriction or security ban.</p>
         
         <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:16px;margin-bottom:20px;text-align:left;">
           <div style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Ban Reason</div>
@@ -1902,6 +1982,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       try {
         this._volume = Math.max(0, Math.min(100, level));
         this._video.volume = this._volume / 100;
+        try {
+          localStorage.setItem('meem_global_volume', (this._volume / 100).toFixed(2));
+          if (window.appData) window.appData.volume = Math.round(this._volume);
+        } catch (_) {}
       } catch (e) { console.error('[Engine] Set volume failed:', e.message); }
     }
 
@@ -2643,12 +2727,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     overlay.innerHTML = `
       <div style="max-width:400px; background: rgba(30,30,45,0.95); padding: 30px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px rgba(0,0,0,0.5);">
         <div style="font-size:60px;margin-bottom:20px;">🚀</div>
-        <h2 style="font-size:24px;margin-bottom:15px;font-weight:800;">Welcome to MediaVault</h2>
+        <h2 style="font-size:24px;margin-bottom:15px;font-weight:800;">Welcome to MEEM</h2>
         <p style="opacity:0.7;line-height:1.6;margin-bottom:25px;">Ready to build your cinematic library? Let's name your mobile storage folder.</p>
         
         <div style="text-align:left; margin-bottom: 25px;">
            <label style="font-size:12px; opacity:0.5; margin-bottom:8px; display:block;">Library Name</label>
-           <input id="mobile-root-input" type="text" value="MediaVault" style="width:100%; height:50px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:15px; color:#fff; padding:0 15px; font-weight:600;">
+           <input id="mobile-root-input" type="text" value="MEEM" style="width:100%; height:50px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:15px; color:#fff; padding:0 15px; font-weight:600;">
            <p style="font-size:11px; opacity:0.4; margin-top:8px;">Note: On mobile, files are saved to your system Downloads under this folder name.</p>
         </div>
 
@@ -2665,7 +2749,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       try {
         const hasPerms = await window.api.invoke('request-filesystem-permissions');
         if (!hasPerms) {
-          showToast('Storage permission is required for MediaVault to work.');
+          showToast('Storage permission is required for MEEM to work.');
           btn.textContent = 'Retry Permissions';
           btn.disabled = false;
           return;
@@ -2975,7 +3059,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             <input type="text" id="fav-search-input" placeholder="Search movies, shows or anime..." style="font-size: 24px; font-weight: 700; flex: 1; background: transparent; border: none; outline: none; color: #fff; cursor: text !important; -webkit-app-region: no-drag !important; pointer-events: auto !important; user-select: text !important; -webkit-user-select: text !important;">
             
             <button id="btn-upload-custom-banner" style="display: none; align-items: center; gap: 8px; background: var(--accent); color: #000; border: none; border-radius: 20px; padding: 10px 20px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: all 0.3s; margin-right: 15px; -webkit-app-region: no-drag !important;">
-              <i class="fas fa-upload"></i> Upload custom banner
+              <i class="fas fa-upload"></i> <span class="banner-upload-text">Upload custom banner</span>
             </button>
 
             <div id="fav-search-source" style="display: none;"></div>
@@ -3190,13 +3274,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (mode === 'avatar') {
       if (!hasKitsu) {
         if (typeof showToast === 'function') {
-          showToast('⚠️ Avatar search requires Kitsu add-on to be installed');
+          showToast('⚠️ Avatar search requires an add-on to be installed');
         }
       }
     } else if (mode === 'banner') {
       if (availableSources.length === 0) {
         if (typeof showToast === 'function') {
-          showToast('⚠️ Banner search requires TMDB (with API key) or Fanart.tv add-on');
+          showToast('⚠️ Banner search requires an add-on to be installed');
         }
       }
       if (!availableSources.some(s => s.id === window._currentBannerSource)) {
@@ -3211,10 +3295,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     
     const uploadBtn = $('#btn-upload-custom-banner');
     if (uploadBtn) {
-      uploadBtn.innerHTML = mode === 'avatar' 
-        ? '<i class="fas fa-upload"></i> Upload custom avatar' 
-        : '<i class="fas fa-upload"></i> Upload custom banner';
-      uploadBtn.style.display = 'flex';
+      if (mode === 'banner') {
+        uploadBtn.innerHTML = '<i class="fas fa-upload"></i> <span class="banner-upload-text">Upload custom banner</span>';
+        uploadBtn.title = 'Upload custom banner';
+        uploadBtn.style.display = 'flex';
+      } else {
+        uploadBtn.style.display = 'none';
+      }
     }
 
     // Dynamic Filter Bar: Hidden for Avatar Mode, Source Switcher for Banner Mode
@@ -3588,8 +3675,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       list.innerHTML = `
         <div style="grid-column: 1 / -1; padding: 40px; text-align: center; color: rgba(255,255,255,0.7);">
           <i class="fas fa-tv" style="font-size: 2.5rem; margin-bottom: 14px; color: var(--accent);"></i>
-          <h3 style="font-size: 1.2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Kitsu Add-on Required</h3>
-          <p style="font-size: 0.9rem; max-width: 440px; margin: 0 auto 16px; opacity: 0.75; line-height: 1.5;">To browse and search anime character avatars, please install the Kitsu add-on from the Add-ons Store. You can also upload a custom avatar directly using the button above.</p>
+          <h3 style="font-size: 1.2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Add-on Required</h3>
+          <p style="font-size: 0.9rem; max-width: 440px; margin: 0 auto 16px; opacity: 0.75; line-height: 1.5;">To browse and search avatars online, please install the required add-on from the Add-ons Store. You can also upload a custom avatar directly using the button above.</p>
         </div>
       `;
       return;
@@ -4427,7 +4514,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   const globalBannerBtn = $('#btn-fav-banner');
   if (globalBannerBtn) {
     const canBanner = window.AppCapabilities ? window.AppCapabilities.can('banner-search') : true;
-    globalBannerBtn.style.display = canBanner ? 'flex' : 'none';
+    globalBannerBtn.classList.toggle('btn-disabled-addon', !canBanner);
+    globalBannerBtn.style.display = 'flex';
     globalBannerBtn.onclick = () => openFavoritesAvatarModal('banner');
   }
 
@@ -4588,7 +4676,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         btnToggleEdit.style.background = '';
         btnToggleEdit.style.borderColor = '';
         btnToggleEdit.style.color = '';
-        if (bannerBtn) bannerBtn.style.display = canBanner ? 'flex' : 'none';
+        if (bannerBtn) {
+          bannerBtn.classList.toggle('btn-disabled-addon', !canBanner);
+          bannerBtn.style.display = 'flex';
+        }
       } else {
         if (label) label.textContent = 'Edit Profiles';
         else btnToggleEdit.textContent = 'Edit Profiles';
@@ -4597,7 +4688,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         btnToggleEdit.style.background = '';
         btnToggleEdit.style.borderColor = '';
         btnToggleEdit.style.color = '';
-        if (bannerBtn) bannerBtn.style.display = canBanner ? 'flex' : 'none';
+        if (bannerBtn) {
+          bannerBtn.classList.toggle('btn-disabled-addon', !canBanner);
+          bannerBtn.style.display = 'flex';
+        }
       }
       renderProfilePicker();
     };
@@ -4656,11 +4750,28 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const oldName = profile.name;
           // If name changed, rename folder on disk
           if (oldName !== name) {
-            await window.api.invoke('rename-profile-folders', oldName, name);
+            try {
+              await window.api.invoke('rename-profile-folders', oldName, name);
+            } catch (e) {
+              console.warn('[PROFILES] rename-profile-folders error (ignored):', e);
+            }
           }
           profile.name = name;
           profile.avatar = selectedAvatar;
           if (!profile.banner && appData.globalBanner) profile.banner = appData.globalBanner;
+
+          try {
+            if (window.api && typeof window.api.invoke === 'function') {
+              await window.api.invoke('cloud-update-profile', {
+                id: profile.id,
+                name: profile.name,
+                avatar: profile.avatar
+              });
+            }
+          } catch (cloudErr) {
+            console.warn('[PROFILES] cloud-update-profile sync warning:', cloudErr);
+          }
+
           if (profile.id === appData.activeProfileId) {
             currentProfile = profile;
             renderProfileWidget();
@@ -4680,13 +4791,28 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           lockedItems: []
         };
 
-        // Automation: Create physical folders on disk
-        const folderResult = await window.api.invoke('ensure-profile-folders', name);
-        if (folderResult === false) {
-          console.warn('[PROFILES] Folder creation might have failed, continuing anyway...');
+        // Automation: Create physical folders on disk (safe fallback)
+        try {
+          await window.api.invoke('ensure-profile-folders', name);
+        } catch (e) {
+          console.warn('[PROFILES] ensure-profile-folders failed (non-fatal):', e);
         }
 
         appData.profiles.push(newProfile);
+
+        // Sync to Supabase cloud if authenticated
+        try {
+          if (window.api && typeof window.api.invoke === 'function') {
+            await window.api.invoke('cloud-create-profile', {
+              id: newId,
+              name: name,
+              avatar: selectedAvatar,
+              max_age_rating: 18
+            });
+          }
+        } catch (cloudErr) {
+          console.warn('[PROFILES] cloud-create-profile sync warning:', cloudErr);
+        }
 
         // If this is the only profile, make it active
         if (appData.profiles.length === 1) {
@@ -4729,7 +4855,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     discover: $('#view-discover'),
     'discover-detail': $('#view-discover-detail'),
     downloads: $('#view-downloads'),
-    library: $('#view-library'), // Mobile Hub
     hub: $('#view-hub'),
     watchlist: $('#view-watchlist'),
     music: $('#view-music'),
@@ -4742,7 +4867,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     'anime-schedule': $('#view-anime-schedule'),
     'custom-list-detail': $('#view-custom-list-detail'),
     iptv: $('#view-iptv'),
-    'bug-report': $('#view-bug-report')
+    'bug-report': $('#view-bug-report'),
+    ai: $('#view-ai')
   };
 
   // Set Home as the default landing page
@@ -4751,7 +4877,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   $$('.nav-btn[data-view]').forEach(b => b.classList.remove('active'));
   if ($('#nav-home')) $('#nav-home').classList.add('active');
 
-  const video = $('#video-element');
+  const video = $('#video-element'); if (video) video.disablePictureInPicture = true;
 
   const SVG_MOVIE = '<svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="#B0B0B8" stroke-width="1.5"><rect x="6" y="6" width="36" height="36" rx="4"/><line x1="6" y1="14" x2="42" y2="14"/><polygon points="19 22 33 28 19 34 19 22" fill="#B0B0B8" stroke="none"/></svg>';
   const SVG_SHOW = '<svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="#B0B0B8" stroke-width="1.5"><rect x="4" y="8" width="40" height="26" rx="3"/><polyline points="16 38 32 38"/><line x1="24" y1="34" x2="24" y2="38"/><polygon points="19 17 33 21 19 29 19 17" fill="#B0B0B8" stroke="none"/></svg>';
@@ -4762,6 +4888,111 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   if ($('#btn-minimize')) $('#btn-minimize').onclick = () => window.api.minimizeWindow();
   if ($('#btn-maximize')) $('#btn-maximize').onclick = () => window.api.maximizeWindow();
   if ($('#btn-close')) $('#btn-close').onclick = () => window.api.closeWindow();
+
+  // ─── TORRENT TITLEBAR LOADER SETUP ───
+  const torrentLoaderEl = $('#torrent-titlebar-loader');
+  const torrentTitleEl = $('#torrent-loader-title');
+  const torrentProgressEl = $('#torrent-loader-progress-bar');
+  const torrentSpeedEl = $('#torrent-loader-speed');
+  const torrentPeersValEl = $('#torrent-loader-peers-val');
+  const torrentAbortBtn = $('#torrent-loader-abort-btn');
+
+  const TORRENT_START_THRESHOLD_PCT = 30; // Notch marker position where player starts
+  let torrentLoaderHideTimer = null;
+
+  function hideTorrentTitlebarLoader() {
+    if (!torrentLoaderEl) return;
+    if (torrentLoaderHideTimer) {
+      clearTimeout(torrentLoaderHideTimer);
+      torrentLoaderHideTimer = null;
+    }
+    torrentLoaderEl.classList.remove('active', 'ready');
+    torrentLoaderEl.classList.add('exiting');
+    torrentLoaderHideTimer = setTimeout(() => {
+      torrentLoaderEl.classList.remove('exiting');
+      torrentLoaderEl.style.display = 'none';
+      if (torrentProgressEl) torrentProgressEl.style.width = '0%';
+    }, 240);
+  }
+
+  function updateTorrentTitlebarLoader(data) {
+    if (!torrentLoaderEl) return;
+    if (torrentLoaderHideTimer) {
+      clearTimeout(torrentLoaderHideTimer);
+      torrentLoaderHideTimer = null;
+    }
+
+    if (!data || data.status === 'stopped') {
+      hideTorrentTitlebarLoader();
+      return;
+    }
+
+    if (torrentLoaderEl.classList.contains('exiting') || torrentLoaderEl.style.display === 'none') {
+      torrentLoaderEl.classList.remove('exiting');
+      torrentLoaderEl.style.display = 'flex';
+      void torrentLoaderEl.offsetWidth; // reflow to trigger entrance animation cleanly
+      torrentLoaderEl.classList.add('active');
+    }
+
+    if (data.fileName && torrentTitleEl) {
+      torrentTitleEl.textContent = data.fileName;
+      torrentTitleEl.title = data.fileName;
+    }
+
+    if (torrentSpeedEl) {
+      torrentSpeedEl.textContent = data.speed || '0.0 MB/s';
+    }
+
+    if (torrentPeersValEl) {
+      torrentPeersValEl.textContent = data.peers != null ? data.peers : '0';
+    }
+
+    if (torrentProgressEl) {
+      let pct = 0;
+      if (data.status === 'ready') {
+        pct = 100;
+      } else if (typeof data.bufferRatio === 'number') {
+        pct = Math.min(TORRENT_START_THRESHOLD_PCT, Math.max(0, data.bufferRatio * TORRENT_START_THRESHOLD_PCT));
+      } else if (typeof data.percentRaw === 'number') {
+        pct = Math.min(TORRENT_START_THRESHOLD_PCT, (data.percentRaw / 100) * TORRENT_START_THRESHOLD_PCT);
+      } else if (data.percent) {
+        pct = Math.min(TORRENT_START_THRESHOLD_PCT, (parseFloat(data.percent) || 0) * (TORRENT_START_THRESHOLD_PCT / 100));
+      }
+      torrentProgressEl.style.width = `${pct}%`;
+    }
+
+    if (data.status === 'ready') {
+      torrentLoaderEl.classList.add('ready');
+      if (torrentTitleEl) {
+        torrentTitleEl.textContent = 'Opening Player...';
+      }
+      torrentLoaderHideTimer = setTimeout(() => {
+        hideTorrentTitlebarLoader();
+      }, 2500);
+    } else {
+      torrentLoaderEl.classList.remove('ready');
+    }
+  }
+
+  if (torrentAbortBtn) {
+    torrentAbortBtn.onclick = async (e) => {
+      e.stopPropagation();
+      try {
+        if (window.api && typeof window.api.stopTorrentStream === 'function') {
+          await window.api.stopTorrentStream();
+        } else if (window.api && typeof window.api.invoke === 'function') {
+          await window.api.invoke('stop-torrent-stream');
+        }
+      } catch (_) {}
+      hideTorrentTitlebarLoader();
+    };
+  }
+
+  if (window.api && typeof window.api.onTorrentStatus === 'function') {
+    window.api.onTorrentStatus((data) => {
+      updateTorrentTitlebarLoader(data);
+    });
+  }
   if ($('#btn-player-minimize')) $('#btn-player-minimize').onclick = () => window.api?.minimizeWindow?.();
   if ($('#btn-player-win-min')) $('#btn-player-win-min').onclick = () => window.api?.minimizeWindow?.();
   if ($('#btn-player-win-max')) $('#btn-player-win-max').onclick = () => window.api?.maximizeWindow?.();
@@ -5368,6 +5599,45 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   const DEFAULT_COMMUNITY_ADDONS = [
     {
+      id: 'com.stremio.torrentio',
+      name: 'Torrentio',
+      version: '1.0.13',
+      description: 'Stream torrents directly from top providers (YTS, EZTV, RARBG, 1337x, ThePirateBay, TorrentGalaxy) with multi-quality resolution, real-time seed health, and fast playback.',
+      url: 'https://torrentio.strem.fun/manifest.json',
+      manifestUrl: 'https://torrentio.strem.fun/manifest.json',
+      icon: 'https://torrentio.strem.fun/images/logo_v1.png',
+      iconClass: 'fas fa-bolt',
+      iconColor: '#3b82f6',
+      types: ['movie', 'series', 'anime'],
+      category: 'movie'
+    },
+    {
+      id: 'com.linvo.cinemeta',
+      name: 'Cinemeta',
+      version: '3.0.12',
+      description: 'Official Stremio metadata catalog for Movies and TV Series with IMDb ratings, cast, genres, backdrops, and recommendations.',
+      url: 'https://v3-cinemeta.strem.io/manifest.json',
+      manifestUrl: 'https://v3-cinemeta.strem.io/manifest.json',
+      icon: 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/stremio.png',
+      iconClass: 'fas fa-film',
+      iconColor: '#6366f1',
+      types: ['movie', 'series', 'catalogs'],
+      category: 'catalogs'
+    },
+    {
+      id: 'com.stremio.comet',
+      name: 'Comet',
+      version: '1.0.0',
+      description: 'Ultra-fast torrent & stream indexer for movies, TV series, and anime with smart filtering and high-speed streaming.',
+      url: 'https://comet.elfhosted.com/manifest.json',
+      manifestUrl: 'https://comet.elfhosted.com/manifest.json',
+      icon: 'https://raw.githubusercontent.com/g0ldyy/comet/refs/heads/main/comet/assets/icon.png',
+      iconClass: 'fas fa-meteor',
+      iconColor: '#ec4899',
+      types: ['movie', 'series', 'anime'],
+      category: 'movie'
+    },
+    {
       id: 'org.stremio.opensubtitlesv3',
       name: 'OpenSubtitles v3',
       version: '1.0.0',
@@ -5380,7 +5650,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       category: 'subtitles'
     },
     {
-      id: 'com.mediavault.subdl',
+      id: 'com.meem.subdl',
       name: 'SubDL Subtitles',
       version: '1.0.0',
       description: 'Official SubDL subtitles integration with Arabic & multi-language subtitle search, auto-download, and synchronization.',
@@ -5391,7 +5661,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       category: 'subtitles'
     },
     {
-      id: 'com.mediavault.kitsu',
+      id: 'com.meem.kitsu',
       name: 'Kitsu Anime',
       version: '1.0.0',
       description: 'Anime catalog, character avatars, and anime banners from Kitsu.io.',
@@ -5404,7 +5674,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       category: 'anime'
     },
     {
-      id: 'com.mediavault.tmdb',
+      id: 'com.meem.tmdb',
       name: 'The Movie Database (TMDB)',
       version: '1.0.0',
       description: 'Comprehensive Movie & Series metadata, ratings, trending suggestions, and backdrops.',
@@ -5417,7 +5687,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       category: 'catalogs'
     },
     {
-      id: 'com.mediavault.fanart',
+      id: 'com.meem.fanart',
       name: 'Fanart.tv',
       version: '1.0.0',
       description: 'High-definition fanart, clearlogos, thumbs, and cinematic movie/series backdrops from Fanart.tv.',
@@ -5449,12 +5719,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       description: 'Weekly anime release schedule calendar updated in real-time via Jikan & AniList APIs. Adds a dedicated Anime Schedule tab & page to the app.',
       url: 'internal://anime-schedule',
       manifestUrl: 'internal://anime-schedule/manifest.json',
-      icon: 'imgs/jikan-logo.png',
+      icon: 'imgs/Anime Release Schedule.png',
       types: ['anime', 'catalog'],
       category: 'anime'
     },
     {
-      id: 'com.mediavault.youtube',
+      id: 'com.meem.youtube',
       name: 'YouTube',
       version: '1.0.0',
       description: 'Watch Trending & Recommended YouTube videos, stream with subtitles in player, and download to Social folder.',
@@ -5553,11 +5823,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
       const installedNormalized = new Set((appData.installedAddons || []).map(a => normalizeAddonUrl(a.url)));
       
-      // Filter out deprecated legacy addons (do not exclude modern OpenSubtitles v3)
+      // Filter out deprecated legacy addons & hidden addons (do not exclude modern OpenSubtitles v3)
       const isExcluded = (addon) => {
         const id = (addon.id || '').toLowerCase();
         const name = (addon.name || '').toLowerCase();
         const url = (addon.url || addon.manifestUrl || '').toLowerCase();
+        if (id.includes('cyberflix') || name.includes('cyberflix') || url.includes('cyberflix')) return true;
+        if (id.includes('mediafusion') || name.includes('mediafusion') || url.includes('mediafusion')) return true;
         if (id.includes('v3') || name.includes('v3') || url.includes('v3')) return false;
         const LEGACY_PATTERNS = ['subtitles.strem.io', 'subtitles.official'];
         return LEGACY_PATTERNS.some(p => id.includes(p) || name.includes(p) || url.includes(p));
@@ -5731,7 +6003,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           let configUrl = (addon.manifestUrl || addon.url || '').replace(/\/manifest\.json$/i, '');
           // Handle built-in local addons
           if (configUrl.startsWith('local://')) {
-            if (addon.id === 'com.mediavault.subdl') {
+            if (addon.id === 'com.meem.subdl' || addon.id === 'com.mediavault.subdl') {
               switchView('settings');
               setTimeout(() => {
                 const card = document.getElementById('subdl-connection-card');
@@ -5742,7 +6014,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 }
               }, 150);
               showToast('⚙️ SubDL Subtitle Settings');
-            } else if (addon.id === 'com.mediavault.youtube') {
+            } else if (addon.id === 'com.meem.youtube' || addon.id === 'com.mediavault.youtube') {
               if (typeof window.openYouTubeSettingsModal === 'function') {
                 window.openYouTubeSettingsModal();
               } else {
@@ -5800,7 +6072,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       };
 
       appData.installedAddons.push(entry);
-      await persist();
+      await persist(true);
       if (window.AppCapabilities && typeof window.AppCapabilities.refresh === 'function') {
         window.AppCapabilities.refresh();
       }
@@ -5833,7 +6105,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         const name = appData.installedAddons[idx].name;
         showToast(`🗑 Uninstalling ${name}...`);
         appData.installedAddons.splice(idx, 1);
-        await persist();
+        await persist(true);
         if (window.AppCapabilities && typeof window.AppCapabilities.refresh === 'function') {
           window.AppCapabilities.refresh();
         }
@@ -6461,7 +6733,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         const isV3 = id.includes('v3') || name.includes('v3') || url.includes('v3');
         if (isV3) return true;
         const isLegacyOpenSubs = url.includes('subtitles.strem.io') || url.includes('subtitles.official');
-        const isOldSubdl = (url.includes('subdl') || id.includes('subdl') || name.includes('subdl')) && !id.includes('com.mediavault.subdl');
+        const isOldSubdl = (url.includes('subdl') || id.includes('subdl') || name.includes('subdl')) && !id.includes('com.meem.subdl') && !id.includes('com.mediavault.subdl');
         return !isLegacyOpenSubs && !isOldSubdl;
       });
 
@@ -6876,6 +7148,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // Player
   $('#btn-play-pause').onclick = () => { engine.togglePause(); };
 
+  // Click directly on video screen / canvas to toggle Play / Pause
+  if (video) {
+    video.addEventListener('click', (e) => {
+      e.stopPropagation();
+      engine.togglePause();
+    });
+  }
+  const playerContainerEl = $('#player-container');
+  if (playerContainerEl) {
+    playerContainerEl.addEventListener('click', (e) => {
+      if (e.target.closest('button, input, select, a, .player-topbar, .player-controls, .player-side-panel, .player-settings-dropdown, .player-action-pill, #player-center-controls')) {
+        return;
+      }
+      engine.togglePause();
+    });
+  }
+
   // Art/Video Toggle Listeners
   const playerMusicToggle = $('#player-music-toggle');
   const btnArt = $('#btn-player-art');
@@ -6906,11 +7195,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Bottom volume slider
   const bottomVolBar = $('.volume-bar-bottom');
+  const savedGlobalVol = parseFloat(localStorage.getItem('meem_global_volume'));
+  if (!isNaN(savedGlobalVol) && savedGlobalVol >= 0 && savedGlobalVol <= 1) {
+    if (video) video.volume = savedGlobalVol;
+    if (bottomVolBar) bottomVolBar.value = Math.round(savedGlobalVol * 100);
+  }
   if (bottomVolBar) {
     bottomVolBar.oninput = () => {
       const val = parseFloat(bottomVolBar.value) / 100;
       video.volume = val;
       video.muted = false;
+      try {
+        localStorage.setItem('meem_global_volume', val.toFixed(2));
+        if (window.appData) window.appData.volume = Math.round(val * 100);
+      } catch (_) {}
       updateVolumeIcon();
     };
   }
@@ -9825,13 +10123,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             div.style.cssText = 'padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.06);transition:background 0.2s;display:flex;align-items:center;gap:12px;';
             const statusText = user.allow_invitations === false ? ' <span style="color:#EF4444;font-size:11px;font-weight:bold;margin-left:5px;">(Invites Closed)</span>' : '';
             const avatarUrl = user.avatar || 'https://lh3.googleusercontent.com/a/default-user=s96-c';
+            const profileIdBadge = user.profile_id ? `<span style="background:rgba(99,102,241,0.2);color:#a5b4fc;padding:1px 6px;border-radius:4px;font-size:11px;font-family:monospace;margin-left:auto;">ID: ${escapeHTML(user.profile_id)}</span>` : '';
+            const emailSub = user.email ? `Account: ${escapeHTML(user.email)}` : `@${escapeHTML(user.profile_name)}`;
             
             div.innerHTML = `
               <img src="${escapeHTML(avatarUrl)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(255,255,255,0.2);flex-shrink:0;">
               <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
                 <span style="color:#fff;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(user.profile_name)}${statusText}</span>
-                <span style="color:var(--text-secondary);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${user.email ? escapeHTML(user.email) : '@' + escapeHTML(user.profile_name)}</span>
+                <span style="color:var(--text-secondary);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${emailSub}</span>
               </div>
+              ${profileIdBadge}
             `;
             div.onmouseover = () => { div.style.background = 'rgba(255,255,255,0.08)'; };
             div.onmouseout = () => { div.style.background = ''; };
@@ -9853,7 +10154,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           });
           suggestionsBox.style.display = 'block';
         } else {
-          suggestionsBox.innerHTML = '<div style="padding:14px;color:rgba(255,255,255,0.5);font-size:13px;text-align:center;">No users found</div>';
+          suggestionsBox.innerHTML = '<div style="padding:14px;color:rgba(255,255,255,0.5);font-size:13px;text-align:center;">No profiles found</div>';
           suggestionsBox.style.display = 'block';
         }
       } catch (e) {
@@ -9886,14 +10187,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       
       try {
         let targetUserId = selectedUser ? selectedUser.user_id : null;
+        let targetProfileId = selectedUser ? selectedUser.profile_id : null;
         let allowInvitations = selectedUser ? selectedUser.allow_invitations : null;
         let displayName = selectedUser ? selectedUser.profile_name : val;
 
-        // Try exact username or email resolution first
+        // Try exact profile name, profile ID, username or email resolution first
         if (!targetUserId) {
           const res = await window.api.invoke('cloud-get-user-id-by-username', { username: val });
           if (res.success && res.data && res.data.length > 0) {
             targetUserId = res.data[0].user_id;
+            targetProfileId = res.data[0].profile_id;
             allowInvitations = res.data[0].allow_invitations;
             if (res.data[0].profile_name) displayName = res.data[0].profile_name;
           }
@@ -9904,13 +10207,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const res = await window.api.invoke('cloud-search-collaborators', { query_str: val });
           if (res.success && res.data && res.data.length > 0) {
             targetUserId = res.data[0].user_id;
+            targetProfileId = res.data[0].profile_id;
             allowInvitations = res.data[0].allow_invitations;
             displayName = res.data[0].profile_name;
           }
         }
 
         if (!targetUserId) {
-          showToast('No user account found');
+          showToast('No user profile found');
           confirmBtn.disabled = false;
           confirmBtn.style.opacity = '1';
           return;
@@ -9929,14 +10233,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
         const inviteRes = await window.api.invoke('cloud-invite-collaborator', {
           listId,
-          targetUserId
+          targetUserId,
+          targetProfileId
         });
 
         if (!inviteRes.success) {
           if (inviteRes.blocked) {
             showToast('This user has disabled invitations.');
           } else if (inviteRes.exists) {
-            showToast('This user is already a collaborator/invited');
+            showToast('This profile is already invited or a collaborator');
           } else {
             throw new Error(inviteRes.error || 'Invitation failed');
           }
@@ -10618,123 +10923,139 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   }
 
   function renderSocial() {
-    // console.log('[RENDER-SOCIAL] Starting render... ProfileVideos:', appData.socialVideos?.length || 0, 'LegacyVideos:', appData.youtubeVideos?.length || 0);
-    const g = $('#social-grid'), empty = $('#social-empty');
-    if (!g) return;
     const q = ($('#search-social')?.value || '').toLowerCase();
+    const vidSec = $('#social-videos-section');
+    const musSec = $('#social-music-section');
+    const vidRow = $('#social-videos-row');
+    const musRow = $('#social-music-row');
+    const empty = $('#social-empty');
 
-    // Combine Profile Social videos + Legacy Folder videos + Music from appData.music & downloads
-    const profileVideos = (appData.socialVideos || []).map(v => ({ ...v, name: v.filename, date: v.date || Date.now(), isLocal: true, social: true }));
-    const legacyVideos = (appData.youtubeVideos || []).map(v => ({ ...v, name: v.filename, date: v.date || Date.now(), isLocal: true, social: true }));
-    const dlHistory = (appData.downloadHistory || []).filter(d => d.status === 'complete' && (d.social || d.isYoutube) && d.path);
-
-    // Music files (including 3mro\Music and downloaded audio)
-    const musicTracks = (appData.music || []).filter(m => m.path || m.url).map(m => ({
-      ...m,
-      name: m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Music Track'),
-      date: m.date || Date.now(),
+    // 1. Collect Social Videos
+    const profileVideos = (appData.socialVideos || []).map(v => ({
+      ...v,
+      name: v.filename || v.name,
+      title: v.title || v.filename || v.name,
+      date: v.date || Date.now(),
       isLocal: true,
-      isMusic: true,
-      type: 'music'
+      social: true,
+      type: 'social'
     }));
 
-    const dlMusic = (appData.downloadHistory || []).filter(d => d.status === 'complete' && (d.type === 'music' || d.isMusic || (d.path && /\.(m4a|mp3|flac|wav|ogg)$/i.test(d.path)))).map(m => ({
-      ...m,
-      name: m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Downloaded Track'),
-      date: m.date || Date.now(),
+    const legacyVideos = (appData.youtubeVideos || []).map(v => ({
+      ...v,
+      name: v.filename || v.name,
+      title: v.title || v.filename || v.name,
+      date: v.date || Date.now(),
       isLocal: true,
-      isMusic: true,
-      type: 'music'
+      social: true,
+      type: 'social'
     }));
 
-    const seen = new Set();
-    const all = [...profileVideos, ...legacyVideos, ...dlHistory, ...musicTracks, ...dlMusic].filter(v => {
+    const dlVideos = (appData.downloadHistory || []).filter(d => d.status === 'complete' && (d.social || d.isYoutube || d.type === 'video' || (!d.isMusic && !d.type?.includes('music') && /\.(mp4|mkv|webm|mov|avi)$/i.test(d.path))) && d.path).map(d => ({
+      ...d,
+      name: d.title || d.name || d.filename || (d.path ? d.path.split(/[/\\]/).pop() : 'Downloaded Video'),
+      title: d.title || d.name || d.filename || (d.path ? d.path.split(/[/\\]/).pop() : 'Downloaded Video'),
+      date: d.date || Date.now(),
+      isLocal: true,
+      social: true,
+      type: 'social'
+    }));
+
+    const seenVideos = new Set();
+    const allVideos = [...profileVideos, ...legacyVideos, ...dlVideos].filter(v => {
       const key = v.path || v.id || v.url;
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
+      if (!key || seenVideos.has(key)) return false;
+      seenVideos.add(key);
       return true;
     });
 
-    const list = q ? all.filter(v => (v.name || v.title || '').toLowerCase().includes(q)) : all;
-    g.innerHTML = '';
-    if (!list.length) {
+    // 2. Collect Music & Audio tracks
+    const musicTracks = (appData.music || []).filter(m => m.path || m.url).map(m => {
+      const meta = typeof getMusicMeta === 'function' ? getMusicMeta(m) : {};
+      const cover = meta?.cover || m.cover || m.thumbnail || m.poster || m.image;
+      return {
+        ...m,
+        name: meta?.title || m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Music Track'),
+        title: meta?.title || m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Music Track'),
+        artist: meta?.artist || m.artist || 'Unknown Artist',
+        cover,
+        poster: cover,
+        thumbnail: cover,
+        date: m.date || Date.now(),
+        isLocal: true,
+        isMusic: true,
+        type: 'music'
+      };
+    });
+
+    const dlMusic = (appData.downloadHistory || []).filter(d => d.status === 'complete' && (d.type === 'music' || d.isMusic || /\.(m4a|mp3|flac|wav|ogg|aac|opus)$/i.test(d.path)) && d.path).map(m => {
+      const meta = typeof getMusicMeta === 'function' ? getMusicMeta(m) : {};
+      const cover = meta?.cover || m.cover || m.thumbnail || m.poster || m.image;
+      return {
+        ...m,
+        name: meta?.title || m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Downloaded Track'),
+        title: meta?.title || m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Downloaded Track'),
+        artist: meta?.artist || m.artist || 'Unknown Artist',
+        cover,
+        poster: cover,
+        thumbnail: cover,
+        date: m.date || Date.now(),
+        isLocal: true,
+        isMusic: true,
+        type: 'music'
+      };
+    });
+
+    const seenMusic = new Set();
+    const allMusic = [...musicTracks, ...dlMusic].filter(m => {
+      const key = m.path || m.id || m.url;
+      if (!key || seenMusic.has(key)) return false;
+      seenMusic.add(key);
+      return true;
+    });
+
+    // Apply search filter
+    const filteredVideos = q ? allVideos.filter(v => (v.title || v.name || '').toLowerCase().includes(q)) : allVideos;
+    const filteredMusic = q ? allMusic.filter(m => (m.title || m.name || m.artist || '').toLowerCase().includes(q)) : allMusic;
+
+    const totalCount = filteredVideos.length + filteredMusic.length;
+
+    if (!totalCount) {
+      if (vidSec) vidSec.style.display = 'none';
+      if (musSec) musSec.style.display = 'none';
       if (empty) empty.style.display = 'flex';
-      const ct = $('#social-count'); if (ct) ct.textContent = '';
       updateBadges();
       return;
     }
+
     if (empty) empty.style.display = 'none';
-    const ct = $('#social-count'); if (ct) ct.textContent = `(${list.length})`;
 
-    list.forEach(v => {
-      const card = document.createElement('div'); card.className = 'media-card';
-      const title = (v.name || v.title || 'Untitled Content').replace(/\.[^.]+$/, '');
-      let imgHTML = '<svg viewBox="0 0 48 48" width="40" height="40" fill="var(--accent)"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>';
-
-      if (v.isMusic) {
-        const coverSrc = v.thumbnail || v.cover || v.image;
-        if (coverSrc) {
-          const cUrl = coverSrc.startsWith('http') || coverSrc.startsWith('data:') ? coverSrc : localImg(coverSrc);
-          imgHTML = `<img src="${cUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:0;" onerror="this.style.display='none'">`;
-        } else {
-          imgHTML = `<div style="width:100%;height:100%;background:linear-gradient(135deg, #1e1e2e, #0a0a14);display:flex;align-items:center;justify-content:center;color:#10b981;font-size:32px;"><i class="fas fa-music"></i></div>`;
+    // Render Videos Shelf
+    if (vidSec && vidRow) {
+      if (filteredVideos.length > 0) {
+        vidSec.style.display = 'block';
+        const ct = $('#social-videos-count'); if (ct) ct.textContent = `(${filteredVideos.length})`;
+        if (typeof renderDiscoverRow === 'function') {
+          renderDiscoverRow('#social-videos-row', filteredVideos);
         }
       } else {
-        let isYtThumb = false;
-        if (v.url) {
-          const ytMatch = v.url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
-          if (ytMatch && ytMatch[1]) {
-            imgHTML = `<img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
-            isYtThumb = true;
-          }
-        }
-
-        if (!isYtThumb && v.path) {
-          const custom = appData.banners[v.path];
-          if (custom) {
-            imgHTML = `<img src="${localImg(custom)}" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
-          } else if (v.image) {
-            imgHTML = `<img src="${localImg(v.image)}" style="width:100%;height:100%;object-fit:cover;border-radius:0;" onerror="this.style.display='none'">`;
-          } else {
-            // Canvas-based high quality thumbnail for local files
-            const thumb = ensureThumbnail(v);
-            if (thumb) {
-              imgHTML = `<img src="${thumb}" style="width:100%;height:100%;object-fit:cover;border-radius:0;">`;
-            } else {
-              imgHTML = `<div style="width:100%;height:100%;background:rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center;"><i class="fas fa-spinner fa-spin" style="opacity:0.2"></i></div>`;
-            }
-          }
-        }
+        vidSec.style.display = 'none';
       }
+    }
 
-      const badgeText = v.isMusic ? 'MUSIC' : 'SOCIAL';
-      const badgeStyle = v.isMusic ? 'background:#10b981;color:#fff;' : '';
-
-      card.innerHTML = `
-        <div style="position:relative;width:100%;padding-top:56.25%;background:#0a0a0a;overflow:hidden;">
-          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">${imgHTML}</div>
-          <div class="card-play-overlay">
-            <div class="play-circle"><svg viewBox="0 0 24 24" width="22" height="22"><polygon points="8 5 20 12 8 19"/></svg></div>
-          </div>
-          ${v.isLocal ? `<div class="local-badge" style="${badgeStyle}" title="${badgeText}">${badgeText}</div>` : ''}
-        </div>
-        <div class="card-info">
-          <div class="card-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
-          <div class="card-meta">${v.artist || new Date(v.date || Date.now()).toLocaleDateString()}</div>
-        </div>`;
-
-      card.onclick = () => {
-        if (v.isMusic) {
-          playMusic(v);
-        } else {
-          playVideo({ ...v, id: v.path, title, path: v.path, type: 'social', isSocial: true }, null);
+    // Render Music Shelf
+    if (musSec && musRow) {
+      if (filteredMusic.length > 0) {
+        musSec.style.display = 'block';
+        const ct = $('#social-music-count'); if (ct) ct.textContent = `(${filteredMusic.length})`;
+        if (typeof renderDiscoverRow === 'function') {
+          renderDiscoverRow('#social-music-row', filteredMusic);
         }
-      };
-      card.oncontextmenu = e => {
-        window.openContextMenuForItem({ ...v, id: v.path || v.id, title, path: v.path, type: v.isMusic ? 'music' : 'social', filename: v.name, isLocal: true, isMusic: !!v.isMusic }, e);
-      };
-      g.appendChild(card);
-    });
+      } else {
+        musSec.style.display = 'none';
+      }
+    }
+
     updateBadges();
   }
 
@@ -11072,12 +11393,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
 
     let imdbIdDisplay = '';
-    if (resolvedImdb && String(resolvedImdb).startsWith('tt')) {
-      imdbIdDisplay = `<div class="card-imdb-id" style="font-size: 10px; color: #e5a00d; margin-top: 4px; font-family: monospace; font-weight: bold; background: rgba(229,160,13,0.1); padding: 2px 6px; border-radius: 4px; display: inline-block;">IMDb: ${escapeHTML(resolvedImdb)}</div>`;
-    }
 
     const displayTitle = tmdb?.title || tmdb?.name || item.title || item.name || 'Unknown';
-    card.innerHTML = `<div class="card-poster">${posterInner}<div class="card-poster-placeholder" ${posterInner ? 'style="display:none"' : ''}><div class="ph-icon">${isYoutube ? '<svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L11.818 12l-6.273 3.568z"/></svg>' : (isShow ? SVG_SHOW : SVG_MOVIE)}</div><span class="ph-text">${escapeHTML(item.title || item.name || 'Unknown')}</span></div><div class="card-play-overlay"><div class="play-circle"><svg viewBox="0 0 24 24" width="22" height="22"><polygon points="8 5 20 12 8 19"/></svg></div><button class="btn-tmdb-search" title="Search TMDB"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></div></div><div class="card-info"><div class="card-title" title="${escapeHTML(displayTitle)}">${escapeHTML(displayTitle)}</div>${genreHTML}<div class="card-meta">${metaText}</div>${imdbIdDisplay}${ratingHTML}<span class="discover-age-badge-container">${cardAgeBadgeHtml}</span>${progressHTML}</div>`;
+    card.innerHTML = `<div class="card-poster">${posterInner}<div class="card-poster-placeholder" ${posterInner ? 'style="display:none"' : ''}><div class="ph-icon">${isYoutube ? '<svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L11.818 12l-6.273 3.568z"/></svg>' : (isShow ? SVG_SHOW : SVG_MOVIE)}</div><span class="ph-text">${escapeHTML(item.title || item.name || 'Unknown')}</span></div><div class="card-play-overlay"><div class="play-circle"><svg viewBox="0 0 24 24" width="22" height="22"><polygon points="8 5 20 12 8 19"/></svg></div><button class="btn-tmdb-search" title="Search TMDB"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></div></div><div class="card-info"><div class="card-title" title="${escapeHTML(displayTitle)}">${escapeHTML(displayTitle)}</div>${genreHTML}<div class="card-meta">${metaText}</div>${ratingHTML}<span class="discover-age-badge-container">${cardAgeBadgeHtml}</span>${progressHTML}</div>`;
     card.querySelector('.btn-tmdb-search').onclick = (e) => { e.stopPropagation(); openTmdbSearchModal(item); };
     const isTV = item.type === 'show' || item.media_type === 'tv' || !!(item.episodes);
     card.onclick = () => {
@@ -11871,7 +12189,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     const bannerBtn = $('#btn-fav-banner');
     if (bannerBtn) {
-      bannerBtn.style.display = showBannerBtn ? 'flex' : 'none';
+      bannerBtn.classList.toggle('btn-disabled-addon', !showBannerBtn);
+      bannerBtn.style.display = 'flex';
     }
 
     // Keep EXPLORE group visible
@@ -11972,12 +12291,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // any external stream or download. Acceptance is remembered for the session
   // (sessionStorage) so the user is not prompted on every single click,
   // but the modal reappears after every app restart.
-  const DISCLAIMER_SESSION_KEY = 'mediavault_disclaimer_accepted';
+  const DISCLAIMER_SESSION_KEY = 'meem_disclaimer_accepted';
   const DISCLAIMER_DONT_SHOW_KEY = 'meem_disclaimer_dont_show';
 
   function showDisclaimerAndProceed(callback) {
     // If user previously checked "Don't show again", or accepted this session, proceed immediately
-    if (localStorage.getItem(DISCLAIMER_DONT_SHOW_KEY) === '1' || localStorage.getItem('mv_disclaimer_stream_seen') === 'true' || window.appData?.disclaimerDontShow === true || window.appData?.disclaimerStreamSeen === true || sessionStorage.getItem(DISCLAIMER_SESSION_KEY) === '1') {
+    if (localStorage.getItem(DISCLAIMER_DONT_SHOW_KEY) === '1' || localStorage.getItem('mv_disclaimer_stream_seen') === 'true' || window.appData?.disclaimerDontShow === true || window.appData?.disclaimerStreamSeen === true || sessionStorage.getItem(DISCLAIMER_SESSION_KEY) === '1' || sessionStorage.getItem('mediavault_disclaimer_accepted') === '1') {
       callback();
       return;
     }
@@ -13130,11 +13449,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   }
 
   const getBadgeHTML = (item) => {
+    if (!item) return '';
     const isKitsu = item.source === 'kitsu' || item.source === 'anilist' || item.format;
-    const source = isKitsu ? 'KITSU' : 'TMDB';
-    const typeLabel = (item.media_type === 'movie' || (isKitsu && item.format === 'MOVIE')) ? 'MOVIE' : 'SERIES';
-    return `<span class="discover-meta-badge">${source} ┬╖ ${typeLabel}</span>`;
+    const source = isKitsu ? 'KITSU' : (item.source ? String(item.source).toUpperCase() : 'TMDB');
+    const typeLabel = (item.media_type === 'movie' || item.type === 'movie' || (isKitsu && item.format === 'MOVIE')) ? 'MOVIE' : 'SERIES';
+    return `<span class="discover-meta-badge">${typeof escapeHTML === 'function' ? escapeHTML(source) : source} • ${typeof escapeHTML === 'function' ? escapeHTML(typeLabel) : typeLabel}</span>`;
   };
+  window.getBadgeHTML = getBadgeHTML;
 
   function renderDiscoverGrid(sel, items) {
     const grid = $(sel);
@@ -14380,7 +14701,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
         if (window.api && window.api.isMobile && window.api.isMobile()) {
           for (const p of appData.profiles) {
-            await window.api.invoke('ensure-profile-folders', p.name);
+            try {
+              await window.api.invoke('ensure-profile-folders', p.name);
+            } catch (e) {
+              console.warn('[INIT] ensure-profile-folders failed (non-fatal):', e);
+            }
           }
         }
 
@@ -14537,6 +14862,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   function switchView(name) {
     if (name === 'home') name = 'discover';
+    if (name === 'library') name = 'social';
     const canMusic = window.AppCapabilities ? window.AppCapabilities.can('music') : (appData.installedAddons || []).some(a => {
       if (a.enabled === false) return false;
       const id = String(a.id || '').toLowerCase();
@@ -14591,7 +14917,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
     }
     if (name === 'discover') discoverStack = []; // Reset sub-navigation when going to main list
-    if (['library', 'movies', 'shows', 'social', 'music', 'radio', 'iptv', 'addons', 'watchlist', 'settings', 'account', 'discover', 'downloads', 'discover-detail', 'show-detail', 'subtitles', 'sync', 'player', 'music-player', 'profiles', 'hub', 'search', 'custom-list-detail', 'anime-schedule', 'bug-report'].includes(name)) {
+    if (['library', 'movies', 'shows', 'social', 'music', 'radio', 'iptv', 'addons', 'watchlist', 'settings', 'account', 'discover', 'downloads', 'discover-detail', 'show-detail', 'subtitles', 'sync', 'player', 'music-player', 'profiles', 'hub', 'search', 'custom-list-detail', 'anime-schedule', 'bug-report', 'ai'].includes(name)) {
       if (name === 'custom-list-detail') {
         if (activeCustomListId && (currentView === 'discover-detail' || currentView === 'player' || currentView === 'music-player')) {
           renderCustomListDetail(activeCustomListId);
@@ -14601,6 +14927,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (!name.includes('detail')) appData.lastView = name;
       persist();
       window.scrollTo(0, 0); // Smart scroll: Reset scroll to top when changing views
+      if (name === 'ai') {
+        if (typeof window.initAIView === 'function') window.initAIView();
+        if (typeof window.updateAIQuotaUI === 'function') window.updateAIQuotaUI();
+        if (typeof window.showAISidebarNav === 'function') window.showAISidebarNav();
+      } else {
+        if (typeof window.hideAISidebarNav === 'function') window.hideAISidebarNav();
+      }
       if (name === 'bug-report') {
         if (typeof checkAndApplyAdminState === 'function') checkAndApplyAdminState();
       }
@@ -14735,7 +15068,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         // Explicitly set display to avoid relying purely on CSS class (fixes settings/account blank)
         if (isActive) {
           // Some views need flex layout instead of block
-          if (k === 'addons' || k === 'anime-schedule') {
+          if (k === 'ai' || k === 'addons' || k === 'anime-schedule') {
             el.style.display = 'flex';
           } else if (k === 'iptv') {
             el.style.display = 'block';
@@ -16154,10 +16487,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const tmdbCache = (window.appData && window.appData.tmdbCache) || {};
 
     list.slice(0, 15).forEach(item => {
-      const card = document.createElement('div');
-      card.className = 'bento-wl-card';
-      const title = item.title || item.name || item.original_title || 'Untitled';
+      const isRadio = item.type === 'radio' || item.media_type === 'radio' || !!item.radioUrl;
+      const isIptv = !isRadio && (item.type === 'iptv' || item.media_type === 'iptv' || !!item.streamUrl);
+      const isMusic = !isRadio && !isIptv && (item.type === 'music' || item.media_type === 'music' || (!!item.artist && !!item.duration));
+      const isYoutube = !isRadio && !isIptv && !isMusic && (item.isYoutube || item.type === 'youtube' || item.type === 'social' || item.media_type === 'youtube');
+      const isShow = !isRadio && !isIptv && !isMusic && !isYoutube && (item.media_type === 'tv' || item.type === 'show' || item.type === 'series' || !!(item.episodes && item.episodes.length > 0));
 
+      const title = item.title || item.name || item.original_title || 'Untitled';
       const cached = item.id ? (tmdbCache[item.id] || tmdbCache[String(item.id).replace('tmdb:', '')]) : null;
       let posterUrl = item.poster || item.poster_path || item.posterPath || item.bannerPath || item.backdrop_path || item.backdropPath || item.backdrop || item.cover || item.image || item.favicon || item.logo || item.thumbnail || (cached?.posterPath || cached?.poster_path || cached?.backdropPath) || '';
 
@@ -16169,40 +16505,132 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
       }
 
-      const isLive = item.type === 'radio' || item.type === 'iptv' || item.media_type === 'radio' || item.media_type === 'iptv' || !!item.radioUrl || !!item.streamUrl;
-      const isShow = item.media_type === 'tv' || item.type === 'show' || item.type === 'series' || !!(item.episodes);
-      const isRadio = item.type === 'radio' || item.media_type === 'radio' || !!item.radioUrl;
-      const typeLabel = isLive ? (isRadio ? 'RADIO' : 'IPTV') : (isShow ? 'SERIES' : 'MOVIE');
-      const fallbackIcon = isLive ? (isRadio ? 'fa-radio' : 'fa-tv') : (isShow ? 'fa-desktop' : 'fa-film');
+      const card = document.createElement('div');
 
-      card.innerHTML = `
-        <div class="bento-wl-poster-wrap">
-          ${posterUrl ? `<img src="${posterUrl}" class="bento-wl-poster" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
-          <div class="bento-wl-placeholder" style="${posterUrl ? 'display:none;' : 'display:flex;'}">
-            <i class="fas ${fallbackIcon}"></i>
+      if (isRadio) {
+        card.className = 'bento-wl-card bento-wl-card-radio';
+        card.innerHTML = `
+          <div class="bento-wl-poster-wrap">
+            ${posterUrl ? `<img src="${posterUrl}" class="bento-wl-poster" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+            <div class="bento-wl-placeholder" style="${posterUrl ? 'display:none;' : 'display:flex;'}">
+              <i class="fas fa-broadcast-tower" style="font-size: 24px; color: #ffffff;"></i>
+            </div>
+            <div class="bento-wl-overlay">
+              <div class="bento-wl-play-btn"><i class="fas fa-play"></i></div>
+            </div>
+            <div class="bento-wl-badge bento-wl-badge-radio"><span class="bento-pulse-dot" style="background:#ffffff;"></span> LIVE</div>
           </div>
-          <div class="bento-wl-overlay">
-            <div class="bento-wl-play-btn"><i class="fas fa-play"></i></div>
+          <div class="bento-wl-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
+        `;
+        card.onclick = () => {
+          if (typeof window.playRadioStation === 'function') {
+            window.playRadioStation({
+              id: item.id,
+              name: title,
+              url: item.radioUrl || item.url,
+              favicon: posterUrl,
+              country: item.country,
+              bitrate: item.bitrate
+            });
+          }
+          if (typeof switchView === 'function') switchView('radio');
+        };
+      } else if (isIptv) {
+        card.className = 'bento-wl-card bento-wl-card-iptv';
+        card.innerHTML = `
+          <div class="bento-wl-poster-wrap">
+            ${posterUrl ? `<img src="${posterUrl}" class="bento-wl-poster" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+            <div class="bento-wl-placeholder" style="${posterUrl ? 'display:none;' : 'display:flex;'}">
+              <i class="fas fa-tv" style="font-size: 24px; color: #ffffff;"></i>
+            </div>
+            <div class="bento-wl-overlay">
+              <div class="bento-wl-play-btn"><i class="fas fa-play"></i></div>
+            </div>
+            <div class="bento-wl-badge bento-wl-badge-iptv"><span class="bento-pulse-dot" style="background:#ffffff;"></span> LIVE</div>
           </div>
-          <div class="bento-wl-badge">${typeLabel}</div>
-        </div>
-        <div class="bento-wl-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
-      `;
-
-      card.onclick = () => {
-        if (isRadio && typeof window.playRadioStation === 'function') {
-          window.playRadioStation(item);
-          switchView('radio');
-        } else if (item.type === 'iptv' && typeof window.selectIptvChannel === 'function') {
-          window.selectIptvChannel(item);
-        } else if (typeof openDiscoverDetail === 'function' && (item.id || item.tmdbId || item.imdbId || !item.isLocal)) {
-          openDiscoverDetail(item);
-        } else if (typeof openShowDetail === 'function' && isShow) {
-          openShowDetail(item);
-        } else if (typeof playVideo === 'function') {
-          playVideo(item);
-        }
-      };
+          <div class="bento-wl-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
+        `;
+        card.onclick = () => {
+          if (typeof switchView === 'function') switchView('iptv');
+          if (typeof window.selectIptvChannel === 'function') {
+            window.selectIptvChannel({
+              id: item.id,
+              name: title,
+              url: item.streamUrl || item.url,
+              logo: posterUrl,
+              category: item.category || item.groupTitle
+            });
+          }
+        };
+      } else if (isMusic) {
+        card.className = 'bento-wl-card bento-wl-card-music';
+        card.innerHTML = `
+          <div class="bento-wl-poster-wrap">
+            ${posterUrl ? `<img src="${posterUrl}" class="bento-wl-poster" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+            <div class="bento-wl-placeholder" style="${posterUrl ? 'display:none;' : 'display:flex;'}">
+              <i class="fas fa-music" style="font-size: 22px; color: #ffffff;"></i>
+            </div>
+            <div class="bento-wl-overlay">
+              <div class="bento-wl-play-btn"><i class="fas fa-play"></i></div>
+            </div>
+            <div class="bento-wl-badge bento-wl-badge-music"><i class="fas fa-music"></i> MUSIC</div>
+          </div>
+          <div class="bento-wl-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
+        `;
+        card.onclick = () => {
+          if (window.MeemAudioPlayer) {
+            window.MeemAudioPlayer.playTrack(item, [item]);
+          }
+          if (typeof switchView === 'function') switchView('music');
+        };
+      } else if (isYoutube) {
+        card.className = 'bento-wl-card bento-wl-card-youtube';
+        card.innerHTML = `
+          <div class="bento-wl-poster-wrap">
+            ${posterUrl ? `<img src="${posterUrl}" class="bento-wl-poster" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+            <div class="bento-wl-placeholder" style="${posterUrl ? 'display:none;' : 'display:flex;'}">
+              <i class="fab fa-youtube" style="font-size: 24px; color: #cc0000;"></i>
+            </div>
+            <div class="bento-wl-overlay">
+              <div class="bento-wl-play-btn"><i class="fas fa-play"></i></div>
+            </div>
+            <div class="bento-wl-badge bento-wl-badge-yt"><i class="fab fa-youtube"></i> YOUTUBE</div>
+          </div>
+          <div class="bento-wl-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
+        `;
+        card.onclick = () => {
+          if (typeof playVideo === 'function') {
+            playVideo(item);
+          } else if (typeof openDiscoverDetail === 'function') {
+            openDiscoverDetail(item);
+          }
+        };
+      } else {
+        // Movies & Series
+        card.className = `bento-wl-card ${isShow ? 'bento-wl-card-series' : 'bento-wl-card-movie'}`;
+        card.innerHTML = `
+          <div class="bento-wl-poster-wrap">
+            ${posterUrl ? `<img src="${posterUrl}" class="bento-wl-poster" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+            <div class="bento-wl-placeholder" style="${posterUrl ? 'display:none;' : 'display:flex;'}">
+              <i class="fas ${isShow ? 'fa-desktop' : 'fa-film'}"></i>
+            </div>
+            <div class="bento-wl-overlay">
+              <div class="bento-wl-play-btn"><i class="fas fa-play"></i></div>
+            </div>
+            <div class="bento-wl-badge">${isShow ? 'SERIES' : 'MOVIE'}</div>
+          </div>
+          <div class="bento-wl-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
+        `;
+        card.onclick = () => {
+          if (typeof openDiscoverDetail === 'function' && (item.id || item.tmdbId || item.imdbId || !item.isLocal)) {
+            openDiscoverDetail(item);
+          } else if (typeof openShowDetail === 'function' && isShow) {
+            openShowDetail(item);
+          } else if (typeof playVideo === 'function') {
+            playVideo(item);
+          }
+        };
+      }
 
       container.appendChild(card);
     });
@@ -16409,7 +16837,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             } else {
               doUpdateBtn.disabled = true;
               doUpdateBtn.textContent = 'Downloading...';
-              const apkName = `MediaVault_v${data.version}.apk`;
+              const apkName = `MEEM_v${data.version}.apk`;
               window.api.downloadFile(data.downloadUrl || 'https://github.com/amromotaw3/MediaVault-Landing/releases', apkName);
             }
           };
@@ -16450,6 +16878,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           doUpdateBtn.textContent = (window.api?.isElectron) ? 'Restart & Install' : 'Install APK';
           doUpdateBtn.onclick = () => {
             if (window.api?.isElectron) {
+              localStorage.setItem('meem_just_updated', 'true');
               window.api.invoke('restart-app-and-install');
             } else {
               if (appData.lastDownloadedApkPath) {
@@ -16462,15 +16891,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
         if (statusDetail) statusDetail.textContent = 'Update Downloaded. Ready to install.';
         
-        // Auto-install logic - if PC, just invoke restart automatically or notify User.
-        // User asked: "وبعد ما اخلص يفتح النسخه الجديده علطول !" (After it finishes, open the new version immediately)
         if (window.api?.isElectron) {
+          localStorage.setItem('meem_just_updated', 'true');
           showToast("Update ready. Restarting in 3 seconds...");
           setTimeout(() => {
              window.api.invoke('restart-app-and-install');
           }, 3000);
         } else {
-           // For mobile, prompt user to install
            if (toast && toastTitle && toastDesc) {
              toastTitle.textContent = 'Download Complete';
              toastDesc.textContent = 'Tap to install the new APK.';
@@ -16516,6 +16943,65 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   }
 
+  function renderMarkdownNotes(text) {
+    if (!text) return '<p style="opacity:0.6;">No release description available.</p>';
+    return String(text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/^### (.*$)/gim, '<h4 style="font-size:15px; font-weight:700; margin:14px 0 6px 0; color:#fff;">$1</h4>')
+      .replace(/^## (.*$)/gim, '<h3 style="font-size:16px; font-weight:800; margin:16px 0 8px 0; color:#fff;">$1</h3>')
+      .replace(/^# (.*$)/gim, '<h2 style="font-size:18px; font-weight:800; margin:18px 0 10px 0; color:#fff;">$1</h2>')
+      .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#fff;">$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/`(.*?)`/g, '<code style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-family:monospace; font-size:12px;">$1</code>')
+      .replace(/^\s*[-*+]\s+(.*$)/gim, '<li style="margin-bottom:6px; list-style-type:disc; margin-left:18px;">$1</li>')
+      .replace(/\n\n/g, '<br/><br/>');
+  }
+
+  async function showWhatsNewModal(targetVer, customNotes) {
+    const modal = $('#modal-whats-new');
+    const badge = $('#whats-new-version-badge');
+    const dateEl = $('#whats-new-date');
+    const content = $('#whats-new-content');
+    if (!modal) return;
+
+    modal.style.display = 'flex';
+    const verToShow = targetVer || APP_VERSION || '3.10.6';
+    if (badge) badge.textContent = `v${verToShow}`;
+
+    if (customNotes) {
+      if (content) content.innerHTML = renderMarkdownNotes(customNotes);
+      return;
+    }
+
+    if (content) content.innerHTML = '<div style="text-align:center; padding: 30px; opacity: 0.6;"><i class="fas fa-spinner fa-spin" style="font-size:24px; margin-bottom:10px;"></i><br/>Fetching release notes...</div>';
+
+    try {
+      if (window.api?.invoke) {
+        const res = await window.api.invoke('get-release-notes', verToShow);
+        if (res && res.success) {
+          if (badge && res.version) badge.textContent = `v${res.version}`;
+          if (dateEl && res.publishedAt) {
+            dateEl.textContent = `Released: ${new Date(res.publishedAt).toLocaleDateString()}`;
+          }
+          if (content) content.innerHTML = renderMarkdownNotes(res.notes);
+        } else {
+          if (content) content.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Could not load release notes from GitHub.</p>';
+        }
+      } else {
+        if (content) content.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Release notes preview not available on mobile.</p>';
+      }
+    } catch (e) {
+      if (content) content.innerHTML = `<p style="color: rgba(255,255,255,0.7);">Error: ${e.message}</p>`;
+    }
+  }
+
+  window.showWhatsNewModal = showWhatsNewModal;
+
+  const btnWhatsNew = $('#btn-whats-new');
+  if (btnWhatsNew) {
+    btnWhatsNew.onclick = () => showWhatsNewModal(APP_VERSION);
+  }
+
   if (window.api?.isElectron) {
     window.api.on('update-status', (data) => handleUpdateStatus(data));
   }
@@ -16535,13 +17021,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const res = await window.api.invoke('check-for-updates');
           if (!res.success) {
             showToast('Update check failed: ' + res.error);
-            // Offer manual fallback link in modal
             handleUpdateStatus({ status: 'error', msg: 'Update check failed. Open releases page to download manually.' });
           } else {
-            // If result contains no update, the main process will emit 'update-status' event.
-            // If in development environment, present a helpful hint with manual link.
             if (!res.result || !res.result.updateInfo) {
-              // Leave it to update-status event, but restore button after short timeout
               setTimeout(() => { btnCheck.disabled = false; btnCheck.textContent = 'Check'; }, 3000);
             } else {
               btnCheck.disabled = false;
@@ -16568,8 +17050,26 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     };
   }
 
-  // Initial Auto-Check
+  // Initial Auto-Check & Post-Update "What's New" Popup
   setTimeout(() => {
+    // Only auto-show "What's New" if the user JUST installed an update
+    const curVer = APP_VERSION || '3.10.6';
+    const justUpdated = localStorage.getItem('meem_just_updated') === 'true';
+    if (justUpdated) {
+      console.log(`[UPDATER] App launched post-update: v${curVer}`);
+      localStorage.removeItem('meem_just_updated');
+      appData.lastSeenVersion = curVer;
+      persist();
+      setTimeout(() => {
+        showWhatsNewModal(curVer);
+      }, 1500);
+    } else {
+      if (!appData.lastSeenVersion || appData.lastSeenVersion !== curVer) {
+        appData.lastSeenVersion = curVer;
+        persist();
+      }
+    }
+
     if (appData.autoUpdate !== false) {
       if (window.api?.isElectron) {
         window.api.invoke('check-for-updates');
@@ -16577,7 +17077,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         checkMobileUpdate();
       }
     }
-  }, 10000); // 10s wait for app to settle
+  }, 1000);
 
   window.api.invoke('get-app-version').then(v => {
     const label = $('#app-version-label');
@@ -16656,10 +17156,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     const history = appData.searchHistory || [];
     
-    // Clear search preview panel default view
+    // Clear search preview panel default view and AI overview
     const previewPanel = $('#search-preview-panel');
     if (previewPanel) {
       previewPanel.classList.remove('active');
+    }
+    const aiOverview = $('#search-ai-overview-container');
+    if (aiOverview) {
+      aiOverview.style.display = 'none';
+      aiOverview.innerHTML = '';
     }
 
     // Fetch and compute Continue Watching items
@@ -16784,7 +17289,34 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
 
     grid.innerHTML = `
-      <div class="search-empty-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 35px; width: 100%; padding: 10px 0; animation: premiumFadeSlide 0.4s cubic-bezier(0.22, 1, 0.36, 1);">
+      <div class="search-empty-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 30px; width: 100%; padding: 10px 0; animation: premiumFadeSlide 0.4s cubic-bezier(0.22, 1, 0.36, 1);">
+        <!-- MEEM AI Smart Suggestions Banner -->
+        <div class="search-ai-prompts-card" style="display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.35);">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 0;">
+                <img src="imgs/meem-ai.jpg" alt="MEEM AI" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+              </div>
+              <div>
+                <h4 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #ffffff; display: flex; align-items: center; gap: 8px;">
+                  Smart Search Suggestions <span style="font-size: 0.65rem; background: rgba(255, 255, 255, 0.12); color: #ffffff; padding: 2px 8px; border-radius: 6px; font-weight: 800;">MEEM AI</span>
+                </h4>
+                <p style="margin: 2px 0 0; font-size: 0.8rem; color: rgba(255,255,255,0.65);">Search by plot, vibes, or ask for personalized recommendations</p>
+              </div>
+            </div>
+            <button onclick="switchView('ai')" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18); color: #ffffff; padding: 7px 16px; border-radius: 12px; font-size: 0.82rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
+              <img src="imgs/meem-ai.jpg" alt="MEEM AI" style="width: 16px; height: 16px; border-radius: 4px; object-fit: cover;"> Open MEEM AI
+            </button>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Recommend top mind-bending sci-fi movies with unexpected twists')">🚀 Mind-bending Sci-Fi</div>
+            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Best Korean mystery and crime thriller series')">🕵️ Korean Crime Thrillers</div>
+            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Top rated horror and thriller movies of 2024')">👻 Best 2024 Horror</div>
+            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Heartwarming family comedy movies to watch together')">🍿 Family Comedy</div>
+            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Play BBC World Service radio live stream')">📻 BBC World Radio</div>
+          </div>
+        </div>
+
         <!-- Search History / Continue Watching -->
         <div style="display: flex; flex-direction: column; gap: 15px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -16879,7 +17411,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               if (bPath.startsWith('http') || bPath.startsWith('local-file')) {
                 backdropUrl = bPath;
               } else {
-                // metahub.space is down — fall back to placeholder
                 backdropUrl = 'imgs/no-backdrop.png';
               }
             } else if (pPath) {
@@ -16982,16 +17513,41 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (history.length > 0) {
         const lastQuery = history[0];
         sectionTitle = `Suggested based on "${lastQuery}"`;
-        // Fetch search results for lastQuery as similar items
-        const res = await window.api.invoke('unified-search', lastQuery).catch(() => null);
-        recs = res?.results || [];
+        if (window.api && typeof window.api.invoke === 'function') {
+          const res = await window.api.invoke('unified-search', lastQuery).catch(() => null);
+          recs = res?.results || [];
+        }
+        if (!recs.length) {
+          const cinemetaResp = await fetch(`https://v3-cinemeta.strem.io/catalog/movie/top/search=${encodeURIComponent(lastQuery)}.json`).then(r => r.json()).catch(() => null);
+          if (cinemetaResp?.metas?.length) {
+            recs = cinemetaResp.metas.map(m => ({
+              id: m.id,
+              title: m.name,
+              poster: m.poster || `https://images.metahub.space/poster/medium/${m.id}/img`,
+              type: 'movie',
+              rating: m.imdbRating || 0,
+              releaseYear: m.releaseInfo ? parseInt(m.releaseInfo.substring(0, 4)) : 0
+            }));
+          }
+        }
       } else {
         // Fetch trending/top movies - try Cinemeta catalog directly
         sectionTitle = 'Trending Movies & TV Shows';
         let recItems = [];
-        const canCatalog = typeof window.can === 'function' ? window.can('catalog') : false;
-        if (canCatalog) {
-          try {
+        try {
+          const cinemetaResp = await fetch('https://v3-cinemeta.strem.io/catalog/movie/top.json').then(r => r.json()).catch(() => null);
+          if (cinemetaResp && Array.isArray(cinemetaResp.metas) && cinemetaResp.metas.length > 0) {
+            recItems = cinemetaResp.metas.map(movie => ({
+              id: movie.id,
+              title: movie.name,
+              poster: movie.poster ? (movie.poster.startsWith('http') ? movie.poster : `https://images.metahub.space/poster/medium/${movie.id}/img`) : (movie.id ? `https://images.metahub.space/poster/medium/${movie.id}/img` : ''),
+              type: 'movie',
+              source: 'cinemeta',
+              rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
+              releaseYear: movie.releaseInfo ? parseInt(movie.releaseInfo.substring(0, 4)) : 0,
+              synopsis: movie.description || ''
+            }));
+          } else if (window.api && typeof window.api.invoke === 'function') {
             const res = await window.api.invoke('cinemeta-catalog', { type: 'movie', id: 'top' }).catch(() => null);
             if (res && Array.isArray(res.metas) && res.metas.length > 0) {
               recItems = res.metas.map(movie => ({
@@ -17005,9 +17561,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 synopsis: movie.description || ''
               }));
             }
-          } catch (e) {
-            console.warn('[EmptySearch] Cinemeta catalog fetch failed:', e.message);
           }
+        } catch (e) {
+          console.warn('[EmptySearch] Cinemeta catalog fetch error:', e);
         }
         recs = recItems;
       }
@@ -17030,8 +17586,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         (appData.movies || []).forEach(m => { if (m.title) localMap.set(m.title.toLowerCase(), m); });
         (appData.shows || []).forEach(s => { if (s.title) localMap.set(s.title.toLowerCase(), s); });
 
-        const allowedRecs = (recs || []).filter(isAgeAllowed);
-        allowedRecs.slice(0, 12).forEach(item => {
+        const allowedRecs = (recs || [])
+          .filter(isAgeAllowed)
+          .filter(item => {
+            const p = item.poster || item.poster_path || item.cover || item.thumbnail || item.image || item.logo || item.favicon;
+            const hasExplicitPoster = Boolean(p && typeof p === 'string' && p.trim().length > 0);
+            const resolvedImdb = item.imdb_id || item.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
+            return hasExplicitPoster || Boolean(resolvedImdb && String(resolvedImdb).startsWith('tt'));
+          });
+
+        allowedRecs.slice(0, 18).forEach(item => {
           const card = document.createElement('div');
           card.className = 'discover-card search-result-card';
           const itemTitle = item.title || item.name || 'Unknown';
@@ -17068,17 +17632,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           
           const isChannelOrLogo = item.type === 'iptv' || item.type === 'radio' || item.type === 'channel' || item.isLive || item.isIptv || item.isRadio || !!item.logo || (typeof posterUrl === 'string' && (posterUrl.includes('logo') || posterUrl.includes('channel') || posterUrl.includes('aljazeera') || posterUrl.includes('radio') || posterUrl.includes('iptv') || posterUrl.includes('svg')));
 
-          const fallbackIcon = (item.type === 'iptv' || item.type === 'channel' || item.isLive || item.isIptv) ? 'fa-tv' : (item.type === 'radio' || item.isRadio ? 'fa-radio' : (item.type === 'show' || item.type === 'tv' ? 'fa-desktop' : 'fa-film'));
-
           const imgClass = `discover-poster search-poster-img${isChannelOrLogo ? ' is-channel-logo' : ''}`;
+
+          // If no posterUrl and no imdb ID to fetch from, do not render card
+          if (!posterUrl && (!resolvedImdb || !String(resolvedImdb).startsWith('tt'))) {
+            return;
+          }
 
           card.innerHTML = `
             <div class="discover-poster-wrap">
               <div class="discover-poster-placeholder" style="${posterUrl ? 'display:none;' : ''}">
-                <i class="fas ${fallbackIcon}"></i>
+                <i class="fas fa-film"></i>
                 <span class="placeholder-title">${escapeHTML(itemTitle)}</span>
               </div>
-              ${posterUrl ? `<img src="${posterUrl}" class="${imgClass}" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+              ${posterUrl ? `<img src="${posterUrl}" class="${imgClass}" loading="lazy" onerror="this.style.display='none';">` : ''}
               ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
             </div>
             <div class="discover-info">
@@ -17092,6 +17659,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           `;
           
           card.onclick = () => {
+            const isMobile = window.innerWidth <= 768 || !!window.Capacitor || (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile());
+            if (isMobile) {
+              if (typeof openDiscoverDetail === 'function') {
+                openDiscoverDetail(item);
+              } else if (typeof window.openDiscoverDetail === 'function') {
+                window.openDiscoverDetail(item);
+              }
+              return;
+            }
             $$('.search-result-card').forEach(c => c.classList.remove('active-preview'));
             card.classList.add('active-preview');
             updateSearchPreview(item);
@@ -17101,18 +17677,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           if (imgEl) {
             imgEl.onerror = () => {
               imgEl.onerror = null;
-              imgEl.style.display = 'none';
-              const ph = imgEl.parentElement?.querySelector('.discover-poster-placeholder') || imgEl.parentElement?.querySelector('.card-poster-placeholder');
-              if (ph) ph.style.display = 'flex';
-              
               if (resolvedImdb && String(resolvedImdb).startsWith('tt')) {
-                getTraktOrImdbPoster(item, imgEl, card);
+                getTraktOrImdbPoster(item, imgEl, card, () => {
+                  card.remove();
+                });
+              } else {
+                card.remove();
               }
             };
           }
           
-          if (resolvedImdb && String(resolvedImdb).startsWith('tt')) {
-            getTraktOrImdbPoster(item, null, card);
+          if (!posterUrl && resolvedImdb && String(resolvedImdb).startsWith('tt')) {
+            getTraktOrImdbPoster(item, null, card, () => {
+              card.remove();
+            });
           }
         });
       }
@@ -17125,7 +17703,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   }
 
-  async function performUnifiedSearch(q) {
+function performUnifiedSearch(q) {
     const grid = $('#search-results-grid');
     if (!grid) return;
     if (!performUnifiedSearch._searchId) performUnifiedSearch._searchId = 0;
@@ -17150,6 +17728,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       history = history.slice(0, 10);
       appData.searchHistory = history;
       persist();
+    }
+
+    // Trigger Google-style AI Search Overview
+    if (typeof window.renderSearchAIOverview === 'function') {
+      window.renderSearchAIOverview(qClean);
     }
     // Create beautiful cinematic skeleton grid cards that fill the entire space
     let skeletonHTML = '';
@@ -17198,7 +17781,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     setTimeout(async () => {
       try {
         const qClean = q.trim();
-
+        if (typeof window.renderSearchAIOverview === 'function') {
+          window.renderSearchAIOverview(qClean);
+        }
         // ─── Helper: dedup merged results ───────────────────────────────────
         const mergeDedup = (items) => {
           const byImdb = new Map();
@@ -17441,7 +18026,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             card.innerHTML = `
               <div class="discover-poster-wrap">
                 <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
-                ${posterUrl ? `<img src="${posterUrl}" class="discover-poster search-poster-img" loading="lazy" onerror="this.closest('.discover-card, .search-result-card')?.remove();">` : ''}
+                ${posterUrl ? `<img src="${posterUrl}" class="discover-poster search-poster-img" loading="lazy" onerror="this.src='imgs/no-backdrop.png'; this.onerror=null;">` : ''}
                 ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
               </div>
               <div class="discover-info">
@@ -17496,6 +18081,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               };
             } else {
               card.onclick = () => {
+                const isMobile = window.innerWidth <= 768 || !!window.Capacitor || (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile());
+                if (isMobile) {
+                  if (typeof openDiscoverDetail === 'function') {
+                    openDiscoverDetail(item);
+                  } else if (typeof window.openDiscoverDetail === 'function') {
+                    window.openDiscoverDetail(item);
+                  }
+                  return;
+                }
                 $$('.search-result-card').forEach(c => c.classList.remove('active-preview'));
                 card.classList.add('active-preview');
                 updateSearchPreview(item);
@@ -17548,7 +18142,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         if (ytVideos.length) { hasAnyResults = true; renderSearchSection('YouTube Videos', ytVideos, 'youtube'); }
 
         if (!hasAnyResults) {
-          grid.innerHTML = `<div style="padding:60px 40px;text-align:center;color:var(--text-muted);line-height:1.6;grid-column: 1/-1">No results found for "${escapeHTML(qClean)}"</div>`;
+          grid.innerHTML = `
+            <div style="padding: 40px 20px; text-align: center; color: var(--text-muted); line-height: 1.6; grid-column: 1/-1; display: flex; flex-direction: column; align-items: center; gap: 16px;">
+              <div style="font-size: 1.05rem; color: #fff;">No direct titles found matching "${escapeHTML(qClean)}"</div>
+              <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(99, 102, 241, 0.12)); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 18px; padding: 22px 26px; max-width: 520px; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.25);">
+                <div style="color: #c084fc; font-weight: 800; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+                  <i class="fas fa-sparkles"></i> Searching by story description or plot?
+                </div>
+                <p style="color: rgba(255,255,255,0.7); font-size: 0.88rem; margin: 0; line-height: 1.5;">
+                  MEEM AI understands natural plot descriptions and will suggest the right movies, series, or live stations for you.
+                </p>
+                <button onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('${escapeAttr(qClean)}')" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; color: #fff; padding: 10px 24px; border-radius: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 18px rgba(168, 85, 247, 0.4); margin-top: 4px; transition: transform 0.2s;">
+                  <i class="fas fa-robot"></i> Ask MEEM AI about "${escapeHTML(qClean)}"
+                </button>
+              </div>
+            </div>
+          `;
         }
 
         // ─── PHASE 2: Trakt enrichment in background (only if catalog is enabled) ───────────────────────
@@ -17584,6 +18193,90 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
     }, 0);
   }
+
+  window.searchAndMergeAiTitles = async function(titles) {
+    if (!Array.isArray(titles) || titles.length === 0) return;
+    const grid = $('#search-results-grid');
+    if (!grid) return;
+
+    const tmdbKey = appData.tmdbKey;
+    if (!tmdbKey) return;
+
+    try {
+      const fetchedItems = [];
+      for (const title of titles) {
+        const url = `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(title)}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.results) && data.results.length > 0) {
+            const valid = data.results.filter(r => r.media_type === 'movie' || r.media_type === 'tv').slice(0, 3);
+            for (const item of valid) {
+              item.title = item.title || item.name;
+              item.type = item.media_type === 'tv' ? 'series' : 'movie';
+              if (item.poster_path) item.poster = `https://image.tmdb.org/t/p/w500${item.poster_path}`;
+              if (item.backdrop_path) item.backdrop = `https://image.tmdb.org/t/p/w780${item.backdrop_path}`;
+              item.synopsis = item.overview || '';
+              fetchedItems.push(item);
+            }
+          }
+        }
+      }
+
+      if (fetchedItems.length > 0) {
+        let sectionHeader = grid.querySelector('[data-section="ai_matches"]');
+        if (!sectionHeader) {
+          const header = document.createElement('h3');
+          header.style.cssText = 'grid-column: 1/-1; margin: 20px 0 15px 0; font-size: 1.15rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; color: #fff; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; display: flex; align-items: center; gap: 10px;';
+          header.innerHTML = `<i class="fas fa-sparkles" style="color: #ffffff;"></i> <span>AI Recommended Matches</span>`;
+          header.setAttribute('data-section', 'ai_matches');
+          grid.insertBefore(header, grid.firstChild);
+          
+          let lastInserted = header;
+          fetchedItems.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'discover-card search-result-card';
+            const itemTitle = item.title || item.name || 'Unknown';
+            const posterUrl = item.poster || localImg(item.poster_path);
+            const year = (item.release_date || item.first_air_date || item.year || '').toString().slice(0, 4);
+            const rating = item.vote_average || item.rating || 0;
+
+            card.innerHTML = `
+              <div class="discover-poster-wrap">
+                <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
+                ${posterUrl ? `<img src="${posterUrl}" class="discover-poster search-poster-img" loading="lazy" onerror="this.src='imgs/no-backdrop.png'; this.onerror=null;">` : ''}
+              </div>
+              <div class="discover-info">
+                <div class="discover-title" title="${escapeHTML(itemTitle)}">${escapeHTML(itemTitle)}</div>
+                <div class="discover-meta">
+                  <span class="discover-badge" style="background: rgba(255,255,255,0.1); color: #ffffff;">AI MATCH</span>
+                  <span>${year || 'N/A'}</span>
+                  ${rating ? `<span class="discover-rating-stars"><i class="fas fa-star" style="font-size:8px"></i> ${parseFloat(rating).toFixed(1)}</span>` : ''}
+                </div>
+              </div>
+            `;
+
+            card.onclick = () => {
+              const isMobile = window.innerWidth <= 768 || !!window.Capacitor;
+              if (isMobile) {
+                if (typeof openDiscoverDetail === 'function') openDiscoverDetail(item);
+                else if (typeof window.openDiscoverDetail === 'function') window.openDiscoverDetail(item);
+                return;
+              }
+              $$('.search-result-card').forEach(c => c.classList.remove('active-preview'));
+              card.classList.add('active-preview');
+              updateSearchPreview(item);
+            };
+
+            grid.insertBefore(card, lastInserted.nextSibling);
+            lastInserted = card;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[SEARCH-AI] Failed searching AI titles:', e);
+    }
+  };
 
   let currentTrailerSessionId = 0;
   let trailerStopTimeout = null;
@@ -17766,6 +18459,173 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }, 25000);
   }
 
+  
+  // ─── Rich Interactive List Picker Dropdown ───
+  function openSearchItemListsMenu(item, anchorBtn) {
+    const existing = document.getElementById('search-lists-dropdown-menu');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    const profile = currentProfile || (appData?.profiles || []).find(p => p.id === appData.activeProfileId);
+    if (!profile) {
+      if (typeof showToast === 'function') showToast('Please select a profile first');
+      return;
+    }
+
+    const menu = document.createElement('div');
+    menu.id = 'search-lists-dropdown-menu';
+    menu.style.cssText = `
+      position: absolute;
+      bottom: calc(100% + 8px);
+      right: 0;
+      width: 260px;
+      max-height: 340px;
+      background: rgba(18, 20, 26, 0.98);
+      backdrop-filter: blur(28px) saturate(180%);
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 16px;
+      padding: 10px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: ddMenuFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    `;
+
+    const renderListOptions = () => {
+      const isWl = (profile.watchlist || []).some(w => isSameItem(w, item));
+      const pbKey = (typeof getPlaybackKey === 'function') ? getPlaybackKey(item) : (item.id || item.path);
+      const isWatched = !!(pbKey && profile.playback && profile.playback[pbKey]?.watched);
+      const customLists = (profile.custom_lists || []).filter(l => l.type !== 'music');
+
+      let html = `
+        <div style="font-size: 11px; font-weight: 800; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px;">
+          Add to Collection / List
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow-y: auto; padding-right: 2px;">
+          <button class="search-list-opt ${isWl ? 'active' : ''}" data-type="watchlist" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: ${isWl ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${isWl ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.06)'}; color: #fff; cursor: pointer; font-size: 12.5px; font-weight: 600; text-align: left; transition: all 0.15s;">
+            <span style="display: flex; align-items: center; gap: 8px;"><i class="fas fa-bookmark" style="color: ${isWl ? '#fff' : 'rgba(255,255,255,0.6)'}"></i> My List</span>
+            <i class="fas fa-${isWl ? 'check-circle' : 'circle'}" style="font-size: 11px; color: ${isWl ? '#fff' : 'rgba(255,255,255,0.2)'}"></i>
+          </button>
+
+          <button class="search-list-opt ${isWatched ? 'active' : ''}" data-type="watched" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: ${isWatched ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${isWatched ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.06)'}; color: #fff; cursor: pointer; font-size: 12.5px; font-weight: 600; text-align: left; transition: all 0.15s;">
+            <span style="display: flex; align-items: center; gap: 8px;"><i class="fas fa-eye" style="color: ${isWatched ? '#fff' : 'rgba(255,255,255,0.6)'}"></i> Watched</span>
+            <i class="fas fa-${isWatched ? 'check-circle' : 'circle'}" style="font-size: 11px; color: ${isWatched ? '#fff' : 'rgba(255,255,255,0.2)'}"></i>
+          </button>
+      `;
+
+      if (customLists.length > 0) {
+        html += `<div style="font-size: 10px; font-weight: 800; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 6px 2px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 2px;">Custom Collections</div>`;
+        customLists.forEach(cl => {
+          const inCl = (cl.items || []).some(ci => isSameItem(ci, item));
+          html += `
+            <button class="search-list-opt ${inCl ? 'active' : ''}" data-type="custom" data-list-id="${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: ${inCl ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${inCl ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.06)'}; color: #fff; cursor: pointer; font-size: 12.5px; font-weight: 600; text-align: left; transition: all 0.15s;">
+              <span style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="fas fa-folder" style="color: ${inCl ? '#fff' : 'rgba(255,255,255,0.6)'}"></i> ${escapeHTML(cl.name)}</span>
+              <i class="fas fa-${inCl ? 'check-circle' : 'circle'}" style="font-size: 11px; color: ${inCl ? '#fff' : 'rgba(255,255,255,0.2)'}"></i>
+            </button>
+          `;
+        });
+      }
+
+      html += `
+        </div>
+        <div style="display: flex; gap: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+          <input type="text" id="search-new-list-name" placeholder="New list name..." style="flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; color: #fff; padding: 6px 10px; font-size: 12px; outline: none;">
+          <button id="search-create-list-btn" style="background: #ffffff; border: none; color: #000; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;">Add</button>
+        </div>
+      `;
+
+      menu.innerHTML = html;
+
+      // Bind events
+      menu.querySelectorAll('.search-list-opt').forEach(btn => {
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          const type = btn.dataset.type;
+          if (type === 'watchlist') {
+            toggleWatchlist(item);
+          } else if (type === 'watched') {
+            if (typeof window.toggleUnifiedWatched === 'function') {
+              window.toggleUnifiedWatched(item);
+            } else {
+              const key = (typeof getPlaybackKey === 'function') ? getPlaybackKey(item) : (item.id || item.path);
+              if (profile && profile.playback) {
+                profile.playback[key] = { ...(profile.playback[key] || {}), watched: !isWatched, lastWatched: Date.now() };
+                if (typeof saveData === 'function') saveData();
+              }
+            }
+          } else if (type === 'custom') {
+            const listId = btn.dataset.listId;
+            if (typeof window.toggleItemInCustomList === 'function') {
+              window.toggleItemInCustomList(listId, item);
+            } else {
+              const cl = (profile.custom_lists || []).find(l => String(l.id) === String(listId));
+              if (cl) {
+                cl.items = cl.items || [];
+                const existIdx = cl.items.findIndex(ci => isSameItem(ci, item));
+                if (existIdx >= 0) cl.items.splice(existIdx, 1);
+                else cl.items.push(item);
+                if (typeof saveData === 'function') saveData();
+              }
+            }
+          }
+          renderListOptions();
+          updateSearchPreview(item);
+        };
+      });
+
+      const inputNew = menu.querySelector('#search-new-list-name');
+      const btnAdd = menu.querySelector('#search-create-list-btn');
+      if (inputNew && btnAdd) {
+        inputNew.onclick = (e) => e.stopPropagation();
+        inputNew.onkeydown = (e) => {
+          if (e.key === 'Enter') btnAdd.click();
+        };
+        btnAdd.onclick = (e) => {
+          e.stopPropagation();
+          const name = inputNew.value.trim();
+          if (!name) return;
+          if (typeof window.createNewCustomList === 'function') {
+            window.createNewCustomList(name, item);
+          } else {
+            profile.custom_lists = profile.custom_lists || [];
+            profile.custom_lists.push({
+              id: 'list_' + Date.now(),
+              name: name,
+              items: [item],
+              createdAt: Date.now()
+            });
+            if (typeof saveData === 'function') saveData();
+          }
+          if (typeof showToast === 'function') showToast('Created list: ' + name);
+          renderListOptions();
+          updateSearchPreview(item);
+        };
+      }
+    };
+
+    renderListOptions();
+
+    // Position relative to anchor button container
+    if (anchorBtn && anchorBtn.parentElement) {
+      anchorBtn.parentElement.style.position = 'relative';
+      anchorBtn.parentElement.appendChild(menu);
+    }
+
+    const outsideClick = (e) => {
+      if (!menu.contains(e.target) && e.target !== anchorBtn) {
+        menu.remove();
+        document.removeEventListener('click', outsideClick);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', outsideClick), 50);
+  }
+
   function updateSearchPreview(item) {
     const previewPanel = $('#search-preview-panel');
     const backdropImg = $('#preview-backdrop');
@@ -17773,19 +18633,45 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (!previewPanel || !previewContent || !backdropImg) return;
     
     previewPanel.classList.add('active');
+
+    // Bind close button
+    const closeBtn = $('#search-preview-close-btn');
+    if (closeBtn) {
+      closeBtn.onclick = (e) => {
+        e.stopPropagation();
+        previewPanel.classList.remove('active');
+        $$('.search-result-card').forEach(c => c.classList.remove('active-preview'));
+        stopBackgroundTrailer();
+      };
+    }
     
     const title = item.title || item.name || 'Unknown';
     const imdbId = item.imdb_id || item.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
     const type = item.type === 'series' || item.type === 'tv' || item.type === 'show' ? 'series' : 'movie';
+
+    let itemBackdrop = item.backdrop || item.backdrop_path || item.background || item.fanart || null;
+    if (itemBackdrop && typeof itemBackdrop === 'string' && itemBackdrop.startsWith('/')) {
+      itemBackdrop = `https://image.tmdb.org/t/p/original${itemBackdrop}`;
+    }
+    let itemPoster = item.poster || item.poster_path || '';
+    if (itemPoster && typeof itemPoster === 'string' && itemPoster.startsWith('/')) {
+      itemPoster = `https://image.tmdb.org/t/p/w500${itemPoster}`;
+    }
     
     previewContent.innerHTML = '';
     
     const renderPreview = (meta) => {
-      let bdUrl = meta.backdrop;
+      let bdUrl = meta.backdrop || meta.background || meta.fanart || itemBackdrop || null;
+      if (bdUrl && typeof bdUrl === 'string' && bdUrl.startsWith('/')) {
+        bdUrl = `https://image.tmdb.org/t/p/original${bdUrl}`;
+      }
       if (bdUrl && bdUrl.includes('image.tmdb.org/t/p/')) {
         bdUrl = bdUrl.replace(/\/t\/p\/[^\/]+/, '/t/p/original');
       }
-      let posterUrl = meta.poster;
+      let posterUrl = meta.poster || itemPoster || '';
+      if (posterUrl && typeof posterUrl === 'string' && posterUrl.startsWith('/')) {
+        posterUrl = `https://image.tmdb.org/t/p/w500${posterUrl}`;
+      }
       if (posterUrl && posterUrl.includes('image.tmdb.org/t/p/')) {
         posterUrl = posterUrl.replace(/\/t\/p\/[^\/]+/, '/t/p/w500');
       }
@@ -17793,10 +18679,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (bdUrl) {
         backdropImg.src = localImg(bdUrl);
         backdropImg.style.opacity = '0.65';
-      } else if (posterUrl) {
-        backdropImg.src = localImg(posterUrl);
-        backdropImg.style.opacity = '0.4';
       } else {
+        backdropImg.src = '';
         backdropImg.style.opacity = '0';
       }
       
@@ -17818,6 +18702,25 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const genresList = meta.genres || item.genres || [];
       const description = meta.description || meta.synopsis || item.synopsis || 'No description available for this item.';
       
+      const isAnimePreview = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || item.isAnime || !!item.mal_id || (genresList && genresList.some(g => String(g.name || g).toLowerCase().includes('anime')));
+      
+      const previewImdb = meta.imdbRating || meta.imdb_rating || item.imdbRating || item.imdb_rating || (!isAnimePreview && rating > 0 ? rating : null);
+      const previewMal = isAnimePreview ? (meta.malScore || meta.mal_rating || item.malScore || item.mal_rating || (meta.score && meta.score <= 10 ? meta.score : null) || (item.score && item.score <= 10 ? item.score : null)) : null;
+      
+      let previewRatingsHtml = '';
+      if (previewImdb && parseFloat(previewImdb) > 0) {
+        previewRatingsHtml += `<span class="dd-rating-badge dd-rating-imdb" title="IMDb Rating"><span class="dd-rating-source">IMDb</span><span class="dd-rating-val">★ ${parseFloat(previewImdb).toFixed(1)}</span></span>`;
+      }
+      if (previewMal && parseFloat(previewMal) > 0) {
+        previewRatingsHtml += `<span class="dd-rating-badge dd-rating-mal" title="MyAnimeList Community Score"><span class="dd-rating-source">MAL</span><span class="dd-rating-val">★ ${parseFloat(previewMal).toFixed(1)}</span></span>`;
+      }
+      if (!previewRatingsHtml && rating > 0) {
+        const val = parseFloat(rating).toFixed(1);
+        const sourceName = isAnimePreview ? 'MAL' : 'IMDb';
+        const sourceCls = isAnimePreview ? 'dd-rating-mal' : 'dd-rating-imdb';
+        previewRatingsHtml = `<span class="dd-rating-badge ${sourceCls}"><span class="dd-rating-source">${sourceName}</span><span class="dd-rating-val">★ ${val}</span></span>`;
+      }
+      
       const inWatchlist = currentProfile?.watchlist?.some(w => isSameItem(w, item));
       
       const watchlistText = inWatchlist ? 'In My List' : 'Add to My List';
@@ -17833,33 +18736,32 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       `;
 
       previewContent.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 20px; text-align: left; padding: 10px 0;">
-          ${posterUrl ? `<img src="${localImg(posterUrl)}" style="width: 130px; height: 195px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); object-fit: cover; align-self: flex-start; border: 1px solid rgba(255,255,255,0.1);">` : ''}
+        <div style="display: flex; flex-direction: column; gap: 16px; text-align: left; padding: 10px 0;">
+          ${posterUrl ? `<img src="${localImg(posterUrl)}" style="width: 120px; height: 180px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); object-fit: cover; align-self: flex-start; border: 1px solid rgba(255,255,255,0.1);">` : ''}
           
           ${logoHtml}
           
-          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 0.9rem; color: var(--text-secondary);">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.88rem; color: var(--text-secondary);">
             ${year ? `<span style="background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px;">${year}</span>` : ''}
-            ${rating ? `<span style="color: #F59E0B; display: flex; align-items: center; gap: 4px; font-weight: bold;"><i class="fas fa-star" style="font-size:10px"></i> ${parseFloat(rating).toFixed(1)}</span>` : ''}
-            <span style="text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; font-weight: 700; color: var(--accent);">${type === 'series' ? 'TV Series' : 'Movie'}</span>
-            ${imdbId ? `<span style="font-family: monospace; font-size: 0.8rem; background: rgba(229,160,13,0.1); color: #e5a00d; padding: 2px 6px; border-radius: 4px; font-weight: bold;">IMDb: ${imdbId}</span>` : ''}
+            ${previewRatingsHtml}
+            <span style="text-transform: uppercase; font-size: 0.78rem; letter-spacing: 1px; font-weight: 700; color: var(--accent);">${type === 'series' ? 'TV Series' : 'Movie'}</span>
           </div>
           
           ${genresList.length ? `
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-              ${genresList.slice(0, 3).map(g => `<span style="font-size: 0.8rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 20px; color: #d1d5db;">${escapeHTML(g.name || g)}</span>`).join('')}
+              ${genresList.slice(0, 3).map(g => `<span style="font-size: 0.78rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); padding: 3px 9px; border-radius: 20px; color: #d1d5db;">${escapeHTML(g.name || g)}</span>`).join('')}
             </div>
           ` : ''}
           
-          <div style="font-size: 0.95rem; line-height: 1.6; color: #d1d5db; max-height: 180px; overflow-y: auto; padding-right: 8px; scrollbar-width: thin;">
+          <div style="font-size: 0.92rem; line-height: 1.6; color: #d1d5db; max-height: 160px; overflow-y: auto; padding-right: 8px; scrollbar-width: thin;">
             ${escapeHTML(description)}
           </div>
           
-          <div style="display: flex; gap: 12px; margin-top: 10px;">
-            <button id="preview-btn-play" class="btn-primary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; font-weight: 700; border-radius: 12px; box-shadow: 0 4px 15px var(--accent-glow);">
+          <div style="display: flex; gap: 12px; margin-top: 6px;">
+            <button id="preview-btn-play" class="btn-primary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px; font-weight: 700; border-radius: 12px; box-shadow: 0 4px 15px var(--accent-glow);">
               <i class="fas fa-info-circle"></i> Show Details
             </button>
-            <button id="preview-btn-watchlist" class="btn-secondary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; font-weight: 700; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff;">
+            <button id="preview-btn-watchlist" class="btn-secondary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px; font-weight: 700; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff;">
               ${watchlistIcon} ${watchlistText}
             </button>
           </div>
@@ -17875,9 +18777,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       
       const wlBtn = $('#preview-btn-watchlist');
       if (wlBtn) {
-        wlBtn.onclick = () => {
-          toggleWatchlist(item);
-          updateSearchPreview(item);
+        wlBtn.onclick = (e) => {
+          e.stopPropagation();
+          openSearchItemListsMenu(item, wlBtn);
         };
       }
     };
@@ -17887,7 +18789,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       renderPreview(cache[imdbId]);
     } else if (imdbId) {
       renderPreview({
-        poster: item.poster || item.poster_path || '',
+        poster: itemPoster,
+        backdrop: itemBackdrop,
         rating: item.rating || item.vote_average || 0,
         year: item.releaseYear || item.year || '',
         genres: item.genres || [],
@@ -17900,8 +18803,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             cinemetaId: res.meta.id,
             type: type === 'series' ? 'tv' : 'movie',
             title: res.meta.name || res.meta.title,
-            poster: res.meta.poster || null,
-            backdrop: res.meta.background || null,
+            poster: res.meta.poster || itemPoster || null,
+            backdrop: res.meta.background || itemBackdrop || null,
             year: res.meta.year || (res.meta.release_date || '').slice(0, 4),
             rating: res.meta.behaviorHints?.rating || res.meta.imdbRating || 0,
             genres: res.meta.genres || [],
@@ -17921,7 +18824,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         } else {
           // If response came back but metadata is null, fall back to item properties
           const fallback = {
-            poster: item.poster || item.poster_path || '',
+            poster: itemPoster,
+            backdrop: itemBackdrop,
             rating: item.rating || item.vote_average || 0,
             year: item.releaseYear || item.year || '',
             genres: item.genres || [],
@@ -17941,7 +18845,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }).catch(err => {
         console.warn('[PREVIEW-ASYNC] Failed to fetch details for', imdbId, err.message);
         const fallback = {
-          poster: item.poster || item.poster_path || '',
+          poster: itemPoster,
+          backdrop: itemBackdrop,
           rating: item.rating || item.vote_average || 0,
           year: item.releaseYear || item.year || '',
           genres: item.genres || [],
@@ -17957,11 +18862,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       });
     } else {
       renderPreview({
-        poster: item.poster || item.poster_path || '',
-        rating: item.rating || item.vote_average || item.score || 0,
-        year: item.releaseYear || item.year || item.seasonYear || '',
+        poster: itemPoster,
+        backdrop: itemBackdrop,
+        rating: item.rating || item.vote_average || 0,
+        year: item.releaseYear || item.year || '',
         genres: item.genres || [],
-        description: item.synopsis || 'No further details available.'
+        description: item.synopsis || item.overview || 'No description available for this item.'
       });
     }
   }
@@ -18292,7 +19198,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         <div class="sync-card host-card" style="background: var(--bg-surface-2); padding: 40px; border-radius: 24px; border: 1px solid var(--border); text-align: center; max-width: 500px; margin: 0 auto;">
             <div class="sync-icon-box" style="font-size: 4rem; color: var(--accent); margin-bottom: 25px;"><i class="fas fa-server"></i></div>
             <h3 style="font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 12px;">Sync Server Active</h3>
-            <p style="color: var(--text-muted); font-size: 14px; line-height: 1.6; margin-bottom: 25px;">To connect your mobile device, enter this IP in the MediaVault mobile app:</p>
+            <p style="color: var(--text-muted); font-size: 14px; line-height: 1.6; margin-bottom: 25px;">To connect your mobile device, enter this IP in the MEEM mobile app:</p>
             
             <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); display: inline-block; min-width: 250px;">
                 <div style="font-family: monospace; font-size: 22px; color: var(--accent); font-weight: 700; letter-spacing: 1px;">${ip}:${port}</div>
@@ -18318,7 +19224,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       <div class="sync-card discovery-card" style="background: var(--bg-surface-2); padding: 30px; border-radius: 20px; border: 1px solid var(--border); text-align: center;">
           <div class="sync-icon-box" style="font-size: 3rem; color: var(--accent); margin-bottom: 20px;"><i class="fas fa-satellite-dish fa-spin"></i></div>
           <h3 style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 10px;">Searching for PCs...</h3>
-          <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; max-width: 300px; margin: 0 auto 20px;">Ensure MediaVault is running on your computer and both devices are on the same Wi-Fi.</p>
+          <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; max-width: 300px; margin: 0 auto 20px;">Ensure MEEM is running on your computer and both devices are on the same Wi-Fi.</p>
           
           <div id="discovered-pcs-list" style="margin-bottom: 25px;"></div>
 
@@ -18453,7 +19359,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
       card.innerHTML = `
         <div class="poster-wrap">
-          <img src="${poster}" class="poster" loading="lazy">
+          <img src="${poster}" class="poster" loading="lazy" onerror="this.src='imgs/no-backdrop.png'; this.onerror=null;">
           <div class="play-overlay"><i class="fas fa-play"></i></div>
         </div>
         <div class="info">
@@ -18532,7 +19438,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Finalize UI with current version
   try {
-    const ver = APP_VERSION || '3.10.1';
+    const ver = APP_VERSION || '3.10.2';
     if ($('#app-version-label')) $('#app-version-label').textContent = `MEEM v${ver}`;
     if ($('#settings-app-version')) $('#settings-app-version').textContent = `v${ver}`;
   } catch (e) { }
@@ -18657,8 +19563,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     persist();
     updateNotificationBadge();
     
-    // Trigger OS notification for chat, download, invite, and anime release types
-    if (type === 'chat' || type === 'download' || type === 'invite' || type === 'anime') {
+    // Trigger OS notification for important event types (chat, download, invite, anime, vip, subscription, system updates)
+    const osNotifTypes = new Set(['chat', 'download', 'invite', 'anime', 'vip', 'subscription', 'system_important', 'update', 'sync']);
+    if (osNotifTypes.has(type)) {
       showNativeNotification(title, message);
     }
     

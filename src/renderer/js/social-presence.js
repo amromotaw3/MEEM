@@ -270,8 +270,8 @@
       box-shadow: none;
     }
     .vault-chat-message-row.own .vault-chat-msg-body {
-      background: #ffffff;
-      border: 1px solid #ffffff;
+      background: #1e1e2d;
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 14px 14px 4px 14px;
       box-shadow: none;
     }
@@ -279,7 +279,7 @@
       font-size: 13px; color: rgba(255, 255, 255, 0.92);
       line-height: 1.45; word-break: break-word;
     }
-    .vault-chat-message-row.own .vault-chat-msg-text { color: #000000; font-weight: 500; }
+    .vault-chat-message-row.own .vault-chat-msg-text { color: #ffffff; font-weight: 500; }
 
     /* ── Typing Indicator ── */
     .vault-chat-typing-container {
@@ -1570,8 +1570,9 @@
         const mediaData = JSON.parse(jsonStr);
         
         const shareMsg = {
+          ...mediaData,
           type: 'media_share',
-          ...mediaData
+          mediaType: mediaData.mediaType || mediaData.type || 'movie'
         };
         
         if (window.ChatMediaRenderer && typeof window.ChatMediaRenderer.render === 'function') {
@@ -1681,26 +1682,48 @@
 
       if (sharedListIds.length === 0) return;
 
-      // Get other member user_ids from those shared lists (no direct FK to account_profiles, so we do a separate lookup)
+      // Get other member profiles from those shared lists
       const { data: listMembers, error: memErr } = await client
         .from('list_members')
-        .select('user_id')
+        .select('user_id, target_profile_id')
         .in('list_id', sharedListIds)
         .eq('status', 'joined')
         .neq('user_id', currentUserId);
 
       if (memErr) throw memErr;
 
-      const otherUserIds = [...new Set((listMembers || []).map(m => m.user_id))];
-      if (otherUserIds.length === 0) return;
+      if (!listMembers || listMembers.length === 0) return;
 
-      // Fetch account_profiles for those user_ids
-      const { data: fetchedProfiles } = await client
-        .from('account_profiles')
-        .select('id, name, avatar, user_id')
-        .in('user_id', otherUserIds);
+      const targetProfIds = listMembers.map(m => m.target_profile_id).filter(Boolean);
+      const otherUserIds = [...new Set(listMembers.filter(m => !m.target_profile_id).map(m => m.user_id))];
 
-      const otherProfiles = fetchedProfiles || [];
+      const profileMap = new Map();
+
+      if (targetProfIds.length > 0) {
+        const { data: profsById } = await client
+          .from('account_profiles')
+          .select('id, name, avatar, user_id')
+          .in('id', targetProfIds);
+        if (profsById) profsById.forEach(p => profileMap.set(p.id, p));
+      }
+
+      if (otherUserIds.length > 0) {
+        const { data: profsByUser } = await client
+          .from('account_profiles')
+          .select('id, name, avatar, user_id')
+          .in('user_id', otherUserIds);
+        if (profsByUser) {
+          const seenUsers = new Set();
+          profsByUser.forEach(p => {
+            if (!seenUsers.has(p.user_id)) {
+              seenUsers.add(p.user_id);
+              if (!profileMap.has(p.id)) profileMap.set(p.id, p);
+            }
+          });
+        }
+      }
+
+      const otherProfiles = Array.from(profileMap.values());
       const profileIds = new Set(otherProfiles.map(p => p.id));
 
       if (otherProfiles.length === 0) return;

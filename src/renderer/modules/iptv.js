@@ -65,6 +65,7 @@
     }
 
     renderSourcesList();
+    showSourcesView();
     await loadActiveSourceChannels();
 
     // Auto-sync main default source if empty
@@ -184,13 +185,32 @@
 
     renderCategories();
     renderChannelList();
-
-    if (channelsList.length > 0 && !activeChannel) {
-      selectChannel(channelsList[0]);
-    }
   }
 
   // ─── UI Renderers ───────────────────────────────────────────────────────────
+
+  function showSourcesView() {
+    const sView = document.getElementById('iptv-sources-view');
+    const cView = document.getElementById('iptv-categories-view');
+    const container = document.getElementById('iptv-main-container') || document.querySelector('.iptv-container');
+    if (sView) sView.style.display = 'flex';
+    if (cView) cView.style.display = 'none';
+    if (container) container.setAttribute('data-mobile-step', 'sources');
+  }
+
+  function showCategoriesView(source) {
+    const sView = document.getElementById('iptv-sources-view');
+    const cView = document.getElementById('iptv-categories-view');
+    const title = document.getElementById('iptv-cat-source-title');
+    const container = document.getElementById('iptv-main-container') || document.querySelector('.iptv-container');
+    if (sView) sView.style.display = 'none';
+    if (cView) cView.style.display = 'flex';
+    if (title && source) {
+      title.textContent = source.name || 'Categories';
+      title.title = source.name || 'Categories';
+    }
+    if (container) container.setAttribute('data-mobile-step', 'categories');
+  }
 
   function renderSourcesList() {
     const container = document.getElementById('iptv-sources-list');
@@ -215,6 +235,7 @@
         <div class="iptv-source-actions">
           <button class="iptv-action-btn sync" title="Sync/Refresh Source"><i class="fas fa-sync-alt"></i></button>
           ${source.id !== 'src_default_public' ? '<button class="iptv-action-btn delete" title="Delete Source"><i class="fas fa-trash"></i></button>' : ''}
+          <i class="fas fa-chevron-right" style="font-size: 0.75rem; color: rgba(255,255,255,0.4); margin-left: 4px;"></i>
         </div>
       `;
 
@@ -223,6 +244,7 @@
         activeSourceId = source.id;
         activeCategory = 'All';
         renderSourcesList();
+        showCategoriesView(source);
         loadActiveSourceChannels();
       };
 
@@ -247,15 +269,34 @@
     container.innerHTML = '';
 
     categoriesList.forEach(cat => {
-      const pill = document.createElement('button');
-      pill.className = `iptv-cat-pill ${cat === activeCategory ? 'active' : ''}`;
-      pill.textContent = cat;
-      pill.onclick = () => {
+      const item = document.createElement('div');
+      item.className = `iptv-category-item ${cat === activeCategory ? 'active' : ''}`;
+      
+      let icon = 'fa-folder';
+      if (cat === 'All') icon = 'fa-border-all';
+      else if (cat.includes('Favorite')) icon = 'fa-star';
+      else if (/news/i.test(cat)) icon = 'fa-newspaper';
+      else if (/kids|animation|cartoon/i.test(cat)) icon = 'fa-child';
+      else if (/sport/i.test(cat)) icon = 'fa-futbol';
+      else if (/movie|cinema|film/i.test(cat)) icon = 'fa-film';
+      else if (/music/i.test(cat)) icon = 'fa-music';
+      else if (/relig/i.test(cat)) icon = 'fa-mosque';
+
+      item.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+          <i class="fas ${icon}" style="font-size: 13px; opacity: 0.85; width: 16px; text-align: center;"></i>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(cat)}</span>
+        </div>
+      `;
+
+      item.onclick = () => {
         activeCategory = cat;
         renderCategories();
+        const container = document.getElementById('iptv-main-container') || document.querySelector('.iptv-container');
+        if (container) container.setAttribute('data-mobile-step', 'channels');
         loadActiveSourceChannels();
       };
-      container.appendChild(pill);
+      container.appendChild(item);
     });
   }
 
@@ -265,6 +306,15 @@
   function renderChannelList(resetScroll = true) {
     const grid = document.getElementById('iptv-channels-grid');
     if (!grid) return;
+
+    const titleEl = document.getElementById('iptv-channels-title');
+    if (titleEl) {
+      titleEl.innerHTML = `<i class="fas fa-tv" style="color: #ffffff;"></i> ${escapeHTML(activeCategory === 'All' ? 'All Channels' : activeCategory)}`;
+    }
+    const countBadge = document.getElementById('iptv-channels-count-badge');
+    if (countBadge) {
+      countBadge.textContent = `${channelsList.length}`;
+    }
 
     if (resetScroll) {
       grid.scrollTop = 0;
@@ -335,7 +385,47 @@
     }
   }
 
+  async function toggleChannelFavorite(ch) {
+    if (!ch) return;
+    const iptvMediaItem = {
+      id: ch.id || `iptv_${encodeURIComponent(ch.name || ch.url)}`,
+      type: 'iptv',
+      media_type: 'iptv',
+      title: ch.name || 'Live Channel',
+      name: ch.name || 'Live Channel',
+      poster_path: ch.logo || ch.tvgLogo || 'imgs/appicon-w.png',
+      posterPath: ch.logo || ch.tvgLogo || 'imgs/appicon-w.png',
+      backdrop_path: ch.logo || ch.tvgLogo || 'imgs/appicon-w.png',
+      streamUrl: ch.url,
+      url: ch.url,
+      category: ch.category || ch.groupTitle || 'Live TV',
+      groupTitle: ch.category || ch.groupTitle || 'Live TV'
+    };
+
+    if (typeof window.toggleWatchlist === 'function') {
+      window.toggleWatchlist(iptvMediaItem);
+    }
+    const isFav = isChannelInWatchlist(ch);
+    ch.isFavorite = isFav;
+    if (window.IptvStorage && ch.id) {
+      await window.IptvStorage.toggleFavorite(ch.id, isFav);
+    }
+    updateIptvFavButtonState();
+    if (window.updateIptvPlayerBarUI) {
+      window.updateIptvPlayerBarUI();
+    }
+    renderChannelList();
+  }
+
+  function isChannelInWatchlist(ch) {
+    if (!ch || !window.currentProfile || !window.currentProfile.watchlist) return false;
+    const chId = ch.id || `iptv_${encodeURIComponent(ch.name || ch.url)}`;
+    return window.currentProfile.watchlist.some(w => w.id === chId || w.id === ch.id || (w.url && w.url === ch.url) || (w.streamUrl && w.streamUrl === ch.url));
+  }
+
   function createChannelCardElement(ch) {
+    const isFav = isChannelInWatchlist(ch);
+    ch.isFavorite = isFav;
     const card = document.createElement('div');
     card.className = `iptv-channel-card ${activeChannel && activeChannel.id === ch.id ? 'active' : ''}`;
 
@@ -355,8 +445,8 @@
           <span class="iptv-cat-badge">${escapeHTML(catLabel)}</span>
         </div>
       </div>
-      <button class="iptv-ch-fav-btn ${ch.isFavorite ? 'active' : ''}" title="Toggle Favorite">
-        <i class="${ch.isFavorite ? 'fas' : 'far'} fa-heart"></i>
+      <button class="iptv-ch-fav-btn ${isFav ? 'active' : ''}" title="Toggle Favorite">
+        <i class="${isFav ? 'fas' : 'far'} fa-heart" ${isFav ? 'style="color: #ef4444;"' : ''}></i>
       </button>
     `;
 
@@ -369,44 +459,11 @@
     if (favBtn) {
       favBtn.onclick = async (e) => {
         e.stopPropagation();
-        const iptvMediaItem = {
-          id: ch.id || `iptv_${encodeURIComponent(ch.name || ch.url)}`,
-          type: 'iptv',
-          media_type: 'iptv',
-          title: ch.name || 'Live Channel',
-          name: ch.name || 'Live Channel',
-          poster_path: ch.logo || ch.tvgLogo || 'imgs/appicon-w.png',
-          posterPath: ch.logo || ch.tvgLogo || 'imgs/appicon-w.png',
-          backdrop_path: ch.logo || ch.tvgLogo || 'imgs/appicon-w.png',
-          streamUrl: ch.url,
-          url: ch.url,
-          category: ch.category || ch.groupTitle || 'Live TV',
-          groupTitle: ch.category || ch.groupTitle || 'Live TV'
-        };
-        if (typeof window.toggleWatchlist === 'function') {
-          window.toggleWatchlist(iptvMediaItem);
-        }
-        ch.isFavorite = !ch.isFavorite;
-        if (window.IptvStorage) {
-          await window.IptvStorage.toggleFavorite(ch.id, ch.isFavorite);
-        }
-        updateIptvFavButtonState();
-        const isFav = ch.isFavorite;
-        favBtn.className = `iptv-ch-fav-btn ${isFav ? 'active' : ''}`;
-        const icon = favBtn.querySelector('i');
-        if (icon) icon.className = `${isFav ? 'fas' : 'far'} fa-heart`;
+        await toggleChannelFavorite(ch);
       };
     }
 
     return card;
-  }
-
-  // ─── Channel Selection & HLS Player ─────────────────────────────────────────
-
-  function isChannelInWatchlist(ch) {
-    if (!ch || !window.currentProfile || !window.currentProfile.watchlist) return false;
-    const chId = ch.id || `iptv_${encodeURIComponent(ch.name || ch.url)}`;
-    return window.currentProfile.watchlist.some(w => w.id === chId || w.id === ch.id || w.url === ch.url || w.streamUrl === ch.url);
   }
 
   window.isIptvPlaying = function() {
@@ -491,6 +548,10 @@
         if (isFav) icon.style.color = '#ef4444';
         else icon.style.color = '';
       }
+      favBarBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (activeChannel) toggleChannelFavorite(activeChannel);
+      };
     }
   };
 
@@ -512,8 +573,15 @@
   }
 
   function selectChannel(channel) {
-    if (!channel || !channel.url) return;
+    if (!channel) return;
+    const streamUrl = channel.url || channel.streamUrl || channel.stream_url;
+    if (!streamUrl) return;
+    channel.url = streamUrl;
     activeChannel = channel;
+
+    if (Array.isArray(channelsList) && !channelsList.some(c => c.id === channel.id || c.url === channel.url)) {
+      channelsList.unshift(channel);
+    }
 
     // Update active highlight in DOM
     document.querySelectorAll('.iptv-channel-card').forEach(card => card.classList.remove('active'));
@@ -661,33 +729,61 @@
           worker.postMessage({ action: 'parse', sourceId: source.id, m3uText: text });
         } else if (text && window.api && typeof window.api.invoke === 'function') {
           const parsed = await window.api.invoke('iptv-parse-m3u-text', text);
-          if (parsed && parsed.channels && parsed.channels.length > 0) {
-            source.channelCount = parsed.channels.length;
+          let parsedChannels = parsed?.channels || [];
+          if (parsedChannels.length === 0 && source.url) {
+            parsedChannels = [{
+              id: 'ch_' + String(source.id) + '_stream',
+              name: source.name || 'Live Channel',
+              url: source.url,
+              category: 'Live TV',
+              groupTitle: 'Live TV',
+              logo: 'imgs/appicon-w.png',
+              isFavorite: false
+            }];
+          }
+          if (parsedChannels && parsedChannels.length > 0) {
+            source.channelCount = parsedChannels.length;
             source.lastSync = Date.now();
             if (window.IptvStorage) {
               await window.IptvStorage.saveSource(source);
-              await window.IptvStorage.cacheChannels(source.id, parsed.channels);
+              await window.IptvStorage.cacheChannels(source.id, parsedChannels);
             }
-            if (typeof showToast === 'function') showToast(`✅ Synced ${parsed.channels.length} channels`);
+            if (typeof showToast === 'function') showToast(`✅ Synced ${parsedChannels.length} channels`);
             loadActiveSourceChannels();
           }
         } else {
-          // Fallback to built-in default channels if network fetch yielded nothing
-          source.channelCount = DEFAULT_CHANNELS.length;
+          const singleFallback = [{
+            id: 'ch_' + String(source.id) + '_stream',
+            name: source.name || 'Live Channel',
+            url: source.url,
+            category: 'Live TV',
+            groupTitle: 'Live TV',
+            logo: 'imgs/appicon-w.png',
+            isFavorite: false
+          }];
+          source.channelCount = 1;
           source.lastSync = Date.now();
           if (window.IptvStorage) {
             await window.IptvStorage.saveSource(source);
-            await window.IptvStorage.cacheChannels(source.id, DEFAULT_CHANNELS);
+            await window.IptvStorage.cacheChannels(source.id, singleFallback);
           }
-          if (typeof showToast === 'function') showToast(`✅ Synced ${DEFAULT_CHANNELS.length} default channels`);
+          if (typeof showToast === 'function') showToast(`✅ Added ${source.name || 'Live Channel'}`);
           loadActiveSourceChannels();
         }
       } catch (err) {
         console.warn('[IPTV Sync Error]', err);
-        // Ensure channels are available
-        source.channelCount = DEFAULT_CHANNELS.length;
+        const singleFallback = [{
+          id: 'ch_' + String(source.id) + '_stream',
+          name: source.name || 'Live Channel',
+          url: source.url,
+          category: 'Live TV',
+          groupTitle: 'Live TV',
+          logo: 'imgs/appicon-w.png',
+          isFavorite: false
+        }];
+        source.channelCount = 1;
         if (window.IptvStorage) {
-          await window.IptvStorage.cacheChannels(source.id, DEFAULT_CHANNELS);
+          await window.IptvStorage.cacheChannels(source.id, singleFallback);
         }
         loadActiveSourceChannels();
       }
@@ -696,19 +792,40 @@
 
   function handleWorkerMessage(e) {
     const { type, sourceId, channels } = e.data || {};
-    if (type === 'complete' && sourceId && channels) {
+    if (type === 'complete' && sourceId) {
+      let finalChannels = channels || [];
       const source = sourcesList.find(s => s.id === sourceId);
       if (source) {
-        source.channelCount = channels.length;
+        if (finalChannels.length === 0 && source.url) {
+          finalChannels = [{
+            id: 'ch_' + String(source.id) + '_stream',
+            name: source.name || 'Live Channel',
+            url: source.url,
+            category: 'Live TV',
+            groupTitle: 'Live TV',
+            logo: 'imgs/appicon-w.png',
+            isFavorite: false
+          }];
+        } else {
+          finalChannels.forEach(c => {
+            if (!c.url && source.url) c.url = source.url;
+            if ((!c.name || c.name === 'Live Stream' || c.name === 'Live Channel' || c.name === 'Untitled Channel') && source.name) {
+              c.name = source.name;
+            }
+          });
+        }
+
+        source.channelCount = finalChannels.length;
         source.lastSync = Date.now();
         if (window.IptvStorage) {
           window.IptvStorage.saveSource(source);
-          window.IptvStorage.cacheChannels(sourceId, channels).then(() => {
+          window.IptvStorage.cacheChannels(sourceId, finalChannels).then(() => {
             if (activeSourceId === sourceId) loadActiveSourceChannels();
           });
         }
       }
-      if (typeof showToast === 'function') showToast(`✅ Parsed ${channels.length} channels via Worker`);
+      renderSourcesList();
+      if (typeof showToast === 'function') showToast(`✅ Loaded ${finalChannels.length} channel(s)`);
     }
   }
 
@@ -738,6 +855,25 @@
           searchQuery = val;
           loadActiveSourceChannels();
         }, 200);
+      };
+    }
+
+    const backSourcesBtn = document.getElementById('iptv-btn-back-sources');
+    if (backSourcesBtn) {
+      backSourcesBtn.onclick = () => {
+        showSourcesView();
+      };
+    }
+
+    const backCategoriesBtn = document.getElementById('iptv-btn-back-categories');
+    if (backCategoriesBtn) {
+      backCategoriesBtn.onclick = () => {
+        const currentSource = sourcesList.find(s => s.id === activeSourceId);
+        if (currentSource) {
+          showCategoriesView(currentSource);
+        } else {
+          showSourcesView();
+        }
       };
     }
 
@@ -772,27 +908,9 @@
 
     const iptvFavBtn = document.getElementById('iptv-btn-favorite');
     if (iptvFavBtn) {
-      iptvFavBtn.onclick = () => {
-        if (!activeChannel) return;
-        const iptvMediaItem = {
-          id: activeChannel.id || `iptv_${encodeURIComponent(activeChannel.name || activeChannel.url)}`,
-          type: 'iptv',
-          media_type: 'iptv',
-          title: activeChannel.name || 'Live Channel',
-          name: activeChannel.name || 'Live Channel',
-          poster_path: activeChannel.logo || activeChannel.tvgLogo || 'imgs/appicon-w.png',
-          posterPath: activeChannel.logo || activeChannel.tvgLogo || 'imgs/appicon-w.png',
-          backdrop_path: activeChannel.logo || activeChannel.tvgLogo || 'imgs/appicon-w.png',
-          streamUrl: activeChannel.url,
-          url: activeChannel.url,
-          category: activeChannel.category || activeChannel.groupTitle || 'Live TV',
-          groupTitle: activeChannel.category || activeChannel.groupTitle || 'Live TV'
-        };
-
-        if (typeof window.toggleWatchlist === 'function') {
-          window.toggleWatchlist(iptvMediaItem);
-          updateIptvFavButtonState();
-          renderChannelList();
+      iptvFavBtn.onclick = async () => {
+        if (activeChannel) {
+          await toggleChannelFavorite(activeChannel);
         }
       };
     }
@@ -1043,4 +1161,7 @@
   window.initIptvView = initIptvView;
   window.stopIptvStream = stopIptvStream;
   window.toggleIptvPlayback = toggleIptvPlayback;
+  window.selectIptvChannel = selectChannel;
+  window.playIptvStream = playHlsStream;
+  window.loadActiveSourceChannels = loadActiveSourceChannels;
 })();

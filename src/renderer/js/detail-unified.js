@@ -13,12 +13,10 @@ window.getTMDBImageUrl = (path, isHighRes = false) => {
 
     if (url.startsWith('http') || url.startsWith('local-file') || url.startsWith('media-img')) {
         if (url.includes('.metahub.space')) {
-            url = url.replace(/(live|episodes)\.metahub\.space/, 'images.metahub.space');
-            if (isHighRes) {
-                url = url.replace(/\/background\/medium\//, '/background/large/');
-            }
+            url = url.replace(/live\.metahub\.space/, 'images.metahub.space');
+            url = url.replace(/\/background\/(medium|small)\//, '/background/large/');
         } else if (url.includes('image.tmdb.org/t/p/')) {
-            url = url.replace(/\/t\/p\/[^\/]+/, '/t/p/' + (isHighRes ? 'original' : 'w500'));
+            url = url.replace(/\/t\/p\/[^\/]+/, '/t/p/original');
         }
         return (typeof window.localImg === 'function') ? window.localImg(url) : url;
     }
@@ -34,13 +32,12 @@ window.getTMDBImageUrl = (path, isHighRes = false) => {
 
     if (isTmdbPath && !isImdbId) {
         const cleanPath = url.startsWith('/') ? url : '/' + url;
-        const size = isHighRes ? 'original' : 'w500';
-        const fullUrl = `https://image.tmdb.org/t/p/${size}${cleanPath}`;
+        const fullUrl = `https://image.tmdb.org/t/p/original${cleanPath}`;
         return (typeof window.localImg === 'function') ? window.localImg(fullUrl) : fullUrl;
     }
 
     const imdbId = url.replace(/^\//, '').replace(/\/(img|background\.jpg)$/, '');
-    const type = isHighRes ? 'background/medium' : 'poster/medium';
+    const type = isHighRes ? 'background/large' : 'poster/medium';
     const fullUrl = `https://images.metahub.space/${type}/${imdbId}/img`;
     return (typeof window.localImg === 'function') ? window.localImg(fullUrl) : fullUrl;
 };
@@ -132,10 +129,8 @@ window.renderUnifiedDetail = async function(item) {
     showUnifiedLoader();
 
     try {
-        // 2. Intelligence: Detect content type and IDs
-        // Force all anime through Cinemeta/TMDB — isAnime and isKitsu are always false.
-        const isAnime = false;
-        const isKitsu = false;
+        const isKitsu = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || !!item.anime_id || !!item.mal_id || (item.id && (String(item.id).startsWith('kitsu:') || String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:') || String(item.id).startsWith('anilist:')));
+        const isAnime = isKitsu || item.isAnime || !!item.mal_id || !!item.anime_id || (item.genre && String(item.genre).toLowerCase().includes('anime')) || (item.genres && item.genres.some(g => String(g.name || g).toLowerCase().includes('anime')));
         const isTV = window.checkIfTV(item);
         let cinemetaId = item.imdb_id || item.imdbId || (String(item.id).startsWith('tt') ? item.id : null) || item.id;
         
@@ -155,7 +150,7 @@ window.renderUnifiedDetail = async function(item) {
 
         // RESOLVE NUMERIC TMDB ID TO IMDB ID FOR WESTERN CONTENT
         // Handles both bare numeric IDs ("12345") and prefixed IDs ("tmdb:12345")
-        const tmdbKey = window.appData?.tmdbKey || window.TMDB_API_KEY || 'a3c751221b6d0efdb621869e9fc13c02';
+        const tmdbKey = window.appData?.tmdbKey || null;
         let numericTmdbId = null;
         if (cinemetaId) {
             const idStr = String(cinemetaId);
@@ -166,7 +161,7 @@ window.renderUnifiedDetail = async function(item) {
                 cinemetaId = numericTmdbId; // strip prefix for API calls
             }
         }
-        if (numericTmdbId) {
+        if (numericTmdbId && tmdbKey) {
             console.log(`[UnifiedDetail] Numeric TMDB ID detected: ${numericTmdbId}. Resolving to IMDb ID...`);
             const isSeries = mediaType === 'tv' || mediaType === 'series';
             const tmdbUrl = isSeries 
@@ -268,6 +263,10 @@ window.renderUnifiedDetail = async function(item) {
                     poster_path: unifiedResponse.posters?.primary,
                     logos: unifiedResponse.clearlogos?.map(url => ({ url, file_path: url })),
                     vote_average: unifiedResponse.rating,
+                    rating: unifiedResponse.rating,
+                    score: unifiedResponse.rating,
+                    mal_rating: unifiedResponse.rating,
+                    malScore: unifiedResponse.rating,
                     release_date: unifiedResponse.year,
                     overview: unifiedResponse.synopsis,
                     genre: unifiedResponse.genres,
@@ -300,11 +299,90 @@ window.renderUnifiedDetail = async function(item) {
 
             anilist = await window.api.invoke('anilist-media-detailed', { title: item.title_english || item.title || item.name }).catch(() => null);
         } else {
-            // Western Media: Cinemeta metadata + Fanart.tv enhancement
-            [cinemeta, fanartImages] = await Promise.all([
-                cinemetaId ? window.api.invoke('cinemeta-details', { id: cinemetaId, type: mediaType }).catch(() => null) : Promise.resolve(null),
-                (cinemetaId && window.api && window.api.fanartGetImages) ? window.api.fanartGetImages(cinemetaId, mediaType).catch(() => null) : Promise.resolve(null)
+            // Western Media: Cinemeta metadata + Fanart.tv enhancement + Direct TMDB (for guaranteed 4K backdrops & official logos)
+            const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+            const fetchTmdbDetails = async () => {
+                try {
+                    let tid = item.tmdbId || item.tmdb_id || (cinemetaId && /^\d+$/.test(String(cinemetaId)) ? cinemetaId : null);
+                    if (!tid && cinemetaId && String(cinemetaId).startsWith('tt') && tmdbKey) {
+                        const findRes = await fetch(`https://api.themoviedb.org/3/find/${cinemetaId}?api_key=${tmdbKey}&external_source=imdb_id`, { signal: AbortSignal.timeout(3500) }).then(r => r.json()).catch(() => null);
+                        const match = findRes?.movie_results?.[0] || findRes?.tv_results?.[0];
+                        if (match) tid = match.id;
+                    }
+                    if (tid && tmdbKey) {
+                        const typePath = (mediaType === 'tv' || mediaType === 'series') ? 'tv' : 'movie';
+                        const details = await fetch(`https://api.themoviedb.org/3/${typePath}/${tid}?api_key=${tmdbKey}&append_to_response=images,external_ids`, { signal: AbortSignal.timeout(3500) }).then(r => r.json()).catch(() => null);
+                        return details;
+                    }
+                } catch (e) {}
+                return null;
+            };
+
+            const isAnimeSearch = isAnime || item.source === 'kitsu' || item.source === 'mal' || item.isAnime || !!item.mal_id || (item.genre && String(item.genre).toLowerCase().includes('anime')) || (item.genres && item.genres.some(g => String(g.name || g).toLowerCase().includes('anime')));
+
+            let [cinemetaRes, fanartRes, tmdbDetailsRes, anilistRes] = await Promise.all([
+                (cinemetaId && String(cinemetaId).startsWith('tt')) ? window.api.invoke('cinemeta-details', { id: cinemetaId, type: mediaType }).catch(() => null) : Promise.resolve(null),
+                (cinemetaId && window.api && window.api.fanartGetImages) ? window.api.fanartGetImages(cinemetaId, mediaType).catch(() => null) : Promise.resolve(null),
+                fetchTmdbDetails(),
+            (isAnimeSearch) ? window.api.invoke('anilist-media-detailed', { title: item.title_english || item.title || item.name }).catch(() => null) : Promise.resolve(null)
             ]);
+            if (anilistRes) anilist = anilistRes;
+
+            // If Cinemeta details was not fetched initially, but TMDB provides an IMDb ID, fetch Cinemeta now
+            const resolvedImdbId = cinemetaRes?.imdb_id || cinemetaRes?.meta?.imdb_id || (cinemetaId && String(cinemetaId).startsWith('tt') ? cinemetaId : null) || tmdbDetailsRes?.imdb_id || tmdbDetailsRes?.external_ids?.imdb_id;
+            if (!cinemetaRes && resolvedImdbId) {
+                try {
+                    cinemetaRes = await window.api.invoke('cinemeta-details', { id: resolvedImdbId, type: mediaType }).catch(() => null);
+                } catch (e) {}
+            }
+
+            cinemeta = cinemetaRes;
+            fanartImages = fanartRes;
+
+            const baseCinemeta = cinemeta?.meta || cinemeta || item;
+            const originalImdbRating = cinemeta?.imdb_rating || cinemeta?.meta?.imdbRating || cinemeta?.meta?.rating || baseCinemeta.imdbRating || baseCinemeta.imdb_rating || item.imdbRating || item.imdb_rating;
+
+            if (tmdbDetailsRes) {
+                const tmdbBg = tmdbDetailsRes.backdrop_path ? `https://image.tmdb.org/t/p/original${tmdbDetailsRes.backdrop_path}` : null;
+                const tmdbPost = tmdbDetailsRes.poster_path ? `https://image.tmdb.org/t/p/w500${tmdbDetailsRes.poster_path}` : null;
+                const tmdbLogos = tmdbDetailsRes.images?.logos?.map(l => ({
+                    url: `https://image.tmdb.org/t/p/original${l.file_path}`,
+                    iso_639_1: l.iso_639_1
+                })) || [];
+
+                cinemeta = {
+                    ...baseCinemeta,
+                    ...tmdbDetailsRes,
+                    imdbRating: originalImdbRating || null,
+                    imdb_rating: originalImdbRating || null,
+                    tmdbRating: (tmdbDetailsRes.vote_average != null && tmdbDetailsRes.vote_average > 0) ? tmdbDetailsRes.vote_average : null,
+                    tmdb_rating: (tmdbDetailsRes.vote_average != null && tmdbDetailsRes.vote_average > 0) ? tmdbDetailsRes.vote_average : null,
+                    backdrop_path: tmdbBg || baseCinemeta.background || item.backdrop_path,
+                    poster_path: tmdbPost || baseCinemeta.poster || item.poster_path,
+                    logos: tmdbLogos.length ? tmdbLogos : (fanartImages?.logos || [])
+                };
+
+                if (resolvedImdbId) {
+                    cinemeta.imdb_id = resolvedImdbId;
+                    cinemeta.imdbId = resolvedImdbId;
+                    item.imdb_id = resolvedImdbId;
+                    item.imdbId = resolvedImdbId;
+                }
+
+                if (!fanartImages) fanartImages = {};
+                if (tmdbBg && (!fanartImages.backgrounds || !fanartImages.backgrounds.length)) {
+                    fanartImages.backgrounds = [{ url: tmdbBg }];
+                }
+                if (tmdbLogos.length && (!fanartImages.logos || !fanartImages.logos.length)) {
+                    fanartImages.logos = tmdbLogos;
+                }
+            } else if (originalImdbRating) {
+                cinemeta = {
+                    ...baseCinemeta,
+                    imdbRating: originalImdbRating,
+                    imdb_rating: originalImdbRating
+                };
+            }
         }
 
         let resolvedCinemeta = cinemeta?.meta || cinemeta;
@@ -318,12 +396,10 @@ window.renderUnifiedDetail = async function(item) {
         await populateUnifiedUI(item, resolvedCinemeta, fanartImages || resolvedCinemeta, extra1, anilist);
         
         // Trigger background trailer playback asynchronously
-        resolveTrailerYoutubeUrl(item, resolvedCinemeta, extra1).then(ytUrl => {
+        resolveTrailerYoutubeUrl(item, resolvedCinemeta, extra1, anilist).then(ytUrl => {
             if (ytUrl) {
                 window.currentTrailerYoutubeUrl = ytUrl;
-                const trailerActions = document.getElementById('dd-trailer-actions');
                 const youtubeBtn = document.getElementById('dd-youtube-btn');
-                if (trailerActions) trailerActions.style.display = 'flex';
                 if (youtubeBtn) youtubeBtn.style.display = 'inline-flex';
 
                 playBackgroundTrailer(ytUrl);
@@ -472,9 +548,14 @@ function setupUnifiedSkeleton(container, item) {
                     </div>
 
                     <div id="dd-meta" class="dd-meta-row-premium">
-                        <span class="dd-tag" id="dd-rating">★ ${item.vote_average ? (parseFloat(item.vote_average) || 0).toFixed(1) : '0.0'}</span>
-                        <span class="dd-tag" id="dd-year">${(item.release_date || item.first_air_date || '').slice(0, 4) || '----'}</span>
-                        <span class="imdb-tag" id="dd-imdb-badge">IMDb</span>
+                        <div id="dd-ratings-wrap" class="dd-ratings-wrap">
+                            <span class="dd-rating-badge dd-rating-imdb" id="dd-rating">
+                                <span class="dd-rating-source">${item.source === 'tmdb' ? 'TMDB' : (item.imdbRating || String(item.id).startsWith('tt') ? 'IMDb' : 'Rating')}</span>
+                                <span class="dd-rating-val">★ ${(parseFloat(item.imdbRating || item.vote_average || item.rating) || 0).toFixed(1)}</span>
+                            </span>
+                        </div>
+                        <span class="dd-tag" id="dd-year">${(item.release_date || item.first_air_date || item.year || '').slice(0, 4) || '----'}</span>
+                        <span class="imdb-tag" id="dd-imdb-badge" style="display:none;">IMDb</span>
                     </div>
 
                     <div id="dd-extra-info" class="dd-pills-container"></div>
@@ -482,6 +563,14 @@ function setupUnifiedSkeleton(container, item) {
                     <div class="dd-summary-section">
                         <h4 class="dd-section-label">SUMMARY</h4>
                         <p id="dd-overview" class="dd-overview-text">${escapeHTML(item.overview || 'Loading details...')}</p>
+                        <div class="dd-summary-actions" id="dd-summary-actions" style="display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+                            <button class="dd-read-more-btn" id="dd-read-more-btn" type="button" style="display: none; margin-top: 0;">
+                                <i class="fas fa-chevron-down"></i> Read More
+                            </button>
+                            <button class="dd-read-more-btn dd-yt-trailer-btn" id="dd-youtube-btn" type="button" title="Watch Trailer on YouTube" style="display: none; margin-top: 0; cursor: pointer;">
+                                <i class="fab fa-youtube" style="font-size: 1rem;"></i> <span>Trailer</span>
+                            </button>
+                        </div>
                     </div>
 
                     ${showTmdbNotice ? `
@@ -502,13 +591,6 @@ function setupUnifiedSkeleton(container, item) {
                         </button>
                     </div>
                     ` : ''}
-
-                    <!-- Trailer Actions -->
-                    <div class="dd-trailer-actions" id="dd-trailer-actions" style="display: none; flex-direction: row; gap: 10px; margin-bottom: 15px;">
-                        <button class="dd-btn-main glass-premium dd-btn-square" id="dd-youtube-btn" type="button" title="Watch Trailer" style="display: none;"><i class="fab fa-youtube" style="color: #ffffff; font-size: 1.2rem;"></i></button>
-                        <button class="dd-btn-main glass-premium dd-btn-square" id="dd-audio-btn" type="button" title="Toggle Sound" style="display: none;"><i class="fas fa-volume-mute" style="font-size: 1.1rem;"></i></button>
-                        <button class="dd-btn-main glass-premium dd-btn-square" id="dd-fullscreen-btn" type="button" title="Hide Overlays" style="display: none;"><i class="fas fa-eye-slash" style="font-size: 1.1rem;"></i></button>
-                    </div>
 
                     <div class="dd-bottom-actions">
                         <button class="dd-btn-main primary-premium" id="dd-play-btn-top" onclick="window.openEpisodes()">${isTV ? '<i class="fas fa-list-ol"></i> Show Episodes' : '<i class="fas fa-play-circle" style="font-size: 0.95rem;"></i> Watch Now'}</button>
@@ -1015,239 +1097,307 @@ function ensureFixMetadataButton(item) {
 }
 
 function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
         const { escapeHTML } = window;
         const isKitsu = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || !!item.anime_id || !!item.mal_id || (item.id && (String(item.id).startsWith('kitsu:') || String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:') || String(item.id).startsWith('anilist:')));
+        const isAnime = isKitsu ||
+            item.isAnime ||
+            !!item.mal_id ||
+            !!item.anime_id ||
+            (item.genre && String(item.genre).toLowerCase().includes('anime')) ||
+            (item.genres && item.genres.some(g => String(g.name || g).toLowerCase().includes('anime'))) ||
+            ((item.original_language === 'ja' || item.country === 'Japan' || (item.origin_country && item.origin_country.includes('JP')) || (tmdb?.origin_country && tmdb.origin_country.includes('JP')) || tmdb?.original_language === 'ja') &&
+             (item.genre?.includes('Animation') || item.genres?.some(g => (g.name || g) === 'Animation' || g.id === 16) || tmdb?.genres?.some(g => g.name === 'Animation' || g.id === 16)));
         
         // Show IMDb badge for all media including anime
         const imdbBadge = document.getElementById('dd-imdb-badge');
         if (imdbBadge) {
             imdbBadge.style.display = 'inline-block';
         }
-        
-        // Critical assets tracking
-        const assetsToLoad = [];
-        const trackAsset = (src) => {
-            if (!src) return;
-            const p = new Promise((res) => {
-                const img = new Image();
-                img.onload = res;
-                img.onerror = res; // resolve anyway on error to avoid hanging
-                img.src = src;
-            });
-            assetsToLoad.push(p);
-        };
-        
-        // Safety timeout: wait up to 15s for logos and assets to load before hiding the loader
-        const timeout = setTimeout(resolve, 15000);
 
+        const bdImg = document.getElementById('dd-backdrop') || document.getElementById('dd-backdrop-img');
+        const logoImg = document.getElementById('dd-logo');
+        const titleText = document.getElementById('dd-title');
+
+        // 1. Determine best backdrop URLs
         let lowSrc = null;
         let highSrc = null;
 
         const kitsuBackdrop = item.backdrop_path || item.backdrop || extra1?.attributes?.coverImage || extra1?.backdrop_path || item.poster;
-        
-        // Preferred strategy for Anime: TMDB (IMDb matched) > AniList > Kitsu
         const alBackdrop = anilist?.bannerImage;
-        const alPoster = anilist?.coverImage?.extraLarge || anilist?.coverImage?.large;
-
         const bPath = tmdb?.backdrop_path || (isKitsu && alBackdrop ? alBackdrop : kitsuBackdrop);
-        const logoImg = document.getElementById('dd-logo');
-        const titleText = document.getElementById('dd-title');
-        const bdImg = document.getElementById('dd-backdrop') || document.getElementById('dd-backdrop-img');
 
-        if (bdImg) {
-            // Progressive backdrop loading: show a low-res quickly, then swap to high-res once ready
-            try {
-            if (tmdb?.backdrop_path || tmdb?.background) {
-                const bd = tmdb.backdrop_path || tmdb.background;
+        if (tmdb?.backdrop_path || tmdb?.background) {
+            const bd = tmdb.backdrop_path || tmdb.background;
+            lowSrc = window.getTMDBImageUrl(bd, false);
+            highSrc = window.getTMDBImageUrl(bd, true);
+        } else if (item.backdrop_path || item.backdrop) {
+            const bd = item.backdrop_path || item.backdrop;
+            if (/^https?:\/\//i.test(bd)) {
+                lowSrc = highSrc = bd;
+            } else {
                 lowSrc = window.getTMDBImageUrl(bd, false);
                 highSrc = window.getTMDBImageUrl(bd, true);
-            } else if (item.backdrop_path || item.backdrop) {
-                const bd = item.backdrop_path || item.backdrop;
-                if (/^https?:\/\//i.test(bd)) {
-                    lowSrc = highSrc = bd;
-                } else {
-                    lowSrc = window.getTMDBImageUrl(bd, false);
-                    highSrc = window.getTMDBImageUrl(bd, true);
-                }
-            } else if (window.appData?.tmdbCache?.[item.id]?.backdrop_path || window.appData?.tmdbCache?.[item.id]?.backdropPath || window.appData?.tmdbCache?.[item.id]?.backdrop) {
-                const cache = window.appData.tmdbCache[item.id];
-                const bd = cache.backdrop_path || cache.backdropPath || cache.backdrop;
-                if (/^https?:\/\//i.test(bd)) {
-                    lowSrc = highSrc = bd;
-                } else {
-                    lowSrc = window.getTMDBImageUrl(bd, false);
-                    highSrc = window.getTMDBImageUrl(bd, true);
-                }
-            } else if (isKitsu && alBackdrop) {
-                lowSrc = alBackdrop;
-                highSrc = alBackdrop;
-            } else if (extra1?.isStremio) {
-                const bg = extra1.backdrop_path || extra1.poster_path;
-                lowSrc = window.getTMDBImageUrl(bg, false);
-                highSrc = window.getTMDBImageUrl(bg, true);
-            } else if (extra1?.attributes?.coverImage) {
-                lowSrc = window.getKitsuImageUrl(extra1.attributes.coverImage, false);
-                highSrc = window.getKitsuImageUrl(extra1.attributes.coverImage, true);
-            } else if (bPath) {
-                lowSrc = window.getTMDBImageUrl(bPath, false);
-                highSrc = window.getTMDBImageUrl(bPath, true);
-            } else if (item.isLocal || (item.path && !/^https?:\/\//i.test(item.path))) {
-                const banners = window.appData?.banners || {};
-                const banner = banners[item.id];
-                if (banner && typeof window.localImg === 'function') {
-                    lowSrc = highSrc = window.localImg(banner);
-                }
-            } else if (extra1?.background) {
-                lowSrc = window.getTMDBImageUrl(extra1.background, false);
-                highSrc = window.getTMDBImageUrl(extra1.background, true);
             }
-
-            // Fanart override for background
-            if (images && images.backgrounds && images.backgrounds.length > 0) {
-                const bestBg = images.backgrounds[0];
-                highSrc = bestBg.url;
-                lowSrc = bestBg.url.replace('/fanart/', '/preview/'); // usually there's a preview or we just use original
-            }
-
-            if (lowSrc) {
-                bdImg.src = lowSrc;
-                bdImg.style.filter = '';
-                bdImg.style.transform = '';
-                if (highSrc && highSrc !== lowSrc) {
-                    bdImg.style.transition = bdImg.style.transition || 'opacity .35s ease';
-                    const high = new Image();
-                    high.onload = () => {
-                        bdImg.src = highSrc;
-                        bdImg.style.filter = '';
-                        bdImg.style.transform = '';
-                    };
-                    high.onerror = () => {
-                        bdImg.style.filter = '';
-                        bdImg.style.transform = '';
-                    };
-                    high.src = highSrc;
-                } else {
-                    bdImg.style.filter = '';
-                    bdImg.style.transform = '';
-                }
+        } else if (window.appData?.tmdbCache?.[item.id]?.backdrop_path || window.appData?.tmdbCache?.[item.id]?.backdropPath || window.appData?.tmdbCache?.[item.id]?.backdrop) {
+            const cache = window.appData.tmdbCache[item.id];
+            const bd = cache.backdrop_path || cache.backdropPath || cache.backdrop;
+            if (/^https?:\/\//i.test(bd)) {
+                lowSrc = highSrc = bd;
             } else {
-                bdImg.src = 'imgs/no-backdrop.png';
-                bdImg.style.filter = '';
+                lowSrc = window.getTMDBImageUrl(bd, false);
+                highSrc = window.getTMDBImageUrl(bd, true);
             }
-        } catch (e) {
-            // Fallback: set whatever we have
+        } else if (isKitsu && alBackdrop) {
+            lowSrc = highSrc = alBackdrop;
+        } else if (extra1?.isStremio) {
+            const bg = extra1.backdrop_path || extra1.poster_path;
+            lowSrc = window.getTMDBImageUrl(bg, false);
+            highSrc = window.getTMDBImageUrl(bg, true);
+        } else if (extra1?.attributes?.coverImage) {
+            lowSrc = window.getKitsuImageUrl(extra1.attributes.coverImage, false);
+            highSrc = window.getKitsuImageUrl(extra1.attributes.coverImage, true);
+        } else if (bPath) {
+            lowSrc = window.getTMDBImageUrl(bPath, false);
+            highSrc = window.getTMDBImageUrl(bPath, true);
+        } else if (item.isLocal || (item.path && !/^https?:\/\//i.test(item.path))) {
+            const banners = window.appData?.banners || {};
+            const banner = banners[item.id];
+            if (banner && typeof window.localImg === 'function') {
+                lowSrc = highSrc = window.localImg(banner);
+            }
+        } else if (extra1?.background) {
+            lowSrc = window.getTMDBImageUrl(extra1.background, false);
+            highSrc = window.getTMDBImageUrl(extra1.background, true);
+        }
+
+        if (images && images.backgrounds && images.backgrounds.length > 0) {
+            const bestBg = images.backgrounds[0];
+            highSrc = bestBg.url;
+            lowSrc = bestBg.url;
+        }
+
+        if (!highSrc && !lowSrc) {
+            const fallbackPoster = item.poster_path || item.poster || tmdb?.poster_path || tmdb?.poster || extra1?.poster_path;
+            if (fallbackPoster) {
+                lowSrc = highSrc = window.getTMDBImageUrl(fallbackPoster, true);
+            }
+        }
+
+        const targetBackdrop = highSrc || lowSrc || 'imgs/no-backdrop.png';
+
+        // 2. Determine best logo URL
+        let logoUrl = null;
+        if (extra1?.logo) {
+            logoUrl = extra1.logo;
+        } else if (tmdb?.logo) {
+            logoUrl = tmdb.logo;
+        } else if (images) {
+            if (Array.isArray(images.logos) && images.logos.length > 0) {
+                const logo = images.logos.find(l => l.iso_639_1 === 'en') || images.logos.find(l => !l.iso_639_1) || images.logos[0];
+                logoUrl = logo.url || (logo.file_path ? window.getTMDBImageUrl(logo.file_path, true) : null);
+            } else if (Array.isArray(images.clearlogos) && images.clearlogos.length > 0) {
+                const logo = images.clearlogos[0];
+                logoUrl = typeof logo === 'string' ? logo : (logo.url || logo.file_path);
+            } else {
+                const rawLogos = images.hdtvlogo || images.clearlogo || images.hdmovielogo || images.movielogo;
+                if (Array.isArray(rawLogos) && rawLogos.length > 0) {
+                    logoUrl = rawLogos[0].url;
+                }
+            }
+        }
+        if (!logoUrl && tmdb && Array.isArray(tmdb.clearlogos) && tmdb.clearlogos.length > 0) {
+            logoUrl = tmdb.clearlogos[0];
+        }
+
+        // 3. Preload helper with hardware decode
+        const preloadImage = (url) => {
+            if (!url || url === 'imgs/no-backdrop.png') return Promise.resolve(null);
+            const resolved = (typeof window.localImg === 'function') ? window.localImg(url) : url;
+            return new Promise((res) => {
+                const img = new Image();
+                let done = false;
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    if (typeof img.decode === 'function') {
+                        img.decode().then(() => res(resolved)).catch(() => res(resolved));
+                    } else {
+                        res(resolved);
+                    }
+                };
+                img.onload = finish;
+                img.onerror = () => { done = true; res(null); };
+                img.src = resolved;
+                setTimeout(() => { if (!done) { done = true; res(resolved); } }, 3500);
+            });
+        };
+
+        // Preload backdrop & logo in parallel before showing content
+        const [loadedBackdrop, loadedLogo] = await Promise.all([
+            preloadImage(targetBackdrop),
+            logoUrl ? preloadImage(logoUrl) : Promise.resolve(null)
+        ]);
+
+        // Apply decoded backdrop
+        if (bdImg) {
+            bdImg.src = loadedBackdrop || targetBackdrop;
+            bdImg.style.opacity = '1';
             bdImg.style.filter = '';
-            if (bPath) bdImg.src = window.getTMDBImageUrl(bPath, true);
-            else if (extra1?.isStremio) bdImg.src = window.getTMDBImageUrl(extra1.backdrop_path || extra1.poster_path, true);
-            else if (extra1?.attributes?.coverImage) bdImg.src = window.getKitsuImageUrl(extra1.attributes.coverImage, true);
-            else if (extra1?.background) bdImg.src = window.getTMDBImageUrl(extra1.background, true);
         }
-    }
 
-    const hasLogo = (extra1?.logo) || (images?.logos?.length > 0) || tmdb?.logo;
-
-    // Default state: Hide BOTH until we know what to show
-    if (logoImg) {
-        logoImg.style.display = 'none';
-        logoImg.style.opacity = '0';
-        logoImg.src = '';
-    }
-    if (titleText) {
-        titleText.style.display = 'none';
-        titleText.style.opacity = '0';
-    }
-
-
-
-    const showTitleFallback = () => {
-        if (titleText) {
-            titleText.style.display = 'block';
-            titleText.style.opacity = '1';
-        }
-        if (logoImg) logoImg.style.display = 'none';
-    };
-
-    const showLogo = (src) => {
-        if (!logoImg) return;
-        const resolvedSrc = (typeof window.localImg === 'function') ? window.localImg(src) : src;
-        const logoPromise = new Promise((res) => {
-            logoImg.onload = () => {
-                logoImg.style.display = 'block';
-                logoImg.style.opacity = '1';
-                if (titleText) {
-                    titleText.style.display = 'none';
-                    titleText.style.opacity = '0';
-                }
-                res();
-            };
-            logoImg.onerror = () => {
-                logoImg.style.display = 'none';
-                if (titleText) { 
-                    titleText.style.display = 'block'; 
-                    titleText.style.opacity = '1'; 
-                }
-                res();
-            };
-        });
-        logoImg.src = resolvedSrc;
-        assetsToLoad.push(logoPromise);
-    };
-
-    let logoUrl = null;
-    if (extra1?.logo) {
-        logoUrl = extra1.logo;
-    } else if (tmdb?.logo) {
-        logoUrl = tmdb.logo;
-    } else if (images) {
-        if (Array.isArray(images.logos) && images.logos.length > 0) {
-            const logo = images.logos.find(l => l.iso_639_1 === 'en') || images.logos.find(l => !l.iso_639_1) || images.logos[0];
-            logoUrl = logo.url || (logo.file_path ? window.getTMDBImageUrl(logo.file_path, true) : null);
-        } else if (Array.isArray(images.clearlogos) && images.clearlogos.length > 0) {
-            const logo = images.clearlogos[0];
-            logoUrl = typeof logo === 'string' ? logo : (logo.url || logo.file_path);
+        // Apply decoded logo or title fallback
+        if (loadedLogo && logoImg) {
+            logoImg.src = loadedLogo;
+            logoImg.style.display = 'block';
+            logoImg.style.opacity = '1';
+            if (titleText) {
+                titleText.style.display = 'none';
+                titleText.style.opacity = '0';
+            }
         } else {
-            const rawLogos = images.hdtvlogo || images.clearlogo || images.hdmovielogo || images.movielogo;
-            if (Array.isArray(rawLogos) && rawLogos.length > 0) {
-                logoUrl = rawLogos[0].url;
+            if (titleText) {
+                titleText.style.display = 'block';
+                titleText.style.opacity = '1';
+            }
+            if (logoImg) {
+                logoImg.style.display = 'none';
+                logoImg.style.opacity = '0';
             }
         }
-    }
-
-    if (!logoUrl && tmdb && Array.isArray(tmdb.clearlogos) && tmdb.clearlogos.length > 0) {
-        logoUrl = tmdb.clearlogos[0];
-    }
-
-    if (logoUrl && logoImg) {
-        showLogo(logoUrl);
-    } else {
-        showTitleFallback();
-    }
-
-    // Backdrop tracking
-    if (highSrc) trackAsset(highSrc);
-    else if (lowSrc) trackAsset(lowSrc);
-
-    // Finalize after assets or timeout
-    Promise.all(assetsToLoad).then(() => {
-        clearTimeout(timeout);
-        resolve();
-    });
 
     const metaContainer = document.getElementById('dd-meta');
     if (metaContainer) {
-        const rating = (tmdb?.vote_average) || (tmdb?.rating) || (tmdb?.imdbRating) || (extra1?.imdbRating) || (extra1?.rating) || item.rating || item.vote_average || 0;
+        // Multi-Source Ratings Rendering
+        let ratingsWrap = document.getElementById('dd-ratings-wrap');
+        if (!ratingsWrap) {
+            ratingsWrap = document.createElement('div');
+            ratingsWrap.id = 'dd-ratings-wrap';
+            ratingsWrap.className = 'dd-ratings-wrap';
+            const oldRatingEl = document.getElementById('dd-rating');
+            if (oldRatingEl) {
+                oldRatingEl.replaceWith(ratingsWrap);
+            } else {
+                metaContainer.prepend(ratingsWrap);
+            }
+        }
+        ratingsWrap.innerHTML = '';
+
+        let imdbScore = null;
+        let tmdbScore = null;
+        let malScore = null;
+        let kitsuScore = null;
+
+        // 1. IMDb Rating: check tmdb object, item, extra1
+        const rawImdb = tmdb?.imdbRating || tmdb?.imdb_rating || extra1?.imdbRating || extra1?.imdb_rating || item.imdbRating || item.imdb_rating || (window.currentDetailItem?.imdbRating || window.currentDetailItem?.imdb_rating);
+        if (rawImdb != null) {
+            const v = parseFloat(rawImdb);
+            if (!isNaN(v) && v > 0 && v <= 10) imdbScore = v;
+        }
+
+        // 2. TMDB Rating: check tmdb_rating, tmdbRating, or vote_average
+        const rawTmdb = tmdb?.tmdb_rating || tmdb?.tmdbRating || item.tmdb_rating || item.tmdbRating || (item.source === 'tmdb' ? item.vote_average : null) || (tmdb?.vote_average && (!imdbScore || Math.abs(parseFloat(tmdb.vote_average) - imdbScore) > 0.01 || tmdb.vote_count) ? tmdb.vote_average : null);
+        if (rawTmdb != null) {
+            const v = parseFloat(rawTmdb);
+            if (!isNaN(v) && v > 0 && v <= 10) tmdbScore = v;
+        }
+
+        // 3. Anime (MAL & Kitsu)
+        const isStrictAnime = isAnime || isKitsu || !!item.mal_id || !!item.anime_id || (item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || item.source === 'anilist');
+        if (isStrictAnime) {
+            const rawMal = tmdb?.malScore || tmdb?.mal_rating || tmdb?.mal_score || extra1?.score || extra1?.rating || item.malScore || item.mal_rating || anilist?.score || (anilist?.averageScore ? anilist.averageScore / 10 : null);
+            if (rawMal != null) {
+                const v = parseFloat(rawMal);
+                if (!isNaN(v) && v > 0 && v <= 10) malScore = v;
+            }
+
+            const rawKitsu = extra1?.attributes?.averageRating || extra1?.averageRating;
+            if (rawKitsu != null) {
+                const v = parseFloat(rawKitsu);
+                if (!isNaN(v) && v > 0) {
+                    kitsuScore = v > 10 ? v / 10 : v;
+                }
+            }
+        }
+
+        // Build array of badges to show
+        const badgesToRender = [];
+
+        if (imdbScore != null) {
+            badgesToRender.push({
+                source: 'IMDb',
+                score: imdbScore.toFixed(1),
+                cls: 'dd-rating-imdb',
+                title: 'IMDb Rating'
+            });
+        }
+
+        if (malScore != null && !badgesToRender.some(b => b.source === 'MAL')) {
+            badgesToRender.push({
+                source: 'MAL',
+                score: malScore.toFixed(1),
+                cls: 'dd-rating-mal',
+                title: 'MyAnimeList Community Score'
+            });
+        }
+
+        if (kitsuScore != null && !badgesToRender.some(b => b.source === 'Kitsu')) {
+            badgesToRender.push({
+                source: 'Kitsu',
+                score: kitsuScore.toFixed(1),
+                cls: 'dd-rating-kitsu',
+                title: 'Kitsu Community Score'
+            });
+        }
+
+        // Fallback if none resolved
+        if (badgesToRender.length === 0) {
+            const fallbackVal = parseFloat(item.rating || item.vote_average || tmdb?.rating || 0);
+            if (!isNaN(fallbackVal) && fallbackVal > 0) {
+                badgesToRender.push({
+                    source: isAnime ? 'Score' : 'Rating',
+                    score: fallbackVal.toFixed(1),
+                    cls: 'dd-rating-imdb',
+                    title: 'Rating'
+                });
+            } else {
+                badgesToRender.push({
+                    source: 'Rating',
+                    score: 'N/A',
+                    cls: 'dd-rating-imdb',
+                    title: 'No Rating Available'
+                });
+            }
+        }
+
+        const safeEscape = (str) => {
+            if (typeof window.escapeHTML === 'function') return window.escapeHTML(str);
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        };
+
+        badgesToRender.forEach(b => {
+            const badge = document.createElement('span');
+            badge.className = `dd-rating-badge ${b.cls}`;
+            badge.title = b.title;
+            badge.innerHTML = `
+                <span class="dd-rating-source">${safeEscape(b.source)}</span>
+                <span class="dd-rating-val">★ ${b.score}</span>
+            `;
+            ratingsWrap.appendChild(badge);
+        });
+
         const kitsuYear = String(extra1?.year || extra1?.releaseInfo || item.release_date || item.first_air_date || item.releaseYear || '').slice(0, 4);
         const year = (isKitsu && kitsuYear) ? kitsuYear : String(tmdb?.release_date || tmdb?.first_air_date || tmdb?.year || tmdb?.released || kitsuYear || '----').slice(0, 4);
         const runtime = tmdb?.runtime || (tmdb?.episode_run_time ? tmdb?.episode_run_time[0] : null) || extra1?.runtime;
-        const parsedR = parseFloat(rating);
-        document.getElementById('dd-rating').textContent = `★ ${(!isNaN(parsedR) && parsedR > 0) ? parsedR.toFixed(1) : '0.0'}`;
         
-        if (isKitsu) {
-            document.getElementById('dd-year').textContent = kitsuYear || '----';
-        } else {
-            const displayYear = tmdb?.first_air_date ? `${year}-${String(tmdb.last_air_date || '').slice(0,4)}` : (tmdb?.year || tmdb?.released || year || '----');
-            document.getElementById('dd-year').textContent = displayYear;
+        const yearEl = document.getElementById('dd-year');
+        if (yearEl) {
+            if (isKitsu) {
+                yearEl.textContent = kitsuYear || '----';
+            } else {
+                const displayYear = tmdb?.first_air_date ? `${year}-${String(tmdb.last_air_date || '').slice(0,4)}` : (tmdb?.year || tmdb?.released || year || '----');
+                yearEl.textContent = displayYear;
+            }
         }
         if (runtime) {
             // Ensure we don't repeatedly prepend runtime tags on re-render
@@ -1314,19 +1464,17 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         };
 
         // 1. Add Age Rating badge (top row)
-        const cleanAgeRating = (ageRating || 'NR').trim().toUpperCase();
-        const isUnrated = cleanAgeRating === 'NR' || cleanAgeRating === 'NOT RATED' || cleanAgeRating === 'UNRATED';
-        const ageLabel = isUnrated ? 'NR' : cleanAgeRating;
+        const cleanAgeRating = (ageRating || '').trim().toUpperCase();
+        const isUnrated = !cleanAgeRating || cleanAgeRating === 'NR' || cleanAgeRating === 'NOT RATED' || cleanAgeRating === 'UNRATED';
         
-        badgesCol.appendChild(createMetaBadge(ageLabel, isUnrated));
+        if (!isUnrated) {
+            badgesCol.appendChild(createMetaBadge(cleanAgeRating, false));
+        }
 
-        // 2. Add ID badge (bottom row)
+        // 2. Add ID metadata
         if (resolvedImdb) {
             item.imdb_id = resolvedImdb;
             item.imdbId = resolvedImdb;
-            badgesCol.appendChild(createMetaBadge(`IMDb: ${resolvedImdb}`, false, true));
-        } else if (resolvedTmdb) {
-            badgesCol.appendChild(createMetaBadge(`TMDB ${resolvedTmdb}`));
         } else if (isKitsu) {
             const kitsuId = item.kitsuId || (String(item.id).startsWith('kitsu:') ? String(item.id).replace('kitsu:', '') : null);
             if (kitsuId) {
@@ -1366,35 +1514,27 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
         const summarySec = overview.closest('.dd-summary-section');
         if (summarySec) {
-            const oldBtn = summarySec.querySelector('.dd-read-more-btn');
-            if (oldBtn) oldBtn.remove();
-
             overview.classList.remove('expanded');
+            const readMoreBtn = summarySec.querySelector('#dd-read-more-btn');
+            if (readMoreBtn) {
+                readMoreBtn.style.display = 'none';
+                readMoreBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Read More';
+            }
 
-        // Remove previous button
-        const oldBtn2 = summarySec.querySelector('.dd-read-more-btn');
-        if (oldBtn2) oldBtn2.remove();
-
-        // Only show "Read More" button if text actually overflows the clamped box
-        // We use a rAF to let the DOM settle after setting textContent
-        requestAnimationFrame(() => {
-          const isOverflowing = overview.scrollHeight > overview.clientHeight + 2;
-          if (isOverflowing) {
-            const toggleBtn = document.createElement('button');
-            toggleBtn.type = 'button';
-            toggleBtn.className = 'dd-read-more-btn';
-            toggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Read More';
-            toggleBtn.onclick = (e) => {
-              e.stopPropagation();
-              const isExpanded = overview.classList.toggle('expanded');
-              toggleBtn.innerHTML = isExpanded
-                ? '<i class="fas fa-chevron-up"></i> Read Less'
-                : '<i class="fas fa-chevron-down"></i> Read More';
-            };
-            summarySec.appendChild(toggleBtn);
-          }
-        });
-
+            // Only show "Read More" button if text actually overflows the clamped box
+            requestAnimationFrame(() => {
+                const isOverflowing = overview.scrollHeight > overview.clientHeight + 2;
+                if (isOverflowing && readMoreBtn) {
+                    readMoreBtn.style.display = 'inline-flex';
+                    readMoreBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        const isExpanded = overview.classList.toggle('expanded');
+                        readMoreBtn.innerHTML = isExpanded
+                            ? '<i class="fas fa-chevron-up"></i> Read Less'
+                            : '<i class="fas fa-chevron-down"></i> Read More';
+                    };
+                }
+            });
         }
     }
 
@@ -1690,7 +1830,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         const lists = [
             { id: 'watchlist', name: 'My List (Watching)', items: (profile.watchlist || []).filter(Boolean), isSpecial: true },
             { id: 'watched', name: 'Watched', items: [], isSpecial: true },
-            ...(profile.custom_lists || []).filter(Boolean)
+            ...(profile.custom_lists || []).filter(Boolean).filter(l => l.type !== 'music' && l.type !== 'song' && l.type !== 'audio')
         ];
 
         try {
@@ -1796,6 +1936,22 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
     };
 
     window.openEpisodes = async () => {
+        if (!isTV && window.appData && window.appData.autoChooseBestStream) {
+            // For movies with Smart Auto-Play: Do NOT open the side panel UI at all.
+            // Search streams in background and directly launch the player with the best stream.
+            const resolvedImdb = item.imdb_id || item.imdbId || window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId || window.currentUnifiedDetailItem?.imdb_id || window.currentUnifiedDetailItem?.imdbId || null;
+            const payload = {
+                ...window.currentDetailItem,
+                ...item,
+                imdb_id: resolvedImdb,
+                imdbId: resolvedImdb
+            };
+            if (typeof window.loadStreams === 'function') {
+                window.loadStreams(payload, 'movie');
+            }
+            return;
+        }
+
         const isMobile = window.innerWidth <= 768;
         const panel = document.getElementById(isMobile ? 'dd-mobile-panel' : 'dd-side-panel');
         const content = document.getElementById(isMobile ? 'dd-mobile-panel-content' : 'dd-panel-content');
@@ -1948,7 +2104,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                                 }
                             }
                         } else {
-                            const tmdbKey = window.appData?.tmdbKey || window.TMDB_API_KEY || 'a3c751221b6d0efdb621869e9fc13c02';
+                            const tmdbKey = window.appData?.tmdbKey || null;
                             const tmdbEnabled = window.appData?.tmdbEnabled !== false;
 
                             if (tmdbKey && tmdbEnabled && (imdbId || tmdbId)) {
@@ -2156,11 +2312,8 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                         </div>
                         <div class="dd-episode-list" id="dd-unified-ep-list"></div>
                         <div id="dd-streams-container-unified" style="display:none">
-                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <div style="display: flex; align-items: center; justify-content: flex-start; margin-bottom: 12px;">
                                 <button class="dd-panel-back-to-ep" onclick="window.backToEpisodes()"><i class="fas fa-chevron-left"></i> Back to Episodes</button>
-                                <button class="btn-streams-about" onclick="window.showStreamsAboutModal()" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); color: #ffffff; padding: 5px 12px; border-radius: 10px; font-weight: 700; font-size: 0.76rem; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
-                                    <i class="fas fa-info-circle" style="color: #ffffff;"></i> About Streams
-                                </button>
                             </div>
                             <div id="dd-streams-list" class="dd-streams-list-unified active"></div>
                         </div>
@@ -2270,10 +2423,11 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         let data = await window.api.invoke('tmdb-season-details', tvId, seasonNum).catch(() => null);
         
         if ((!data || !data.episodes || data.episodes.length === 0) && window._lastTmdbData && window._lastTmdbData.videos) {
-            const seasonVids = window._lastTmdbData.videos.filter(v => v.season === parseInt(seasonNum));
+            const seasonVids = window._lastTmdbData.videos.filter(v => Number(v.season) === Number(seasonNum));
             if (seasonVids.length > 0) {
                 data = { episodes: seasonVids.map(v => ({
                     episode_number: v.episode,
+                    season_number: v.season,
                     name: v.title || v.name || `Episode ${v.episode}`,
                     still_path: v.thumbnail,
                     air_date: v.released
@@ -2281,22 +2435,34 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
             }
         }
 
-        if (data && data.episodes) {
+        if (!data || !data.episodes || data.episodes.length === 0) {
+            const currentItemObj = window.currentDetailItem || window.currentUnifiedDetailItem || item;
+            const malId = currentItemObj?.mal_id || currentItemObj?.malId || (String(currentItemObj?.id || '').startsWith('mal:') ? String(currentItemObj.id).replace('mal:', '') : null);
+            if (malId) {
+                const jikanData = await window.api.invoke('jikan-episodes', malId).catch(() => null);
+                if (jikanData && jikanData.data && jikanData.data.length > 0) {
+                    data = { episodes: jikanData.data.map(ep => ({
+                        episode_number: ep.mal_id,
+                        season_number: 1,
+                        name: ep.title || `Episode ${ep.mal_id}`,
+                        still_path: ep.images?.jpg?.image_url,
+                        air_date: ep.aired
+                    })) };
+                }
+            }
+        }
+
+        if (data && data.episodes && data.episodes.length > 0) {
             const listEl = document.getElementById('dd-unified-ep-list');
             renderEpisodesInBatches(listEl, data.episodes, seasonNum, false);
         } else {
             if (document.getElementById('dd-unified-ep-list')) {
-                document.getElementById('dd-unified-ep-list').innerHTML = '<div style="padding: 20px; color: var(--text-muted);">No episodes found or TMDB error.</div>';
+                document.getElementById('dd-unified-ep-list').innerHTML = '<div style="padding: 20px; color: var(--text-muted); text-align: center;">No episodes found.</div>';
             }
         }
     };
 
     window.selectUnifiedEpisode = (season, episode, name, thumbnail, path = '') => {
-        const list = document.getElementById('dd-unified-ep-list');
-        const streamContainer = document.getElementById('dd-streams-container-unified');
-        if (list) list.style.display = 'none';
-        if (streamContainer) streamContainer.style.display = 'block';
-        
         let thumbUrl = thumbnail;
         if (thumbnail && !thumbnail.startsWith('http')) {
             thumbUrl = window.getTMDBImageUrl(thumbnail, true);
@@ -2321,6 +2487,16 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
             payload.path = path;
         }
         const streamType = (currentItemObj?.source === 'jikan' || currentItemObj?.source === 'mal' || currentItemObj?.source === 'kitsu' || payload.kitsuId) ? 'anime' : 'tv';
+
+        if (!window.appData || !window.appData.autoChooseBestStream) {
+            const list = document.getElementById('dd-unified-ep-list');
+            const streamContainer = document.getElementById('dd-streams-container-unified');
+            if (list) list.style.display = 'none';
+            if (streamContainer) streamContainer.style.display = 'block';
+        } else {
+            if (window.showToast) window.showToast(`Finding best stream for Episode ${episode}...`);
+        }
+
         window.loadStreams(payload, streamType);
     };
 
@@ -2417,7 +2593,7 @@ function createPillGroup(label, items) {
 
 let trailerTimeout = null;
 let currentTrailerVideo = null;
-async function resolveTrailerYoutubeUrl(item, cinemeta, extra1) {
+async function resolveTrailerYoutubeUrl(item, cinemeta, extra1, anilist) {
     try {
         const isAnime = false; // Disabled: all anime routed through Cinemeta/TMDB for trailer resolution
         let youtubeUrl = null;
@@ -2440,7 +2616,7 @@ async function resolveTrailerYoutubeUrl(item, cinemeta, extra1) {
                 youtubeUrl = `https://www.youtube.com/watch?v=${extra1.attributes.youtubeVideoId}`;
             }
         } else {
-            // Western media
+            // Western media & General media
             const meta = cinemeta?.meta || cinemeta || item;
             if (meta?.trailers && meta.trailers.length > 0) {
                 // Cinemeta format: { source: "video_id", type: "Trailer" }
@@ -2482,6 +2658,15 @@ async function resolveTrailerYoutubeUrl(item, cinemeta, extra1) {
                             }
                         }
                     }
+                }
+            }
+
+            // Fallback for Anime: AniList or Kitsu trailer
+            if (!youtubeUrl) {
+                if (anilist?.trailer?.id && (anilist?.trailer?.site || '').toLowerCase() === 'youtube') {
+                    youtubeUrl = `https://www.youtube.com/watch?v=${anilist.trailer.id}`;
+                } else if (extra1?.attributes?.youtubeVideoId) {
+                    youtubeUrl = `https://www.youtube.com/watch?v=${extra1.attributes.youtubeVideoId}`;
                 }
             }
         }
@@ -2594,9 +2779,24 @@ async function playBackgroundTrailer(youtubeUrl) {
                 shaka.polyfill.installAll();
                 const shakaPlayer = new shaka.Player();
                 shakaPlayer.attach(video).then(() => {
-                    shakaPlayer.configure({ streaming: { bufferingGoal: 10 } });
+                    shakaPlayer.configure({
+                        abr: {
+                            enabled: true,
+                            defaultBandwidthEstimate: 100000000 // 100 Mbps for crystal clear HD trailer playback
+                        },
+                        streaming: { bufferingGoal: 10 }
+                    });
                     return shakaPlayer.load(directUrl);
                 }).then(() => {
+                    try {
+                        const tracks = shakaPlayer.getVariantTracks();
+                        if (tracks && tracks.length > 0) {
+                            const bestTrack = tracks.reduce((prev, curr) => ((curr.height || 0) > (prev.height || 0) ? curr : prev), tracks[0]);
+                            if (bestTrack) {
+                                shakaPlayer.selectVariantTrack(bestTrack, true);
+                            }
+                        }
+                    } catch (trErr) {}
                     video.play().catch(() => {});
                     video.onloadeddata = onReady;
                 }).catch(err => {

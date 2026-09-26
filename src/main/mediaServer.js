@@ -105,6 +105,179 @@ function startPersistentServer(onStarted) {
       return;
     }
 
+    // 2.7 API Endpoint: YouTube Stream Direct Resolver / Redirect & Details
+    if (pathname === '/api/youtube/stream' || pathname === '/api/youtube/details') {
+      const videoId = url.searchParams.get('v') || url.searchParams.get('id');
+      const requestedQuality = url.searchParams.get('quality') || '1080';
+      const wantsJson = pathname === '/api/youtube/details' || url.searchParams.get('format') === 'json';
+
+      if (!videoId) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, error: 'Missing v parameter' }));
+        return;
+      }
+
+      try {
+        const YouTubeService = require('./youtube/YouTubeService');
+        const ytRes = await YouTubeService.getVideoDetails(videoId, requestedQuality);
+        const directUrl = ytRes?.details?.streamUrl;
+        const audioUrl = ytRes?.details?.audioStreamUrl || null;
+
+        if (wantsJson) {
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end(JSON.stringify({
+            success: Boolean(directUrl),
+            streamUrl: directUrl || '',
+            audioStreamUrl: audioUrl || '',
+            title: ytRes?.details?.title || '',
+            thumbnail: ytRes?.details?.thumbnail || '',
+            quality: requestedQuality,
+            availableQualities: ytRes?.details?.availableQualities || ['1080p', '720p', '480p', '360p', 'Auto']
+          }));
+          return;
+        }
+
+        if (directUrl) {
+          res.writeHead(302, {
+            'Location': directUrl,
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end();
+          return;
+        }
+        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, error: 'Stream not found' }));
+      } catch (err) {
+        console.error('[SyncServer] YouTube resolver error:', err.message);
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: false, error: 'Resolver Error: ' + err.message }));
+        }
+      }
+      return;
+    }
+
+    // 2.8 API Endpoint: SubDL Subtitles Search Proxy (for MEEM Player)
+    if (pathname === '/api/subtitles/subdl/search') {
+      try {
+        const imdbId = url.searchParams.get('imdb_id') || url.searchParams.get('imdbId');
+        const tmdbId = url.searchParams.get('tmdb_id') || url.searchParams.get('tmdbId');
+        const season = url.searchParams.get('season');
+        const episode = url.searchParams.get('episode');
+        const filmName = url.searchParams.get('film_name') || url.searchParams.get('title') || '';
+        const mediaType = url.searchParams.get('type') || (season ? 'tv' : 'movie');
+        const languages = url.searchParams.get('languages') || 'AR,EN';
+
+        const { readLocalAppData } = require('./store');
+        const local = readLocalAppData() || {};
+        const apiKey = url.searchParams.get('api_key') || local.subdlConfig?.apiKey || local.subdlKey || '';
+
+        if (!apiKey) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: false, error: 'SubDL API key not configured', subtitles: [] }));
+          return;
+        }
+
+        const axios = require('axios');
+        const params = {
+          api_key: apiKey,
+          type: mediaType,
+          languages: languages
+        };
+        if (imdbId) params.imdb_id = imdbId;
+        if (tmdbId) params.tmdb_id = tmdbId;
+        if (season) params.season_number = season;
+        if (episode) params.episode_number = episode;
+        if (filmName && !imdbId && !tmdbId) params.film_name = filmName;
+
+        const subdlResp = await axios.get('https://api.subdl.com/api/v1/subtitles', {
+          params,
+          timeout: 6000
+        }).catch(e => ({ data: { status: false, error: e.message } }));
+
+        const rawList = subdlResp.data?.subtitles || [];
+        const normalized = rawList.map((s, idx) => {
+          let dlUrl = s.url || '';
+          if (dlUrl && !dlUrl.startsWith('http')) dlUrl = `https://dl.subdl.com${dlUrl}`;
+          const lang = (s.lang || s.language || 'Unknown').toUpperCase();
+          const release = s.release_name || s.name || '';
+          const author = s.author ? ` (by ${s.author})` : '';
+          return {
+            id: s.sd_id || s.subtitle_id || idx,
+            url: dlUrl,
+            lang: lang,
+            releaseName: release,
+            label: `[${lang}] ${release || 'Subtitle'}${author}`,
+            format: s.format || 'zip',
+            hi: !!s.hi
+          };
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: true, count: normalized.length, subtitles: normalized }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, error: err.message, subtitles: [] }));
+      }
+      return;
+    }
+
+    // 2.9 API Endpoint: SubDL Subtitle Download & Unpack Proxy (for MEEM Player)
+    if (pathname === '/api/subtitles/subdl/download') {
+      try {
+        const subUrl = url.searchParams.get('url');
+        if (!subUrl) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: false, error: 'Missing url parameter' }));
+          return;
+        }
+
+        const axios = require('axios');
+        const AdmZip = require('adm-zip');
+        const os = require('os');
+        const subsDir = path.join(os.tmpdir(), 'meem_player_subs');
+        if (!fs.existsSync(subsDir)) fs.mkdirSync(subsDir, { recursive: true });
+
+        const resp = await axios.get(subUrl, {
+          responseType: 'arraybuffer',
+          timeout: 10000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://subdl.com/'
+          }
+        });
+
+        let targetSrtPath = '';
+        if (subUrl.toLowerCase().endsWith('.zip') || resp.data.slice(0, 4).toString('utf-8').includes('PK')) {
+          const zip = new AdmZip(Buffer.from(resp.data));
+          const entries = zip.getEntries();
+          const subEntry = entries.find(e => !e.isDirectory && (e.entryName.endsWith('.srt') || e.entryName.endsWith('.ass') || e.entryName.endsWith('.vtt')));
+          if (subEntry) {
+            targetSrtPath = path.join(subsDir, `sub_${Date.now()}_${path.basename(subEntry.entryName)}`);
+            fs.writeFileSync(targetSrtPath, subEntry.getData());
+          }
+        } else {
+          targetSrtPath = path.join(subsDir, `sub_${Date.now()}.srt`);
+          fs.writeFileSync(targetSrtPath, Buffer.from(resp.data));
+        }
+
+        if (targetSrtPath && fs.existsSync(targetSrtPath)) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: true, path: targetSrtPath }));
+        } else {
+          res.writeHead(422, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: false, error: 'No subtitle extracted from archive' }));
+        }
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
+
     // 2. Poster Endpoint: Proxy local banner files
     if (pathname.startsWith('/api/poster/')) {
       const bannerId = pathname.replace('/api/poster/', '');

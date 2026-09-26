@@ -117,8 +117,8 @@ class TorrentFilterService {
             return true;
         }
 
-        // Allow addon error messages to pass through so the user sees them
-        if (torrentTitle.includes('⛔️') || torrentTitle.includes('⚠️')) {
+        // Allow addon error messages or direct streams to pass through
+        if (!torrentTitle || torrentTitle.includes('⛔️') || torrentTitle.includes('⚠️')) {
             return true;
         }
 
@@ -129,22 +129,34 @@ class TorrentFilterService {
             return false;
         }
 
-        // Rule 2: Anime logic (Check absolute episode first, then standard S/E)
-        if (isAnime) {
-            // Check absolute number (e.g. 30)
-            if (absoluteEpisodeNumber && parsed.episode === absoluteEpisodeNumber) return true;
-            
-            // Check if it matches requested S/E (some anime torrents use S02E05)
-            if (parsed.season === requestedSeason && parsed.episode === requestedEpisode) return true;
+        // If we couldn't detect any season or episode numbers in the title, trust the addon endpoint
+        if (parsed.season === null && parsed.episode === null) {
+            return true;
+        }
 
-            // If it's anime and we only found an episode number (no season), 
-            // and it doesn't match the absolute number, it's likely wrong.
-            return false;
+        // Rule 2: Anime logic
+        if (isAnime) {
+            // Check absolute number (e.g. 30 or 1)
+            if (absoluteEpisodeNumber && parsed.episode === absoluteEpisodeNumber) return true;
+            // Check standard S/E match
+            if (parsed.season === requestedSeason && parsed.episode === requestedEpisode) return true;
+            // Check single episode match without season or Season 1
+            if ((parsed.season === null || parsed.season === 1) && parsed.episode === requestedEpisode) return true;
+            // If explicit mismatch detected
+            if (parsed.episode !== null && (parsed.episode !== requestedEpisode && parsed.episode !== absoluteEpisodeNumber)) {
+                return false;
+            }
+            return true;
         }
 
         // Rule 3: Standard TV Show logic
-        // It must have the correct season AND the correct episode.
-        return parsed.season === requestedSeason && parsed.episode === requestedEpisode;
+        if (parsed.season !== null && requestedSeason !== null && parsed.season !== requestedSeason) {
+            return false;
+        }
+        if (parsed.episode !== null && requestedEpisode !== null && parsed.episode !== requestedEpisode) {
+            return false;
+        }
+        return true;
     }
 }
 

@@ -92,21 +92,23 @@ async function resolveTmdbToImdb(rawId, type, customTmdbKey = null) {
     const isSeries = type === 'series' || type === 'tv';
     const tmdbType = isSeries ? 'tv' : 'movie';
     const stremioType = isSeries ? 'series' : 'movie';
-    const tmdbKey = customTmdbKey || 'a3c751221b6d0efdb621869e9fc13c02';
+    const tmdbKey = customTmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
 
     // 1. Direct TMDB API v3 lookup (Fast & Highly Reliable, <200ms)
-    try {
-        const apiUrl = isSeries
-            ? `https://api.themoviedb.org/3/tv/${cleanId}/external_ids?api_key=${tmdbKey}`
-            : `https://api.themoviedb.org/3/movie/${cleanId}?api_key=${tmdbKey}`;
-        const resp = await axios.get(apiUrl, { timeout: 3500 }).then(r => r.data);
-        const resolved = resp?.imdb_id || resp?.external_ids?.imdb_id;
-        if (resolved && String(resolved).startsWith('tt')) {
-            console.log(`[Addons] ✓ TMDB API resolved ${cleanId} (${tmdbType}) -> IMDb: ${resolved}`);
-            return resolved;
+    if (tmdbKey) {
+        try {
+            const apiUrl = isSeries
+                ? `https://api.themoviedb.org/3/tv/${cleanId}/external_ids?api_key=${tmdbKey}`
+                : `https://api.themoviedb.org/3/movie/${cleanId}?api_key=${tmdbKey}`;
+            const resp = await axios.get(apiUrl, { timeout: 3500 }).then(r => r.data);
+            const resolved = resp?.imdb_id || resp?.external_ids?.imdb_id;
+            if (resolved && String(resolved).startsWith('tt')) {
+                console.log(`[Addons] ✓ TMDB API resolved ${cleanId} (${tmdbType}) -> IMDb: ${resolved}`);
+                return resolved;
+            }
+        } catch (e) {
+            console.warn(`[Addons] TMDB API resolve note for ${cleanId}:`, e.message);
         }
-    } catch (e) {
-        console.warn(`[Addons] TMDB API resolve note for ${cleanId}:`, e.message);
     }
 
     // 2. Fallback: ElfHosted TMDB Stremio Addon
@@ -146,9 +148,12 @@ function initAddonsIpc(ipcMain, store) {
         const streamKey = `${imdbId || ''}_${tmdbId || ''}_${kitsuId || ''}_${season || ''}_${episode || ''}`;
         if (streamKey.length > 3 && streamCache.has(streamKey)) {
             const cached = streamCache.get(streamKey);
-            if (Date.now() - cached.timestamp < 300000) { // 5 min TTL
+            const hasPlayableStreams = Array.isArray(cached.data) && cached.data.some(s => s.type !== 'browser' && (s.url || s.infoHash || s.streamUrl || s.externalUrl));
+            if (hasPlayableStreams && (Date.now() - cached.timestamp < 300000)) { // 5 min TTL
                 console.log('[Addons] ⚡ Returning fast cached streams for:', streamKey);
                 return cached.data;
+            } else {
+                streamCache.delete(streamKey);
             }
         }
 
@@ -185,7 +190,8 @@ function initAddonsIpc(ipcMain, store) {
         if (results.length < 5) {
             results.push({ addon: 'External Search', icon: '🌐', title: `Search "${title}" on Google`, quality: 'Browser', url: `https://www.google.com/search?q=${encodeURIComponent(title + ' stream free')}`, type: 'browser' });
         }
-        if (streamKey.length > 3 && results.length > 0) {
+        const playableStreams = results.filter(s => s.type !== 'browser' && (s.url || s.infoHash || s.streamUrl || s.externalUrl));
+        if (streamKey.length > 3 && playableStreams.length > 0) {
             streamCache.set(streamKey, { data: results, timestamp: Date.now() });
         }
         return results;
@@ -221,14 +227,28 @@ function initAddonsIpc(ipcMain, store) {
                 imdbId = resolved;
             }
         }
-        console.log(`[Addons] "fetch-addon-subtitles" invoked — IMDb: ${imdbId}, Kitsu: ${kitsuId}, MAL: ${malId}, Type: ${type}, S${season}E${episode}`);
-        const sc = appData.scraperConfig || {};
-        sc.installedAddons = [...(appData.installedAddons || [])].filter(a => {
+        const sc = { ...(appData.scraperConfig || {}) };
+        const userAddons = [...(appData.installedAddons || [])].filter(a => {
+            if (a.enabled === false) return false;
             const url = String(a.url || a.manifestUrl || '').toLowerCase();
             const id = String(a.id || '').toLowerCase();
             const name = String(a.name || '').toLowerCase();
-            return a.enabled !== false && (url.includes('subdl') || id.includes('subdl') || name.includes('subdl'));
+            const hasSubResource = Array.isArray(a.resources) && a.resources.some(r => (typeof r === 'string' ? r : r?.name) === 'subtitles');
+            const hasSubType = Array.isArray(a.types) && a.types.includes('subtitles');
+            return hasSubResource || hasSubType || url.includes('subtitle') || id.includes('subtitle') || name.includes('subtitle') || url.includes('opensubtitle') || id.includes('opensubtitle');
         });
+        if (!userAddons.some(a => String(a.url || a.manifestUrl || '').toLowerCase().includes('opensubtitles-v3'))) {
+            userAddons.push({
+                id: 'org.stremio.opensubtitlesv3',
+                name: 'OpenSubtitles v3',
+                url: 'https://opensubtitles-v3.strem.io',
+                manifestUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
+                types: ['subtitles'],
+                resources: ['subtitles'],
+                enabled: true
+            });
+        }
+        sc.installedAddons = userAddons;
         const { StremioAddonService } = require('./StremioAddonService');
         const service = new StremioAddonService(sc);
         try {
@@ -294,7 +314,7 @@ function initAddonsIpc(ipcMain, store) {
     const axios = require('axios');
 
     async function fetchAllKitsuEpisodes(animeId) {
-        const kitsuHeaders = { 'Accept': 'application/vnd.api+json', 'Content-Type': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' };
+        const kitsuHeaders = { 'Accept': 'application/vnd.api+json', 'Content-Type': 'application/vnd.api+json', 'User-Agent': 'MEEM/3.0' };
         let allEpisodes = [];
         let offset = 0;
         const limit = 100;
@@ -313,7 +333,7 @@ function initAddonsIpc(ipcMain, store) {
     }
 
     async function getKitsuSeasons(animeId, currentTitle) {
-        const kitsuHeaders = { 'Accept': 'application/vnd.api+json', 'Content-Type': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' };
+        const kitsuHeaders = { 'Accept': 'application/vnd.api+json', 'Content-Type': 'application/vnd.api+json', 'User-Agent': 'MEEM/3.0' };
         let seasonsMap = new Map();
         
         // We need the main anime's date to sort properly.
@@ -394,7 +414,7 @@ function initAddonsIpc(ipcMain, store) {
         return uniqueSeasons.map((s, idx) => ({ ...s, season_number: idx + 1 }));
     }
 
-    const kitsuHeaders = { 'Accept': 'application/vnd.api+json', 'Content-Type': 'application/vnd.api+json', 'User-Agent': 'MediaVault/3.0' };
+    const kitsuHeaders = { 'Accept': 'application/vnd.api+json', 'Content-Type': 'application/vnd.api+json', 'User-Agent': 'MEEM/3.0' };
 
     async function formatKitsuData(item, includeExtra = false) {
         if (!item) return null;
@@ -534,12 +554,14 @@ function initAddonsIpc(ipcMain, store) {
             const q = encodeURIComponent(query.trim());
             const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
             const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
+            const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
 
-            const hasCinemeta = installed.length === 0 || installed.some(a => {
-                if (a.enabled === false) return false;
+            // Cinemeta is the universal default catalog unless specifically disabled
+            const cinemetaDisabled = installed.some(a => {
                 const id = String(a.id || a.name || '').toLowerCase();
-                return id.includes('cinemeta');
+                return id.includes('cinemeta') && a.enabled === false;
             });
+            const hasCinemeta = !cinemetaDisabled;
 
             const hasTmdbAddon = installed.some(a => {
                 if (a.enabled === false) return false;
@@ -714,137 +736,156 @@ function initAddonsIpc(ipcMain, store) {
         }
     });
 
-    const queryAniList = async (queryStr, variables = {}) => {
-        try {
-            const resp = await axios.post('https://graphql.anilist.co', {
-                query: queryStr,
-                variables
-            }, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
-                timeout: 8000
-            });
-            return resp.data?.data;
-        } catch (err) {
-            console.error('[AniList] API error:', err.message);
-            return null;
-        }
-    };
-
+    // ─── ANIME & CHARACTER METADATA HANDLERS (KITSU + JIKAN ENGINE) ───
     ipcMain.handle('anilist-search', async (_e, query) => {
-        if (!query) return [];
-        const graphQL = `
-            query ($search: String) {
-              charactersPage: Page (page: 1, perPage: 15) {
-                characters (search: $search) {
-                  id
-                  name {
-                    full
-                  }
-                  image {
-                    large
-                  }
-                }
-              }
-              mediaPage: Page (page: 1, perPage: 15) {
-                media (search: $search, type: ANIME) {
-                  id
-                  title {
-                    romaji
-                    english
-                  }
-                  coverImage {
-                    large
-                  }
-                }
-              }
-            }
-        `;
-        const data = await queryAniList(graphQL, { search: query });
-        if (!data) return [];
-        
+        if (!query || typeof query !== 'string' || !query.trim()) return [];
+        const cleanQ = query.trim();
         const results = [];
-        if (data.charactersPage?.characters) {
-            data.charactersPage.characters.forEach(char => {
-                results.push({
-                    id: char.id,
-                    title: char.name?.full || 'Unknown Character',
-                    poster: char.image?.large || '',
-                    type: 'character',
-                    source: 'anilist'
+        const seen = new Set();
+
+        const addResult = (r) => {
+            if (!r || !r.title || !r.poster) return;
+            const key = (r.type || '') + ':' + r.title.toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                results.push(r);
+            }
+        };
+
+        // 1. Kitsu Characters & Anime (Fast, 100% available, supports 1-character queries)
+        try {
+            const [kCharsRes, kAnimeRes] = await Promise.allSettled([
+                axios.get(`https://kitsu.io/api/edge/characters?filter[name]=${encodeURIComponent(cleanQ)}&page[limit]=20`, { timeout: 6000 }),
+                axios.get(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(cleanQ)}&page[limit]=10`, { timeout: 6000 })
+            ]);
+
+            if (kCharsRes.status === 'fulfilled' && Array.isArray(kCharsRes.value?.data?.data)) {
+                kCharsRes.value.data.data.forEach(c => {
+                    const name = c.attributes?.canonicalName || c.attributes?.name || c.attributes?.names?.en;
+                    const img = c.attributes?.image?.original || c.attributes?.image?.medium;
+                    if (name && img) {
+                        addResult({
+                            id: 'kitsu:' + c.id,
+                            title: name,
+                            poster: img,
+                            type: 'character',
+                            source: 'kitsu'
+                        });
+                    }
                 });
-            });
-        }
-        if (data.mediaPage?.media) {
-            data.mediaPage.media.forEach(med => {
-                results.push({
-                    id: med.id,
-                    title: med.title?.english || med.title?.romaji || 'Unknown Anime',
-                    poster: med.coverImage?.large || '',
-                    type: 'anime',
-                    source: 'anilist'
+            }
+
+            if (kAnimeRes.status === 'fulfilled' && Array.isArray(kAnimeRes.value?.data?.data)) {
+                kAnimeRes.value.data.data.forEach(a => {
+                    const title = a.attributes?.canonicalTitle || a.attributes?.titles?.en || a.attributes?.titles?.en_jp;
+                    const img = a.attributes?.posterImage?.large || a.attributes?.posterImage?.original || a.attributes?.posterImage?.medium;
+                    if (title && img) {
+                        addResult({
+                            id: 'kitsu:' + a.id,
+                            title: title,
+                            poster: img,
+                            type: 'anime',
+                            source: 'kitsu'
+                        });
+                    }
                 });
-            });
-        }
+            }
+        } catch (_) {}
+
         return results;
     });
 
     ipcMain.handle('anilist-media-detailed', async (_e, { id, title }) => {
         if (!id && !title) return null;
-        const graphQL = `
-            query ($id: Int, $search: String) {
-              Media (id: $id, search: $search, type: ANIME) {
+        const q = String(title || id).trim();
+        try {
+            const query = `
+            query ($search: String) {
+              Media (search: $search, type: ANIME) {
                 id
+                idMal
+                title { romaji english native }
+                averageScore
+                meanScore
                 description
                 bannerImage
                 genres
-                coverImage {
-                  extraLarge
-                  large
-                }
+                coverImage { extraLarge large }
               }
+            }`;
+            const res = await axios.post('https://graphql.anilist.co', {
+                query,
+                variables: { search: q }
+            }, { timeout: 6000 });
+            const media = res.data?.data?.Media;
+            if (media) {
+                let scoreVal = media.averageScore ? (media.averageScore / 10) : (media.meanScore ? media.meanScore / 10 : null);
+                if (media.idMal) {
+                    try {
+                        const jikanRes = await axios.get(`https://api.jikan.moe/v4/anime/${media.idMal}`, { timeout: 4500 });
+                        if (jikanRes.data?.data?.score != null && jikanRes.data.data.score > 0) {
+                            scoreVal = jikanRes.data.data.score;
+                        }
+                    } catch (_) {}
+                }
+                return {
+                    id: media.id,
+                    malId: media.idMal,
+                    mal_id: media.idMal,
+                    score: scoreVal,
+                    malScore: scoreVal,
+                    mal_rating: scoreVal,
+                    averageScore: media.averageScore,
+                    description: media.description || '',
+                    bannerImage: media.bannerImage || null,
+                    genres: media.genres || [],
+                    coverImage: {
+                        extraLarge: media.coverImage?.extraLarge,
+                        large: media.coverImage?.large
+                    }
+                };
             }
-        `;
-        const variables = {};
-        if (id) variables.id = parseInt(id, 10);
-        else variables.search = title;
-        
-        const data = await queryAniList(graphQL, variables);
-        return data?.Media || null;
+        } catch (_) {}
+        try {
+            const res = await axios.get(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(q)}&page[limit]=1`, { timeout: 6000 });
+            const item = res.data?.data?.[0];
+            if (item) {
+                const attrs = item.attributes || {};
+                const kitsuScore = attrs.averageRating ? parseFloat(attrs.averageRating) / 10 : null;
+                return {
+                    id: item.id,
+                    score: kitsuScore,
+                    malScore: kitsuScore,
+                    mal_rating: kitsuScore,
+                    description: attrs.synopsis || attrs.description || '',
+                    bannerImage: attrs.coverImage?.large || attrs.coverImage?.original || null,
+                    genres: [],
+                    coverImage: {
+                        extraLarge: attrs.posterImage?.original || attrs.posterImage?.large,
+                        large: attrs.posterImage?.large || attrs.posterImage?.medium
+                    }
+                };
+            }
+        } catch (_) {}
+        return null;
     });
 
     ipcMain.handle('anilist-media-assets', async (_e, id) => {
         if (!id) return [];
-        const graphQL = `
-            query ($id: Int) {
-              Media (id: $id) {
-                characters (sort: [ROLE, RELEVANCE], page: 1, perPage: 25) {
-                  nodes {
-                    id
-                    name {
-                      full
-                    }
-                    image {
-                      large
-                    }
-                  }
-                }
-              }
+        try {
+            const cleanId = String(id).replace(/^kitsu:/, '');
+            const res = await axios.get(`https://kitsu.io/api/edge/anime/${encodeURIComponent(cleanId)}/characters?include=character&page[limit]=20`, { timeout: 6000 });
+            if (res.data?.included) {
+                return res.data.included.map(char => ({
+                    id: 'kitsu:' + char.id,
+                    title: char.attributes?.canonicalName || char.attributes?.name || 'Character',
+                    poster: char.attributes?.image?.original || char.attributes?.image?.medium || '',
+                    type: 'character'
+                })).filter(c => !!c.poster);
             }
-        `;
-        const data = await queryAniList(graphQL, { id: parseInt(id, 10) });
-        if (!data?.Media?.characters?.nodes) return [];
-        
-        return data.Media.characters.nodes.map(node => ({
-            id: node.id,
-            title: node.name?.full || 'Unknown Character',
-            poster: node.image?.large || '',
-            type: 'character'
-        }));
+        } catch (_) {}
+        return [];
     });
-
 
     // ─── NATIVE TRAKT.TV INTEGRATION IPC HANDLERS ───
     const TraktService = require('./TraktService');

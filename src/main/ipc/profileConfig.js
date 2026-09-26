@@ -47,24 +47,52 @@ function initProfileConfigIpc(ipcMain) {
   });
 
   ipcMain.handle('rename-profile-folders', async (_e, oldName, newName) => {
-    if (!oldName || !newName || oldName === newName) return false;
+    const cleanOld = String(oldName || '').trim();
+    const cleanNew = String(newName || '').trim();
+    if (!cleanOld || !cleanNew || cleanOld === cleanNew) return false;
+    
     const root = getMeemVideosRoot();
-    const oldPath = path.join(root, oldName);
-    const newPath = path.join(root, newName);
+    const oldPath = path.join(root, cleanOld);
+    const newPath = path.join(root, cleanNew);
+    const subDirs = ['Movies', 'Series', 'Social', 'Music'];
+
     try {
-      if (fs.existsSync(oldPath)) {
-        if (fs.existsSync(newPath)) return false;
-        fs.renameSync(oldPath, newPath);
-        return true;
-      } else {
-        const subDirs = ['Movies', 'Series', 'Social', 'Music'];
+      if (!fs.existsSync(oldPath)) {
+        // If old folder didn't exist, simply create the new one
         subDirs.forEach(sub => {
           const fullPath = path.join(newPath, sub);
           if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
         });
         return true;
       }
+
+      // Windows case-sensitivity handling (e.g. "Ahmed" -> "ahmed")
+      const isCaseOnlyChange = oldPath.toLowerCase() === newPath.toLowerCase() && oldPath !== newPath;
+      if (isCaseOnlyChange) {
+        const tempPath = path.join(root, `${cleanOld}__temp_${Date.now()}`);
+        fs.renameSync(oldPath, tempPath);
+        fs.renameSync(tempPath, newPath);
+      } else {
+        // Direct instant rename in file manager
+        fs.renameSync(oldPath, newPath);
+      }
+
+      // Ensure standard subdirectories exist inside the renamed folder
+      subDirs.forEach(sub => {
+        const fullPath = path.join(newPath, sub);
+        if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
+      });
+
+      return true;
     } catch (err) {
+      console.error('[IPC] rename-profile-folders direct rename error:', err.message);
+      // Fallback in case of Windows file lock: ensure new folder exists
+      try {
+        subDirs.forEach(sub => {
+          const fullPath = path.join(newPath, sub);
+          if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
+        });
+      } catch (e) {}
       return false;
     }
   });

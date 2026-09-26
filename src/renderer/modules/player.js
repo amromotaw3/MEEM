@@ -264,10 +264,13 @@
     const isMobile = !!(window.Capacitor);
     const useNativeDesktop = !isMobile && window.api?.isElectron && !isNativePlayerWindow();
     if (useNativeDesktop) {
-      showToast('Opening video...');
       const res = await requestNativePlayback(item, show, extra);
       if (res?.success !== false) return;
-      showToast('Failed to open player' + (res?.error ? ': ' + res.error : ''));
+      if (res?.noPlayer || (res?.error && res.error.toLowerCase().includes('no media player'))) {
+        showToast('no media player to use');
+      } else {
+        showToast('Failed to open player' + (res?.error ? ': ' + res.error : ''));
+      }
       return;
     }
 
@@ -750,7 +753,7 @@
       try {
         $('#player-loading').style.display = 'flex';
         $('#player-progress-text').textContent = 'Extracting YouTube Direct Stream...';
-        const ytInfo = await window.api.invoke('youtube-get-video-info', { videoId: ytVideoId, quality: 'best' });
+        const ytInfo = await window.api.invoke('youtube-get-video-info', { videoId: ytVideoId, quality: '1080' });
         if (ytInfo && ytInfo.success && ytInfo.details && ytInfo.details.streamUrl) {
           pathUrl = ytInfo.details.streamUrl;
           item.path = pathUrl;
@@ -1373,30 +1376,46 @@
     $('#player-wrapper').classList.remove('is-music-mode');
     isPlayingMusic = false;
 
-    // Save state before exiting
-    if (currentItem && currentProfile) {
-      try {
-        const time = await engine.getAccurateTime();
-        const dur = await engine.getAccurateDuration();
-        const isFinished = (dur > 0 && (time / dur) > 0.9);
-        const action = isFinished ? 'stop' : 'pause';
-        const progress = dur > 0 ? Math.min((time / dur) * 100, 100) : 0;
-        const scrobble = window.scrobbleToTrakt || (typeof scrobbleToTrakt !== 'undefined' ? scrobbleToTrakt : null);
-        if (typeof scrobble === 'function') {
-          await scrobble(action, progress);
-        }
-      } catch (e) {
-        console.warn('[Player] Trakt scrobble failed:', e.message);
-      }
-      try { await saveProgress(true, false); } catch (e) { console.warn('[Player] saveProgress failed:', e.message); }
+    // ── Immediate UI cleanup: close panels and pause playback instantly ──
+    try { closeSidePanel(); } catch (e) {}
+    try {
+      const sp = $('#side-panel');
+      if (sp) { sp.classList.remove('open', 'active'); sp.style.display = 'none'; }
+    } catch (e) {}
+
+    // Detach media playback immediately so audio/video stops instantly
+    if (shouldStop && video) {
+      try { video.pause(); } catch (e) {}
+      try { video.removeAttribute('src'); } catch (e) {}
+      try { video.load(); } catch (e) {}
     }
 
+    // Fire-and-forget: save progress and scrobble in background without blocking exit
+    if (currentItem && currentProfile) {
+      (async () => {
+        try {
+          const time = await engine.getAccurateTime();
+          const dur = await engine.getAccurateDuration();
+          const isFinished = (dur > 0 && (time / dur) > 0.9);
+          const action = isFinished ? 'stop' : 'pause';
+          const progress = dur > 0 ? Math.min((time / dur) * 100, 100) : 0;
+          const scrobble = window.scrobbleToTrakt || (typeof scrobbleToTrakt !== 'undefined' ? scrobbleToTrakt : null);
+          if (typeof scrobble === 'function') {
+            await Promise.race([scrobble(action, progress), new Promise(r => setTimeout(r, 2000))]);
+          }
+        } catch (e) { console.warn('[Player] Trakt scrobble failed:', e.message); }
+        try { await saveProgress(true, false); } catch (e) { console.warn('[Player] saveProgress failed:', e.message); }
+      })();
+    }
+
+    // ── Native player window: close immediately ──
     if (isNativePlayerWindow() && shouldSwitchView) {
       if (window.api && window.api.closeWindow) {
         window.api.closeWindow();
       }
       return;
     }
+
 
     // Aggressive, ordered nuke sequence
     if (shouldStop) {
@@ -1437,7 +1456,12 @@
 
         // 4: Ensure backend stops (local HTTP server + torrent engine) - only when exiting player window
         if (shouldSwitchView && window.api && window.api.invoke) {
-          await window.api.invoke('stop-torrent-stream');
+          try {
+            await Promise.race([
+              window.api.invoke('stop-torrent-stream'),
+              new Promise(r => setTimeout(r, 2000))
+            ]);
+          } catch (e) { /* ignore — handler may not be registered */ }
         }
 
         // Also stop renderer-side engine housekeeping
@@ -1810,14 +1834,16 @@
             return;
           }
 
-          window.activeSubtitleUrl = (sub.source === 'subdl' || sub.source === 'opensubtitles') ? sub.url : null;
-          window.activeSubtitlePath = sub.source === 'local' ? sub.url : null;
-          currentInternalSubIndex = 'no';
-
-          if (sub.source === 'subdl' || sub.source === 'opensubtitles') {
-            await loadSubtitleFromUrl(sub.url, `${sub.lang} (${sub.sourceLabel})`);
-          } else if (sub.source === 'local') {
+          if (sub.source === 'local') {
+            window.activeSubtitlePath = sub.url;
+            window.activeSubtitleUrl = null;
+            currentInternalSubIndex = 'no';
             await loadSubtitleLocal(sub.url);
+          } else {
+            window.activeSubtitleUrl = sub.url;
+            window.activeSubtitlePath = null;
+            currentInternalSubIndex = 'no';
+            await loadSubtitleFromUrl(sub.url, `${sub.lang} (${sub.sourceLabel || sub.source})`);
           }
 
           if (currentMediaMetadata) renderTracksPanel(currentMediaMetadata);
@@ -2661,9 +2687,21 @@
 
   function applySubtitleStyles() {
     const size = $('#sub-style-size')?.value || 100;
-    const bgOpacity = ($('#sub-style-bg')?.value || 50) / 100;
+    const bgOpacity = ($('#sub-style-bg')?.value != null ? $('#sub-style-bg').value : 50) / 100;
     const isBold = $('#btn-sub-bold')?.classList.contains('active');
     const hasShadow = $('#btn-sub-shadow')?.classList.contains('active');
+    const fontColor = $('#sub-style-color')?.value || '#ffffff';
+    let hexBg = $('#sub-style-bgcolor')?.value || '#000000';
+
+    let r = 0, g = 0, b = 0;
+    if (hexBg && hexBg.startsWith('#')) {
+      const hex = hexBg.replace('#', '');
+      if (hex.length === 6) {
+        r = parseInt(hex.substring(0, 2), 16) || 0;
+        g = parseInt(hex.substring(2, 4), 16) || 0;
+        b = parseInt(hex.substring(4, 6), 16) || 0;
+      }
+    }
 
     let styleEl = $('#sub-dynamic-styles');
     if (!styleEl) {
@@ -2680,15 +2718,17 @@
         font-size: 0px !important;
       }
       #custom-subtitles-text {
-        background-color: rgba(0, 0, 0, ${bgOpacity}) !important;
+        background-color: rgba(${r}, ${g}, ${b}, ${bgOpacity}) !important;
         font-size: ${(size / 100) * 22}px !important;
         font-weight: ${isBold ? 'bold' : 'normal'} !important;
         text-shadow: ${hasShadow ? '2px 2px 4px rgba(0,0,0,0.8)' : 'none'} !important;
-        color: white !important;
+        color: ${fontColor} !important;
         font-family: inherit !important;
         unicode-bidi: plaintext !important;
         direction: rtl !important;
         text-align: center !important;
+        padding: 4px 12px !important;
+        border-radius: 6px !important;
       }
     `;
 

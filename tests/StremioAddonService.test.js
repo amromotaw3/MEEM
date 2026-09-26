@@ -82,9 +82,8 @@ describe('StremioAddonService unit tests', () => {
         { title: 'Stream 1080p High Seeds', quality: '1080p', seeds: 500 }
       ];
 
-      // Mock _fetchWithId to return the mock streams list and disable VidSrc for pure sorting test
+      // Mock _fetchWithId to return the mock streams list for pure sorting test
       service._fetchWithId = jest.fn().mockResolvedValue(mockStreams);
-      service.generateVidSrcStreams = () => [];
       
       const results = await service.getStreams({ imdbId: 'tt1234567', type: 'movie' });
       

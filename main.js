@@ -695,6 +695,7 @@ app.whenReady().then(() => {
 
   // Unified stop-torrent-stream handler (stops both addons and streamer engines cleanly)
   try {
+    ipcMain.removeHandler('stop-torrent-stream');
     ipcMain.handle('stop-torrent-stream', async () => {
       try {
         const { stopAddonStreaming } = require('./src/main/addons');

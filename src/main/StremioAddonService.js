@@ -27,8 +27,16 @@ const { getInMemorySession } = require('./store');
 // Empty by default to comply fully with legal policies (User-configurable Addon Store)
 const DEFAULT_ADDONS = {};
 
-const REQUEST_TIMEOUT = 4500;
+const REQUEST_TIMEOUT = 4200;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+
+function cleanAddonBaseUrl(raw) {
+  if (!raw) return '';
+  return String(raw)
+    .trim()
+    .replace(/\/manifest\.json$/i, '')
+    .replace(/\/+$/, '');
+}
 
 // ── Quality Detection ────────────────────────────────────────────────────────
 
@@ -84,42 +92,37 @@ function buildKitsuStreamId(kitsuId, episode) {
  * @returns {Promise<Array>} List of raw streams from the addon.
  */
 async function fetchAddonStreams(addonObj, stremioType, stremioId) {
-  // Build candidate bases from addon object or string
   const bases = [];
   if (!addonObj) return [];
-  if (typeof addonObj === 'string') bases.push(addonObj.replace(/\/$/, ''));
-  else {
-    if (addonObj.url) bases.push(String(addonObj.url).replace(/\/$/, ''));
-    if (addonObj.manifestUrl) bases.push(String(addonObj.manifestUrl).replace(/\/manifest\.json$/i, '').replace(/\/$/, ''));
-    if (addonObj.url && String(addonObj.url).match(/\/lite$/i)) bases.push(String(addonObj.url).replace(/\/lite$/i, '').replace(/\/$/, ''));
+  if (typeof addonObj === 'string') {
+    const cleaned = cleanAddonBaseUrl(addonObj);
+    if (cleaned) bases.push(cleaned);
+  } else {
+    const primary = cleanAddonBaseUrl(addonObj.url || addonObj.manifestUrl);
+    if (primary) bases.push(primary);
   }
 
-  // Deduplicate
-  const seen = new Set();
-  const candidates = bases.filter(b => { if (!b || seen.has(b)) return false; seen.add(b); return true; });
-
-  for (const base of candidates) {
+  if (bases.length === 0) return [];
+  const base = bases[0];
   const url = `${base}/stream/${stremioType}/${stremioId}.json`;
-  console.log(`[StremioAddon] Trying ${url}`);
-    try {
-      const response = await axios.get(url, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Accept': 'application/json, text/plain, */*',
-          'Origin': 'https://web.stremio.com',
-          'Referer': 'https://web.stremio.com/'
-        },
-        timeout: REQUEST_TIMEOUT
-      });
-      const data = response.data;
-      if (data && Array.isArray(data.streams)) {
-        return data.streams;
-      }
-    } catch (err) {
-      if (err.response?.status && err.response.status !== 404) {
-        console.warn(`[StremioAddon] ✗ ${url} failed:`, err.message || err);
-      }
-      // try next candidate
+  console.log(`[StremioAddon] Fetching ${url}`);
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'application/json, text/plain, */*',
+        'Origin': 'https://web.stremio.com',
+        'Referer': 'https://web.stremio.com/'
+      },
+      timeout: REQUEST_TIMEOUT
+    });
+    const data = response.data;
+    if (data && Array.isArray(data.streams)) {
+      return data.streams;
+    }
+  } catch (err) {
+    if (err.response?.status && err.response.status !== 404) {
+      console.warn(`[StremioAddon] ✗ ${url} failed:`, err.message || err);
     }
   }
   return [];
@@ -191,13 +194,15 @@ class StremioAddonService {
     this.addons = {};
     const installed = config.installedAddons || [];
     installed.forEach(addon => {
-      const key = addon.id || addon.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!addon || addon.enabled === false || addon.disabled === true) return;
+      const key = addon.id || (addon.name ? addon.name.toLowerCase().replace(/[^a-z0-9]/g, '') : Math.random().toString());
+      const cleanUrl = cleanAddonBaseUrl(addon.url || addon.manifestUrl);
       this.addons[key] = {
         name: addon.name,
-        url: addon.url ? String(addon.url).trim().replace(/\/$/, '') : '',
-        manifestUrl: addon.manifestUrl || null,
+        url: cleanUrl,
+        manifestUrl: addon.manifestUrl || (cleanUrl ? `${cleanUrl}/manifest.json` : null),
         icon: addon.icon || '🧩',
-        types: addon.types || ['movie', 'series', 'anime']
+        types: Array.isArray(addon.types) && addon.types.length > 0 ? addon.types.map(t => String(t).toLowerCase()) : ['movie', 'series', 'tv', 'anime', 'stream', 'other']
       };
     });
   }
@@ -205,7 +210,10 @@ class StremioAddonService {
   /** Fetch streams for a Movie (IMDb only). */
   async getMovieStreams(imdbId) {
     if (!imdbId || !imdbId.startsWith('tt')) return [];
-    const keys = Object.keys(this.addons).filter(k => this.addons[k].types.includes('movie'));
+    const keys = Object.keys(this.addons).filter(k => {
+      const t = this.addons[k].types;
+      return t.includes('movie') || t.includes('stream') || t.includes('other') || t.includes('torrent') || t.length === 0;
+    });
     return this._fetchWithId(buildImdbStreamId(imdbId, 'movie'), keys, 'movie');
   }
 
@@ -214,14 +222,7 @@ class StremioAddonService {
     if (!imdbId || !imdbId.startsWith('tt')) return [];
     const keys = Object.keys(this.addons).filter(k => {
       const t = this.addons[k].types;
-      // Include addons that explicitly support series/tv
-      if (t.includes('series') || t.includes('tv')) return true;
-      // Also include addons that ONLY have 'movie' — these are typically browser-session
-      // openers (e.g. Peario) whose manifest only lists 'movie' but whose endpoint actually
-      // handles all content types. Real torrent indexers that support series always declare
-      // 'series' in their manifest, so this won't accidentally include wrong addons.
-      if (t.length > 0 && t.every(x => x === 'movie')) return true;
-      return false;
+      return t.includes('series') || t.includes('tv') || t.includes('movie') || t.includes('stream') || t.includes('other') || t.includes('torrent') || t.length === 0;
     });
     return this._fetchWithId(buildImdbStreamId(imdbId, 'tv', season, episode), keys, 'tv', season, episode);
   }
@@ -233,97 +234,30 @@ class StremioAddonService {
     if (kitsuId && episode != null) {
       const animeKeys = Object.keys(this.addons).filter(k => {
         const t = this.addons[k].types;
-        return t.includes('anime') || t.includes('series');
+        return t.includes('anime') || t.includes('series') || t.includes('tv') || t.includes('stream') || t.length === 0;
       });
       if (animeKeys.length) {
         promises.push(this._fetchWithId(buildKitsuStreamId(kitsuId, episode), animeKeys, 'anime', season, episode, true));
       }
     }
 
-    // 2. Query browser-session addons (movie-only typed, like Peario) using the IMDb ID.
-    // These addons handle all content types regardless of their manifest declaration.
-    if (imdbId && imdbId.startsWith('tt') && season != null && episode != null) {
-      const pearioKeys = Object.keys(this.addons).filter(k => {
+    // 2. Query addons using IMDb ID (for series or movie)
+    if (imdbId && imdbId.startsWith('tt')) {
+      const seriesKeys = Object.keys(this.addons).filter(k => {
         const t = this.addons[k].types;
-        return t.length > 0 && t.every(x => x === 'movie');
+        return t.includes('series') || t.includes('tv') || t.includes('movie') || t.includes('anime') || t.includes('stream') || t.includes('other') || t.includes('torrent') || t.length === 0;
       });
-      if (pearioKeys.length) {
-        promises.push(this._fetchWithId(buildImdbStreamId(imdbId, 'tv', season, episode), pearioKeys, 'tv', season, episode, true));
+      if (seriesKeys.length) {
+        if (season != null && episode != null) {
+          promises.push(this._fetchWithId(buildImdbStreamId(imdbId, 'tv', season, episode), seriesKeys, 'anime', season, episode, false));
+        } else {
+          promises.push(this._fetchWithId(buildImdbStreamId(imdbId, 'movie'), seriesKeys, 'movie', null, null, true));
+        }
       }
     }
 
     const results = await Promise.all(promises);
-    return results.flat();
-  }
-
-  generateVidSrcStreams(query) {
-    const { imdbId, tmdbId, type, season, episode, title } = query || {};
-    const cleanTmdb = tmdbId ? String(tmdbId).replace(/^tmdb:/, '') : null;
-    const targetId = cleanTmdb || (imdbId && String(imdbId).startsWith('tt') ? imdbId : null) || imdbId;
-    if (!targetId) return [];
-
-    const isSeries = type === 'series' || type === 'tv' || type === 'anime' || (season != null && episode != null);
-    const sn = season || 1;
-    const ep = episode || 1;
-    const displayTitle = title || 'Instant Stream';
-
-    const vidsrcStreams = [];
-
-    // Primary: VidSrc SBS
-    const sbsUrl = isSeries
-      ? `https://vidsrc.sbs/embed/tv/${targetId}/${sn}/${ep}`
-      : `https://vidsrc.sbs/embed/movie/${targetId}`;
-
-    vidsrcStreams.push({
-      addon: 'VidSrc SBS',
-      name: 'VidSrc SBS (Instant Play)',
-      title: `⚡ VidSrc SBS — ${displayTitle} [HD 1080p]`,
-      quality: '1080p',
-      icon: '⚡',
-      url: sbsUrl,
-      type: 'embed',
-      isDirectStream: true,
-      isVidSrc: true,
-      seeds: 99999
-    });
-
-    // Mirror 1: VidSrc ME
-    const meUrl = isSeries
-      ? `https://vidsrc.me/embed/tv?${imdbId && String(imdbId).startsWith('tt') ? 'imdb=' + imdbId : 'tmdb=' + targetId}&season=${sn}&episode=${ep}`
-      : `https://vidsrc.me/embed/movie?${imdbId && String(imdbId).startsWith('tt') ? 'imdb=' + imdbId : 'tmdb=' + targetId}`;
-
-    vidsrcStreams.push({
-      addon: 'VidSrc ME',
-      name: 'VidSrc ME Mirror',
-      title: `🌐 VidSrc ME — ${displayTitle} [HD]`,
-      quality: '1080p',
-      icon: '🌐',
-      url: meUrl,
-      type: 'embed',
-      isDirectStream: true,
-      isVidSrc: true,
-      seeds: 88888
-    });
-
-    // Mirror 2: VidSrc CC
-    const ccUrl = isSeries
-      ? `https://vidsrc.cc/v2/embed/tv/${targetId}/${sn}/${ep}`
-      : `https://vidsrc.cc/v2/embed/movie/${targetId}`;
-
-    vidsrcStreams.push({
-      addon: 'VidSrc CC',
-      name: 'VidSrc CC Mirror',
-      title: `🎬 VidSrc CC — ${displayTitle} [1080p]`,
-      quality: '1080p',
-      icon: '🎬',
-      url: ccUrl,
-      type: 'embed',
-      isDirectStream: true,
-      isVidSrc: true,
-      seeds: 77777
-    });
-
-    return vidsrcStreams;
+    return this._deduplicateStreams(results.flat());
   }
 
   /** Universal entry point — routes by content type. */
@@ -342,13 +276,6 @@ class StremioAddonService {
       }
     }
 
-    const hasVidSrc = (this.installedAddons || []).some(a => {
-      const id = (a.id || '').toLowerCase();
-      const name = (a.name || '').toLowerCase();
-      const url = (a.url || a.manifestUrl || '').toLowerCase();
-      return id.includes('vidsrc') || name.includes('vidsrc') || url.includes('vidsrc');
-    });
-    const vidsrcStreams = hasVidSrc ? this.generateVidSrcStreams(query) : [];
     let streams = [];
 
     switch (type) {
@@ -358,23 +285,31 @@ class StremioAddonService {
       case 'tv':
       case 'series':
         streams = await this.getSeriesStreams(imdbId, season, episode);
+        if (!streams.length) {
+          streams = await this.getAnimeStreams({ imdbId, kitsuId, season, episode });
+        }
         break;
       case 'anime':
         streams = await this.getAnimeStreams({ imdbId, kitsuId, season, episode });
         if (!streams.length && imdbId) {
-          streams = await this.getSeriesStreams(imdbId, season, episode);
+          if (season != null && episode != null) {
+            streams = await this.getSeriesStreams(imdbId, season, episode);
+          } else {
+            streams = await this.getMovieStreams(imdbId);
+          }
         }
         break;
       default:
         if (imdbId) {
-          streams = await this.getMovieStreams(imdbId);
-          if (!streams.length && season && episode) {
+          if (season != null && episode != null) {
             streams = await this.getSeriesStreams(imdbId, season, episode);
+          } else {
+            streams = await this.getMovieStreams(imdbId);
           }
         }
     }
 
-    const allStreams = [...vidsrcStreams, ...streams];
+    const allStreams = [...streams];
 
     // Sort: quality first, then seeds
     const qOrder = { '4K': 5, '1080p': 4, '720p': 3, 'HD': 2, '480p': 1, 'CAM': 0, 'Unknown': -1 };

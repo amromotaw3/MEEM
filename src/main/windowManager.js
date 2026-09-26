@@ -12,7 +12,19 @@ let activeOAuthServer = null;
 function showToastNotification(title, body) {
   try {
     const icoPath = path.resolve(__dirname, '..', 'renderer', 'imgs', 'appicon.ico');
-    if (Notification.isSupported()) new Notification({ title, body, icon: icoPath }).show();
+    if (Notification.isSupported()) {
+      const notif = new Notification({ title, body, icon: icoPath });
+      notif.on('click', () => {
+        try {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+          }
+        } catch (e) {}
+      });
+      notif.show();
+    }
   } catch (err) {
     console.error('[Notification] Failed to show system notification:', err.message);
   }
@@ -48,7 +60,7 @@ function createWindow() {
   const iconPath = path.join(__dirname, '..', 'renderer', 'imgs', 'appicon.ico');
 
   mainWindow = new BrowserWindow({
-    width: 1360, height: 860, minWidth: 960, minHeight: 640,
+    width: 1360, height: 1053, minWidth: 1084, minHeight: 1053,
     frame: false, backgroundColor: '#ffffff',
     icon: iconPath,
     show: false,
@@ -96,8 +108,23 @@ function createWindow() {
         setTimeout(() => createWindow(), 500);
       }
     });
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      const isDevToolsKey = input.key === 'F12' || ((input.control || input.meta) && input.shift && (input.key === 'I' || input.key === 'i'));
+      if (isDevToolsKey) {
+        try {
+          const { getInMemorySession } = require('./store');
+          const session = getInMemorySession();
+          const adminEmails = ['amromotaw3@gmail.com'];
+          const userEmail = session?.user?.email?.toLowerCase()?.trim();
+          const isAdmin = (userEmail && adminEmails.includes(userEmail)) || session?.user?.is_admin || session?.user?.is_super || session?.user?.role === 'admin';
+          if (!isAdmin && process.env.NODE_ENV !== 'development') {
+            event.preventDefault();
+            console.warn('[SECURITY] Blocked DevTools keyboard shortcut for non-admin.');
+          }
+        } catch (e) {}
+      }
+    });
   }
-
 
   mainWindow.on('close', (event) => {
     if (!app.isQuitting) {
@@ -212,18 +239,35 @@ function initWindowIpc(ipcMain) {
     win?.setFullScreen(flag);
     return flag;
   });
+  function isUserAdmin() {
+    try {
+      const { getInMemorySession } = require('./store');
+      const session = getInMemorySession();
+      const adminEmails = ['amromotaw3@gmail.com'];
+      const userEmail = session?.user?.email?.toLowerCase()?.trim();
+      if (userEmail && adminEmails.includes(userEmail)) return true;
+      if (session?.user?.is_admin || session?.user?.is_super || session?.user?.role === 'admin') return true;
+    } catch (e) {}
+    return false;
+  }
+
   ipcMain.handle('is-fullscreen', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return win?.isFullScreen() ?? false;
   });
   ipcMain.handle('open-devtools', (event) => {
     try {
+      if (!isUserAdmin() && process.env.NODE_ENV !== 'development') {
+        console.warn('[SECURITY] DevTools access denied: user is not authorized.');
+        return false;
+      }
       const win = BrowserWindow.fromWebContents(event.sender);
       if (win && win.webContents) {
         win.webContents.openDevTools({ mode: 'right' });
         return true;
       }
     } catch (e) { console.error('open-devtools failed', e); }
+    return false;
   });
   ipcMain.handle('cloud-oauth', async (event, url) => {
     const { shell } = require('electron');
@@ -255,7 +299,7 @@ function initWindowIpc(ipcMain) {
               }
               if (params) {
                 document.getElementById('msg').innerText = 'Authentication Successful! Redirecting to app...';
-                window.location.href = 'mediavault://callback#' + params;
+                window.location.href = 'meem://callback#' + params;
                 setTimeout(() => window.close(), 3000);
               } else {
                 document.getElementById('msg').innerText = 'Failed to get auth token.';
@@ -400,10 +444,13 @@ function createPlayerWindow(options = {}) {
   playerWindow = new BrowserWindow({
     x, y,
     width, height,
-    minWidth: 860, minHeight: 520,
+    minWidth: 480, minHeight: 320,
     frame: false,
     backgroundColor: '#000000',
     useContentSize: true,
+    resizable: true,
+    maximizable: true,
+    minimizable: true,
     fullscreenable: true,
     icon: iconPath,
     show: false,

@@ -56,6 +56,21 @@ function parseM3uInWorker(sourceId, content) {
     }
   }
 
+  // Fallback: If no #EXTINF channels were found but the text is an HLS stream manifest (.m3u8),
+  // treat it as a single playable live channel.
+  if (channels.length === 0 && (content.includes('#EXTM3U') || content.includes('#EXT-X-') || content.includes('.ts') || content.includes('.m3u8'))) {
+    categorySet.add('Live TV');
+    channels.push({
+      id: 'ch_' + String(sourceId || 'src') + '_stream',
+      name: 'Live Channel',
+      url: '',
+      category: 'Live TV',
+      groupTitle: 'Live TV',
+      logo: 'imgs/appicon-w.png',
+      isFavorite: false
+    });
+  }
+
   self.postMessage({
     type: 'complete',
     sourceId,

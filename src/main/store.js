@@ -27,7 +27,7 @@ function formatAuthError(err) {
 }
 
 // Keep directories defined so other modules don't break, but do NOT write data to disk.
-const USER_DATA   = app.getPath('userData');
+const USER_DATA   = (app && typeof app.getPath === 'function') ? app.getPath('userData') : path.join(process.cwd(), 'userData');
 const DATA_DIR    = path.join(USER_DATA, 'data');
 const DATA_FILE   = path.join(DATA_DIR, 'appdata.json');
 const BANNERS_DIR = path.join(USER_DATA, 'banners');
@@ -240,11 +240,26 @@ async function fetchNormalizedProfileData(client, profileId) {
     throw lError;
   }
 
-  // 4. Fetch custom_lists and list_items
+  // 4. Fetch custom_lists and list_items across user's profiles
+  let profileIds = [profileId];
+  try {
+    const session = getInMemorySession();
+    const userId = session?.user?.id;
+    if (userId) {
+      const { data: userProfiles } = await client
+        .from('account_profiles')
+        .select('id')
+        .eq('user_id', userId);
+      if (userProfiles && userProfiles.length > 0) {
+        profileIds = userProfiles.map(p => p.id);
+      }
+    }
+  } catch (_) {}
+
   const { data: listsData, error: clError } = await client
     .from('custom_lists')
-    .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
-    .eq('profile_id', profileId);
+    .select('id, profile_id, list_name, theme_color, type, list_items(id, media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
+    .in('profile_id', profileIds);
   if (clError) {
     console.error('[STORE] load custom lists error:', clError.message);
     throw clError;
@@ -265,7 +280,7 @@ async function fetchNormalizedProfileData(client, profileId) {
         const sharedListIds = memberRefs.map(m => m.list_id);
         const { data: fetchedShared, error: sharedError } = await client
           .from('custom_lists')
-          .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
+          .select('id, profile_id, list_name, theme_color, type, list_items(id, media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
           .in('id', sharedListIds);
         if (!sharedError && fetchedShared) {
           sharedLists = fetchedShared;
@@ -276,11 +291,27 @@ async function fetchNormalizedProfileData(client, profileId) {
     console.warn('[STORE] Failed to load shared lists:', e.message);
   }
 
+  // Preserve local-only lists (not yet synced to DB)
+  const localProf = (inMemorySession?.profiles || []).find(p => p.id === profileId);
+  const localOnlyLists = (localProf?.custom_lists || []).filter(localList => {
+    const isInDb = (listsData || []).some(dbList => dbList.id === localList.id);
+    const isInShared = sharedLists.some(sharedList => sharedList.id === localList.id);
+    return !isInDb && !isInShared;
+  });
+
   const combinedLists = [...(listsData || [])];
   const ownedIds = new Set(combinedLists.map(l => l.id));
   for (const list of sharedLists) {
     if (!ownedIds.has(list.id)) {
       combinedLists.push(list);
+    }
+  }
+
+  // Merge local-only lists with DB lists
+  const finalLists = [...combinedLists];
+  for (const localList of localOnlyLists) {
+    if (!finalLists.some(l => l.id === localList.id)) {
+      finalLists.push(localList);
     }
   }
 
@@ -319,13 +350,13 @@ async function fetchNormalizedProfileData(client, profileId) {
 
   const lockedItems = (lockedData || []).map(row => row.item_path);
 
-  const custom_lists = combinedLists.map(row => ({
+  const custom_lists = finalLists.map(row => ({
     id: row.id,
     profile_id: row.profile_id,
-    name: row.list_name,
+    name: row.list_name || row.name,
     type: row.type || 'media',
     theme_color: row.theme_color || '#6366f1',
-    items: (row.list_items || []).map(item => {
+    items: (row.list_items || row.items || []).map(item => {
       const itemData = item.item_data || {};
       const isMusic = (item.type === 'music') || (row.type === 'music') || !!itemData.artist || (item.source === 'music');
       if (isMusic) {
@@ -419,13 +450,33 @@ async function fetchNormalizedProfileDataByHardware(hardwareId, profileId) {
       category: row.category || null
     }));
 
+    const existingProfile = (inMemorySession?.profiles || []).find(p => p.id === data.profile_id);
     const playback = {};
     playbackData.forEach(row => {
+      const isYt = /^[a-zA-Z0-9_-]{11}$/.test(row.media_id) || String(row.media_id).startsWith('yt:');
+      const vId = isYt ? String(row.media_id).replace(/^yt[:_]/, '') : null;
+      const localMeta = existingProfile?.playback?.[row.media_id]?.meta;
+      let meta = localMeta;
+      if (!meta && isYt) {
+        const ytThumb = `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+        meta = {
+          id: vId,
+          videoId: vId,
+          title: 'YouTube Video',
+          type: 'youtube',
+          isYoutube: true,
+          poster: ytThumb,
+          thumbnail: ytThumb,
+          backdrop_path: ytThumb,
+          backdrop: ytThumb
+        };
+      }
       playback[row.media_id] = {
         time: row.progress ? Number(row.progress) : 0,
         duration: row.duration ? Number(row.duration) : 0,
         lastWatched: row.last_watched_at ? new Date(row.last_watched_at).getTime() : Date.now(),
-        watched: row.watched || false
+        watched: row.watched || false,
+        ...(meta ? { meta } : {})
       };
     });
 
@@ -508,16 +559,31 @@ let diskWriteTimeout = null;
 function writeLocalAppData(data, forceImmediate = false) {
   try {
     const existing = readLocalAppData() || {};
-    const mergedAddons = (data && Array.isArray(data.installedAddons) && data.installedAddons.length > 0)
+    const mergedAddons = (data && Array.isArray(data.installedAddons))
       ? data.installedAddons
       : (Array.isArray(existing.installedAddons) ? existing.installedAddons : []);
 
-    inMemorySession = {
-      ...(existing || {}),
-      ...(data || {}),
-      installedAddons: mergedAddons
-    };
+    if (data && data.authenticated === false) {
+      inMemorySession = {
+        ...(data || {}),
+        authenticated: false,
+        user: null,
+        profiles: [],
+        activeProfileId: null,
+        _supabaseSession: null,
+        installedAddons: mergedAddons
+      };
+    } else {
+      inMemorySession = {
+        ...(existing || {}),
+        ...(data || {}),
+        installedAddons: mergedAddons
+      };
+    }
     ensureDir(DATA_DIR);
+
+    const tempFile = DATA_FILE + '.tmp';
+    const jsonStr = JSON.stringify(inMemorySession, null, 2);
 
     // If running in unit tests or forced immediate, write synchronously to prevent race conditions
     if (forceImmediate || process.env.JEST_WORKER_ID !== undefined || process.env.NODE_ENV === 'test') {
@@ -525,17 +591,24 @@ function writeLocalAppData(data, forceImmediate = false) {
         clearTimeout(diskWriteTimeout);
         diskWriteTimeout = null;
       }
-      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+      fs.writeFileSync(tempFile, jsonStr, 'utf8');
+      fs.renameSync(tempFile, DATA_FILE);
       return true;
     }
 
-    // Debounce disk writes by 3 seconds asynchronously to avoid blocking the main UI thread
+    // Debounce disk writes by 1 second asynchronously with atomic rename to avoid file corruption
     if (diskWriteTimeout) clearTimeout(diskWriteTimeout);
     diskWriteTimeout = setTimeout(() => {
-      fs.writeFile(DATA_FILE, JSON.stringify(inMemorySession, null, 2), 'utf8', (err) => {
-        if (err) console.error('[STORE] writeLocalAppData async failed:', err.message);
+      fs.writeFile(tempFile, jsonStr, 'utf8', (err) => {
+        if (err) {
+          console.error('[STORE] writeLocalAppData async temp write failed:', err.message);
+          return;
+        }
+        fs.rename(tempFile, DATA_FILE, (renameErr) => {
+          if (renameErr) console.error('[STORE] writeLocalAppData atomic rename failed:', renameErr.message);
+        });
       });
-    }, 3000);
+    }, 1000);
     return true;
   } catch (err) {
     console.error('[STORE] writeLocalAppData failed:', err.message);
@@ -571,6 +644,23 @@ if (app && typeof app.on === 'function') {
  */
 function getInMemorySession() {
   return inMemorySession || readLocalAppData();
+}
+
+/**
+ * Saves and updates the in-memory session and persists to local disk.
+ * 
+ * @param {Object} data - The updated session data.
+ * @returns {Object} The updated inMemorySession.
+ */
+function saveInMemorySession(data) {
+  if (!data) return getInMemorySession();
+  const current = inMemorySession || readLocalAppData() || {};
+  inMemorySession = {
+    ...current,
+    ...data
+  };
+  writeLocalAppData(inMemorySession);
+  return inMemorySession;
 }
 
 /**
@@ -692,8 +782,8 @@ async function loadData() {
               ...localProf,
               ...loadedProf,
               // Give fresh cloud avatar/banner precedence over local cache
-              avatar: loadedProf.avatar || localProf.avatar || null,
-              banner: loadedProf.banner || localProf.banner || local.globalBanner || null,
+              avatar: loadedProf.avatar !== undefined ? loadedProf.avatar : (localProf.avatar || null),
+              banner: loadedProf.banner !== undefined ? loadedProf.banner : (localProf.banner || null),
               trakt: loadedProf.trakt || localProf.trakt || null,
               libraryFolders: loadedProf.libraryFolders || localProf.libraryFolders || undefined
             });
@@ -706,16 +796,19 @@ async function loadData() {
       inMemorySession = {
         ...local,
         user: data.user,
+        subscription_expires_at: data.user?.subscription_expires_at || local.subscription_expires_at || null,
         tmdbKey: data.user.tmdb_api_key || local.tmdbKey || '',
         subdlKey: data.user.subdl_api_key || local.subdlKey || '',
         fanartKey: data.user.fanart_api_key || local.fanartKey || '',
-        globalBanner: local.globalBanner || data.globalBanner || null,
+        globalBanner: data.globalBanner || data.user?.banner || data.user?.global_banner || local.globalBanner || null,
+        profileBannerPosition: data.user?.banner_position || local.profileBannerPosition || 'center top',
         profiles: mergedProfiles.length ? mergedProfiles : (local.profiles || []),
         activeProfileId: data.profiles?.[0]?.id || local.activeProfileId || null,
         authenticated: true,
         hardwareId,
         _supabaseSession: _cachedSupabaseSession || local._supabaseSession
       };
+      writeLocalAppData(inMemorySession);
 
       if (!inMemorySession.subdlConfig) inMemorySession.subdlConfig = {};
       if (data.user.subdl_api_key) {
@@ -853,9 +946,19 @@ async function saveData(data, session = null) {
         if (rpcData && rpcData.success === false) throw new Error(rpcData.error || 'update_user_settings reported failure');
       }, 3, 700);
 
-
-      // Quiet API key sync log
-      // console.log('[STORE] API keys successfully synchronized via update_user_settings RPC.');
+      // Sync account-level banner to users_accounts table
+      if (data.user && data.user.id) {
+        const accBanner = data.globalBanner || data.user.banner || (data.profiles && data.profiles[0]?.banner) || null;
+        const accBannerPos = data.profileBannerPosition || data.user.banner_position || (data.profiles && data.profiles[0]?.bannerPosition) || null;
+        try {
+          await client.from('users_accounts').update({
+            banner: accBanner,
+            banner_position: accBannerPos
+          }).eq('id', data.user.id);
+        } catch (bErr) {
+          console.warn('[STORE] Failed to sync account banner to users_accounts:', bErr.message);
+        }
+      }
 
       if (Array.isArray(data.profiles) && data.profiles.length) {
         for (const profile of data.profiles) {
@@ -1033,29 +1136,9 @@ async function saveData(data, session = null) {
 
           // 5. Sync custom lists & list items
           const localLists = profile.custom_lists || [];
-          const { data: dbLists, error: clFetchError } = await client
-            .from('custom_lists')
-            .select('id, list_name')
-            .eq('profile_id', profile.id);
-          if (clFetchError) throw clFetchError;
-
-          const dbListsByName = new Map((dbLists || []).map(x => [x.list_name?.toLowerCase() || '', x]));
-          const localListsByName = new Set(localLists.map(x => (x.name || 'Unnamed').toLowerCase()));
-
-          const listsToDelete = (dbLists || []).filter(x => !localListsByName.has((x.list_name || '').toLowerCase()));
-          if (listsToDelete.length > 0) {
-            const listIdsToDelete = listsToDelete.map(x => x.id);
-            const { error: delListsError } = await client
-              .from('custom_lists')
-              .delete()
-              .in('id', listIdsToDelete);
-            if (delListsError) throw delListsError;
-          }
-
-          // NOTE: Auto-leave on sync was REMOVED — it caused a race condition where
-          // newly-accepted invitations were immediately deleted by the next saveData call
-          // before the local custom_lists had a chance to include the new shared list.
-          // Membership removal now only happens via explicit user action (Leave List button).
+          // NOTE: Auto-deletion of custom_lists on sync is disabled.
+          // Lists must only be deleted via explicit user action (cloud-delete-custom-list)
+          // to prevent race conditions or cross-profile deletion when switching profiles.
 
           for (const localList of localLists) {
             let listId = localList.id;
@@ -1112,14 +1195,20 @@ async function saveData(data, session = null) {
             const dbItemIds = new Set((dbItems || []).map(x => x.media_id));
             const localItemIds = new Set(localItems.map(item => String(item.id || item)));
 
-            const itemsToDelete = [...dbItemIds].filter(id => !localItemIds.has(id));
-            if (itemsToDelete.length > 0) {
-              const { error: delItemsError } = await client
-                .from('list_items')
-                .delete()
-                .eq('list_id', listId)
-                .in('media_id', itemsToDelete);
-              if (delItemsError) throw delItemsError;
+            // CRITICAL SAFEGUARD:
+            // 1) Never delete items from shared lists during background sync! Collaborators must not delete each other's items on routine save.
+            // 2) Never delete items if localItems is empty while dbItems has records (race condition / incomplete load protection).
+            // Items are only deleted explicitly via cloud-remove-list-item or when owner explicitly removes an item from a loaded list.
+            if (!isShared && localItems.length > 0 && dbItems && dbItems.length > 0) {
+              const itemsToDelete = [...dbItemIds].filter(id => !localItemIds.has(id));
+              if (itemsToDelete.length > 0) {
+                const { error: delItemsError } = await client
+                  .from('list_items')
+                  .delete()
+                  .eq('list_id', listId)
+                  .in('media_id', itemsToDelete);
+                if (delItemsError) throw delItemsError;
+              }
             }
 
             if (localItems.length > 0) {
@@ -1470,25 +1559,38 @@ function initStoreIpc(ipcMain) {
         const prof = inMemorySession.profiles.find(p => p.id === profileId);
         if (prof) {
           prof.playback = {};
-          writeLocalAppData(inMemorySession);
         }
+        if (inMemorySession.playback) {
+          delete inMemorySession.playback;
+        }
+        writeLocalAppData(inMemorySession, true);
       }
 
       // 2. Clear from Supabase cloud
-      let client = await getAuthenticatedClient();
+      let client = null;
+      try {
+        client = await getAuthenticatedClient();
+      } catch (authErr) {
+        console.warn('[STORE] getAuthenticatedClient threw, falling back to default client:', authErr.message);
+      }
       if (!client) {
-        const { getClient } = require('../shared/supabaseClient');
-        client = getClient();
+        try {
+          const { getClient } = require('../shared/supabaseClient');
+          client = getClient();
+        } catch (_) {}
       }
 
       if (client) {
-        const { error } = await client
-          .from('playback_history')
-          .delete()
-          .eq('profile_id', profileId);
-        if (error) {
-          console.error('[STORE] clear-profile-playback supabase delete failed:', error.message);
-          return { error: error.message };
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profileId);
+        if (isUuid) {
+          const { error } = await client
+            .from('playback_history')
+            .delete()
+            .eq('profile_id', profileId);
+          if (error) {
+            console.error('[STORE] clear-profile-playback supabase delete failed:', error.message);
+            return { error: error.message };
+          }
         }
       }
       console.log('[STORE] clear-profile-playback success for profile:', profileId);
@@ -1502,15 +1604,41 @@ function initStoreIpc(ipcMain) {
   ipcMain.handle('cloud-delete-playback-position', async (e, { profileId, mediaId }) => {
     try {
       if (!profileId || !mediaId) return { error: 'profileId and mediaId are required' };
-      const client = await getAuthenticatedClient();
-      const { error } = await client
-        .from('playback_history')
-        .delete()
-        .eq('profile_id', profileId)
-        .eq('media_id', mediaId);
-      if (error) {
-        console.error('[STORE] cloud-delete-playback-position supabase delete failed:', error.message);
-        return { error: error.message };
+
+      // 1. Clear local cache immediately
+      if (inMemorySession && Array.isArray(inMemorySession.profiles)) {
+        const prof = inMemorySession.profiles.find(p => p.id === profileId);
+        if (prof && prof.playback && prof.playback[mediaId]) {
+          delete prof.playback[mediaId];
+          writeLocalAppData(inMemorySession, true);
+        }
+      }
+
+      // 2. Clear from Supabase cloud
+      let client = null;
+      try {
+        client = await getAuthenticatedClient();
+      } catch (_) {}
+      if (!client) {
+        try {
+          const { getClient } = require('../shared/supabaseClient');
+          client = getClient();
+        } catch (_) {}
+      }
+
+      if (client) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profileId);
+        if (isUuid) {
+          const { error } = await client
+            .from('playback_history')
+            .delete()
+            .eq('profile_id', profileId)
+            .eq('media_id', mediaId);
+          if (error) {
+            console.error('[STORE] cloud-delete-playback-position supabase delete failed:', error.message);
+            return { error: error.message };
+          }
+        }
       }
       console.log(`[STORE] cloud-delete-playback-position success for media: ${mediaId} under profile: ${profileId}`);
       return { success: true };
@@ -1561,7 +1689,13 @@ function initStoreIpc(ipcMain) {
       if (res && res.success) {
         try {
           const session = res.session || { access_token: res.access_token };
-          await saveData({ authenticated: true, user: res.user, profiles: res.profiles || [], activeProfileId: res.profiles?.[0]?.id || null }, session);
+          await saveData({
+            authenticated: true,
+            user: res.user,
+            subscription_expires_at: res.user?.subscription_expires_at || null,
+            profiles: res.profiles || [],
+            activeProfileId: res.profiles?.[0]?.id || null
+          }, session);
         } catch (e) {
           console.warn('[STORE] Post-login local+cloud save failed:', e.message || e);
         }
@@ -1579,7 +1713,13 @@ function initStoreIpc(ipcMain) {
       if (res && res.success) {
         try {
           const session = res.session || { access_token: res.access_token };
-          await saveData({ authenticated: true, user: res.user, profiles: res.profiles || [], activeProfileId: res.profiles?.[0]?.id || null }, session);
+          await saveData({
+            authenticated: true,
+            user: res.user,
+            subscription_expires_at: res.user?.subscription_expires_at || null,
+            profiles: res.profiles || [],
+            activeProfileId: res.profiles?.[0]?.id || null
+          }, session);
         } catch (e) {
           console.warn('[STORE] Post-register local+cloud save failed:', e.message || e);
         }
@@ -1598,7 +1738,13 @@ function initStoreIpc(ipcMain) {
       if (res && res.success) {
         try {
           const session = res.session || { access_token: res.access_token };
-          await saveData({ authenticated: true, user: res.user, profiles: res.profiles || [], activeProfileId: res.profiles?.[0]?.id || null }, session);
+          await saveData({
+            authenticated: true,
+            user: res.user,
+            subscription_expires_at: res.user?.subscription_expires_at || null,
+            profiles: res.profiles || [],
+            activeProfileId: res.profiles?.[0]?.id || null
+          }, session);
         } catch (e) {
           console.warn('[STORE] Post-verify local+cloud save failed:', e.message || e);
         }
@@ -1621,36 +1767,32 @@ function initStoreIpc(ipcMain) {
       try {
         const { getClient } = require('../shared/supabaseClient');
         const client = getClient();
+        if (client && client.auth) {
+          await client.auth.signOut().catch(() => {});
+        }
         const { data, error } = await client.rpc('handle_logout', { p_hardware_id: hardwareId });
         if (error) {
           console.warn('[STORE] Remote handle_logout RPC failed:', error.message);
-        } else {
-          console.log('[STORE] Remote device logout result:', data);
         }
       } catch (rpcErr) {
-        console.warn('[STORE] Failed to invoke handle_logout RPC:', rpcErr.message);
+        console.warn('[STORE] Remote handle_logout error:', rpcErr.message);
       }
-
-      inMemorySession = null;
-      _cachedSupabaseSession = null;
-      // Preserve device-level app config that is NOT tied to the account so that
-      // logging out (or switching accounts) does not wipe the user's installed
-      // Stremio addons — previously the clean object dropped installedAddons,
-      // forcing the user to re-add every addon after each logout/login.
       const existing = readLocalAppData() || {};
-      const clearedData = {
+      inMemorySession = {
         authenticated: false,
         user: null,
         profiles: [],
         activeProfileId: null,
-        installedAddons: Array.isArray(existing.installedAddons) ? existing.installedAddons : []
+        subscription_expires_at: null,
+        _supabaseSession: null,
+        installedAddons: Array.isArray(existing.installedAddons) ? existing.installedAddons : [],
+        hardwareId
       };
-      writeLocalAppData(clearedData, true);
-      console.log('[STORE] Session cleared successfully (installed addons preserved)');
+      _cachedSupabaseSession = null;
+      writeLocalAppData(inMemorySession, true);
       return { success: true };
     } catch (err) {
-      console.error('[STORE] clear-session failed:', err.message);
-      return { success: false, error: err.message };
+      return { error: formatAuthError(err) };
     }
   });
 
@@ -1680,8 +1822,10 @@ function initStoreIpc(ipcMain) {
           ...(inMemorySession || {}),
           authenticated: true,
           user: result.user,
+          subscription_expires_at: result.user?.subscription_expires_at || null,
           _supabaseSession: _cachedSupabaseSession
         };
+        writeLocalAppData(inMemorySession);
       }
       return result;
     } catch (err) {
@@ -1747,70 +1891,59 @@ function initStoreIpc(ipcMain) {
       if (!cleanQuery) return { success: true, data: [] };
 
       const session = getInMemorySession();
-      const caller_id = session?.user?.id || session?.user?.user_id || session?.activeProfileId || null;
+      const caller_id = session?.user?.id || session?.user?.user_id || null;
+      const callerProfId = session?.activeProfileId || null;
       const client = await getAuthenticatedClient();
       
       let results = [];
 
-      // 1. Try search_collaborators RPC if caller_id is present
-      if (caller_id) {
-        try {
-          const { data, error } = await client.rpc('search_collaborators', { query_str: cleanQuery, caller_id });
-          if (!error && Array.isArray(data) && data.length > 0) {
-            results = data;
-          }
-        } catch (rpcErr) {
-          console.warn('[STORE] search_collaborators RPC warning:', rpcErr.message);
+      // 1. Primary search on account_profiles directly (by name OR by profile ID 'id')
+      try {
+        let profileQuery = client
+          .from('account_profiles')
+          .select('id, name, user_id, avatar');
+
+        if (cleanQuery.startsWith('prof_') || cleanQuery.length > 20) {
+          profileQuery = profileQuery.or(`id.eq.${cleanQuery},name.ilike.%${cleanQuery}%`);
+        } else {
+          profileQuery = profileQuery.ilike('name', `%${cleanQuery}%`);
         }
-      }
 
-      // 2. Direct table queries on account_profiles (fallback or primary)
-      if (!results || results.length === 0) {
-        try {
-          const { data: profiles, error: pErr } = await client
-            .from('account_profiles')
-            .select('id, name, user_id, avatar')
-            .ilike('name', `%${cleanQuery}%`)
-            .limit(10);
+        const { data: profiles, error: pErr } = await profileQuery.limit(15);
 
-          if (!pErr && Array.isArray(profiles) && profiles.length > 0) {
-            const userIds = [...new Set(profiles.map(p => p.user_id).filter(id => id && id !== caller_id))];
-            
-            let usersMap = new Map();
-            if (userIds.length > 0) {
-              const { data: users } = await client
-                .from('users_accounts')
-                .select('id, email, allow_invitations')
-                .in('id', userIds);
-              if (users) {
-                users.forEach(u => usersMap.set(u.id, u));
-              }
-            }
-
-            const formatted = profiles
-              .filter(p => p.user_id && p.user_id !== caller_id)
-              .map(p => {
-                const u = usersMap.get(p.user_id);
-                return {
-                  user_id: p.user_id,
-                  email: u?.email || '',
-                  profile_name: p.name || 'User',
-                  avatar: p.avatar || '',
-                  allow_invitations: u ? (u.allow_invitations !== false) : true
-                };
-              });
-
-            if (formatted.length > 0) {
-              results = formatted;
+        if (!pErr && Array.isArray(profiles) && profiles.length > 0) {
+          const validProfiles = profiles.filter(p => p.id !== callerProfId);
+          const userIds = [...new Set(validProfiles.map(p => p.user_id).filter(Boolean))];
+          
+          let usersMap = new Map();
+          if (userIds.length > 0) {
+            const { data: users } = await client
+              .from('users_accounts')
+              .select('id, email, allow_invitations')
+              .in('id', userIds);
+            if (users) {
+              users.forEach(u => usersMap.set(u.id, u));
             }
           }
-        } catch (fbErr) {
-          console.warn('[STORE] Fallback search failed:', fbErr.message);
+
+          results = validProfiles.map(p => {
+            const u = usersMap.get(p.user_id);
+            return {
+              user_id: p.user_id,
+              profile_id: p.id,
+              email: u?.email || '',
+              profile_name: p.name || 'Profile',
+              avatar: p.avatar || '',
+              allow_invitations: u ? (u.allow_invitations !== false) : true
+            };
+          });
         }
+      } catch (fbErr) {
+        console.warn('[STORE] Profile search failed:', fbErr.message);
       }
 
-      // 3. Search by email if query contains '@' or looks like an email/username
-      if (!results || results.length === 0) {
+      // 2. Search by parent user email if query contains '@' and no direct results yet
+      if ((!results || results.length === 0) && cleanQuery.includes('@')) {
         try {
           const { data: usersByEmail } = await client
             .from('users_accounts')
@@ -1826,21 +1959,22 @@ function initStoreIpc(ipcMain) {
                 .select('id, name, user_id, avatar')
                 .in('user_id', userIds);
 
-              const profMap = new Map();
-              if (profiles) profiles.forEach(p => profMap.set(p.user_id, p));
-
-              results = usersByEmail
-                .filter(u => u.id !== caller_id)
-                .map(u => {
-                  const p = profMap.get(u.id);
-                  return {
-                    user_id: u.id,
-                    email: u.email,
-                    profile_name: p?.name || u.email.split('@')[0],
-                    avatar: p?.avatar || '',
-                    allow_invitations: u.allow_invitations !== false
-                  };
-                });
+              if (profiles && profiles.length > 0) {
+                const usersMap = new Map(usersByEmail.map(u => [u.id, u]));
+                results = profiles
+                  .filter(p => p.id !== callerProfId)
+                  .map(p => {
+                    const u = usersMap.get(p.user_id);
+                    return {
+                      user_id: p.user_id,
+                      profile_id: p.id,
+                      email: u?.email || '',
+                      profile_name: p.name || 'Profile',
+                      avatar: p.avatar || '',
+                      allow_invitations: u ? (u.allow_invitations !== false) : true
+                    };
+                  });
+              }
             }
           }
         } catch (e) {}
@@ -1859,42 +1993,41 @@ function initStoreIpc(ipcMain) {
       const cleanVal = username.trim();
       const client = await getAuthenticatedClient();
 
-      // 1. Try RPC get_user_id_by_username
+      // Direct lookup on account_profiles by name or profile ID
       try {
-        const { data, error } = await client.rpc('get_user_id_by_username', { username_val: cleanVal });
-        if (!error && Array.isArray(data) && data.length > 0) {
-          return { success: true, data };
+        let pQuery = client.from('account_profiles').select('id, user_id, name, avatar');
+        if (cleanVal.startsWith('prof_')) {
+          pQuery = pQuery.eq('id', cleanVal);
+        } else {
+          pQuery = pQuery.ilike('name', cleanVal);
         }
-      } catch (e) {}
 
-      // 2. Direct lookup on account_profiles by name
-      try {
-        const { data: profiles } = await client
-          .from('account_profiles')
-          .select('user_id, name')
-          .ilike('name', cleanVal)
-          .limit(1);
+        const { data: profiles } = await pQuery.limit(5);
 
         if (profiles && profiles.length > 0) {
-          const uId = profiles[0].user_id;
-          const { data: userAcc } = await client
+          const userIds = [...new Set(profiles.map(p => p.user_id))];
+          const { data: userAccs } = await client
             .from('users_accounts')
-            .select('allow_invitations')
-            .eq('id', uId)
-            .maybeSingle();
+            .select('id, email, allow_invitations')
+            .in('id', userIds);
 
-          return {
-            success: true,
-            data: [{
-              user_id: uId,
-              profile_name: profiles[0].name,
-              allow_invitations: userAcc ? (userAcc.allow_invitations !== false) : true
-            }]
-          };
+          const uMap = new Map((userAccs || []).map(u => [u.id, u]));
+          const formatted = profiles.map(p => {
+            const u = uMap.get(p.user_id);
+            return {
+              user_id: p.user_id,
+              profile_id: p.id,
+              profile_name: p.name,
+              email: u?.email || '',
+              allow_invitations: u ? (u.allow_invitations !== false) : true
+            };
+          });
+
+          return { success: true, data: formatted };
         }
       } catch (e) {}
 
-      // 3. Direct lookup on users_accounts by email
+      // Fallback email lookup on users_accounts
       try {
         const { data: userAcc } = await client
           .from('users_accounts')
@@ -1904,20 +2037,23 @@ function initStoreIpc(ipcMain) {
 
         if (userAcc && userAcc.length > 0) {
           const uId = userAcc[0].id;
-          const { data: p } = await client
+          const { data: profs } = await client
             .from('account_profiles')
-            .select('name')
-            .eq('user_id', uId)
-            .maybeSingle();
+            .select('id, name')
+            .eq('user_id', uId);
 
-          return {
-            success: true,
-            data: [{
-              user_id: uId,
-              profile_name: p?.name || cleanVal,
-              allow_invitations: userAcc[0].allow_invitations !== false
-            }]
-          };
+          if (profs && profs.length > 0) {
+            return {
+              success: true,
+              data: profs.map(p => ({
+                user_id: uId,
+                profile_id: p.id,
+                profile_name: p.name,
+                email: userAcc[0].email,
+                allow_invitations: userAcc[0].allow_invitations !== false
+              }))
+            };
+          }
         }
       } catch (e) {}
 
@@ -1928,7 +2064,7 @@ function initStoreIpc(ipcMain) {
     }
   });
 
-  ipcMain.handle('cloud-invite-collaborator', async (e, { listId, targetUserId }) => {
+  ipcMain.handle('cloud-invite-collaborator', async (e, { listId, targetUserId, targetProfileId }) => {
     try {
       const session = getInMemorySession();
       if (!isSessionVIP(session)) {
@@ -2014,19 +2150,24 @@ function initStoreIpc(ipcMain) {
         return { success: false, blocked: true, message: 'This user has disabled invitations.' };
       }
       
-      // 3. Perform insert with status = 'pending' so get_pending_invitations can find it
+      // 3. Perform insert with status = 'pending' and target_profile_id if specified
+      const insertObj = {
+        list_id: effectiveListId,
+        user_id: targetUserId,
+        role: 'member',
+        status: 'pending'
+      };
+      if (targetProfileId) {
+        insertObj.target_profile_id = targetProfileId;
+      }
+
       const { error: insertError } = await client
         .from('list_members')
-        .insert({
-          list_id: effectiveListId,
-          user_id: targetUserId,
-          role: 'member',
-          status: 'pending'
-        });
+        .insert(insertObj);
         
       if (insertError) {
         if (insertError.code === '23505') {
-          return { success: false, exists: true, message: 'This user is already a collaborator/invited' };
+          return { success: false, exists: true, message: 'This profile is already invited or a member' };
         }
         throw insertError;
       }
@@ -2048,11 +2189,24 @@ function initStoreIpc(ipcMain) {
       
       const client = await getAuthenticatedClient();
       
-      // 1. Fetch owned lists
+      // 1. Fetch owned lists across all profiles belonging to this user
+      let profileIds = [profileId];
+      try {
+        const { data: userProfiles } = await client
+          .from('account_profiles')
+          .select('id')
+          .eq('user_id', currentUserId);
+        if (userProfiles && userProfiles.length > 0) {
+          profileIds = userProfiles.map(p => p.id);
+        }
+      } catch (pErr) {
+        console.warn('[STORE] Error resolving user profiles for custom lists:', pErr.message);
+      }
+
       const { data: listsData, error: clError } = await client
         .from('custom_lists')
-        .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
-        .eq('profile_id', profileId);
+        .select('id, profile_id, list_name, theme_color, type, list_items(id, media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
+        .in('profile_id', profileIds);
       if (clError) throw clError;
       
       // 2. Fetch shared lists
@@ -2069,7 +2223,7 @@ function initStoreIpc(ipcMain) {
         const fetchShared = async (dbClient) => {
           const { data, error } = await dbClient
             .from('custom_lists')
-            .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
+            .select('id, profile_id, list_name, theme_color, type, list_items(id, media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
             .in('id', sharedListIds);
           if (error) throw error;
           return data;
@@ -2100,6 +2254,12 @@ function initStoreIpc(ipcMain) {
   
   ipcMain.handle('cloud-delete-custom-list', async (e, { listId, profileId }) => {
     try {
+      const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+      if (!isUuid(listId)) {
+        console.log('[STORE] Non-UUID listId (local list), completing delete locally:', listId);
+        return { success: true };
+      }
+
       const session = getInMemorySession();
       const currentUserId = session?.user?.id;
       if (!currentUserId) throw new Error('User not authenticated');
@@ -2160,6 +2320,11 @@ function initStoreIpc(ipcMain) {
 
   ipcMain.handle('cloud-remove-list-item', async (e, { listId, mediaId }) => {
     try {
+      const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+      if (!isUuid(listId)) {
+        return { success: true };
+      }
+
       const session = getInMemorySession();
       const currentUserId = session?.user?.id;
       if (!currentUserId) throw new Error('User not authenticated');
@@ -2491,12 +2656,17 @@ function initStoreIpc(ipcMain) {
 
   ipcMain.handle('cloud-get-list-sharing-members', async (e, { listId, ownerProfileId }) => {
     try {
+      const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+      if (!isUuid(listId)) {
+        return { success: true, ownerProf: null, joinedMemberProfiles: [] };
+      }
+
       const client = await getAuthenticatedClient();
       
       // 1. Fetch Owner Profile Info
       const { data: ownerProf, error: ownerError } = await client
         .from('account_profiles')
-        .select('id, name, avatar')
+        .select('id, name, avatar, user_id')
         .eq('id', ownerProfileId)
         .maybeSingle();
       if (ownerError) throw ownerError;
@@ -2504,22 +2674,43 @@ function initStoreIpc(ipcMain) {
       // 2. Fetch Joined Members Profile Info
       const { data: memberRows, error: memberError } = await client
         .from('list_members')
-        .select('user_id')
+        .select('user_id, target_profile_id')
         .eq('list_id', listId)
         .eq('status', 'joined');
       if (memberError) throw memberError;
 
       let joinedMemberProfiles = [];
       if (memberRows && memberRows.length > 0) {
-        const memberUserIds = memberRows.map(m => m.user_id).filter(Boolean);
-        if (memberUserIds.length > 0) {
-          const { data: fetchedProfiles, error: profError } = await client
+        const targetProfIds = memberRows.map(m => m.target_profile_id).filter(Boolean);
+        const legacyUserIds = memberRows.filter(m => !m.target_profile_id).map(m => m.user_id).filter(Boolean);
+
+        const fetchedMap = new Map();
+
+        if (targetProfIds.length > 0) {
+          const { data: profsById } = await client
             .from('account_profiles')
             .select('id, name, avatar, user_id')
-            .in('user_id', memberUserIds);
-          if (profError) throw profError;
-          joinedMemberProfiles = fetchedProfiles || [];
+            .in('id', targetProfIds);
+          if (profsById) profsById.forEach(p => fetchedMap.set(p.id, p));
         }
+
+        if (legacyUserIds.length > 0) {
+          const { data: profsByUser } = await client
+            .from('account_profiles')
+            .select('id, name, avatar, user_id')
+            .in('user_id', legacyUserIds);
+          if (profsByUser) {
+            const seenUsers = new Set();
+            profsByUser.forEach(p => {
+              if (!seenUsers.has(p.user_id)) {
+                seenUsers.add(p.user_id);
+                if (!fetchedMap.has(p.id)) fetchedMap.set(p.id, p);
+              }
+            });
+          }
+        }
+
+        joinedMemberProfiles = Array.from(fetchedMap.values());
       }
 
       return { success: true, ownerProf, joinedMemberProfiles };
@@ -2689,25 +2880,15 @@ function initStoreIpc(ipcMain) {
       try {
         data = await runQuery(client);
       } catch (queryErr) {
-        const isAuthError = queryErr.message?.includes('JWT') || 
-                            queryErr.message?.includes('invalid signature') || 
-                            queryErr.message?.includes('Unauthorized') || 
-                            queryErr.status === 401 || 
-                            queryErr.code === '42501';
-                            
-        if (isAuthError) {
-          console.warn('[STORE] Auth error during send-chat-message, retrying with service_role client...');
-          const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
-          const serviceRoleKey = getSupabaseServiceRoleKey();
-          if (serviceRoleKey) {
-            const { createClient } = require('@supabase/supabase-js');
-            const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
-              auth: { persistSession: false, autoRefreshToken: false }
-            });
-            data = await runQuery(serviceClient);
-          } else {
-            throw queryErr;
-          }
+        console.warn('[STORE] Query error during send-chat-message, retrying with service_role client...', queryErr.message);
+        const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+        const serviceRoleKey = getSupabaseServiceRoleKey();
+        if (serviceRoleKey) {
+          const { createClient } = require('@supabase/supabase-js');
+          const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          });
+          data = await runQuery(serviceClient);
         } else {
           throw queryErr;
         }
@@ -2727,6 +2908,7 @@ function initStoreIpc(ipcMain) {
       if (!currentUserId) throw new Error('User not authenticated');
 
       let client = await getAuthenticatedClient();
+      let data;
 
       // Insert media share as special message type
       const runQuery = async (dbClient) => {
@@ -2762,25 +2944,15 @@ function initStoreIpc(ipcMain) {
       try {
         data = await runQuery(client);
       } catch (queryErr) {
-        const isAuthError = queryErr.message?.includes('JWT') || 
-                            queryErr.message?.includes('invalid signature') || 
-                            queryErr.message?.includes('Unauthorized') || 
-                            queryErr.status === 401 || 
-                            queryErr.code === '42501';
-                            
-        if (isAuthError) {
-          console.warn('[STORE] Auth error during send-media-share, retrying with service_role client...');
-          const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
-          const serviceRoleKey = getSupabaseServiceRoleKey();
-          if (serviceRoleKey) {
-            const { createClient } = require('@supabase/supabase-js');
-            const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
-              auth: { persistSession: false, autoRefreshToken: false }
-            });
-            data = await runQuery(serviceClient);
-          } else {
-            throw queryErr;
-          }
+        console.warn('[STORE] Query error during send-media-share, retrying with service_role client...', queryErr.message);
+        const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+        const serviceRoleKey = getSupabaseServiceRoleKey();
+        if (serviceRoleKey) {
+          const { createClient } = require('@supabase/supabase-js');
+          const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          });
+          data = await runQuery(serviceClient);
         } else {
           throw queryErr;
         }
@@ -2795,24 +2967,51 @@ function initStoreIpc(ipcMain) {
 
   ipcMain.handle('cloud-upload-chat-image', async (e, { base64Data, mimeType }) => {
     try {
-      const client = await getAuthenticatedClient();
+      let client;
+      try {
+        client = await getAuthenticatedClient();
+      } catch (_) {}
+
       const buffer = Buffer.from(base64Data, 'base64');
       const fileName = `chat/${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
       
-      const { data, error } = await client.storage
-        .from('avatars')
-        .upload(fileName, buffer, {
-          contentType: mimeType,
-          upsert: true
-        });
+      const uploadFile = async (dbClient) => {
+        const { data, error } = await dbClient.storage
+          .from('avatars')
+          .upload(fileName, buffer, {
+            contentType: mimeType,
+            upsert: true
+          });
+        if (error) throw error;
+        const { data: publicUrlData } = dbClient.storage
+          .from('avatars')
+          .getPublicUrl(fileName);
+        return publicUrlData?.publicUrl;
+      };
+
+      let url;
+      try {
+        if (client) {
+          url = await uploadFile(client);
+        } else {
+          throw new Error('No client');
+        }
+      } catch (uploadErr) {
+        console.warn('[STORE] upload-chat-image failed with auth client, retrying with service_role client...', uploadErr.message);
+        const { getSupabaseServiceRoleKey, getSupabaseUrl } = require('../shared/supabaseEnv');
+        const serviceRoleKey = getSupabaseServiceRoleKey();
+        if (serviceRoleKey) {
+          const { createClient } = require('@supabase/supabase-js');
+          const serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          });
+          url = await uploadFile(serviceClient);
+        } else {
+          throw uploadErr;
+        }
+      }
         
-      if (error) throw error;
-      
-      const { data: publicUrlData } = client.storage
-        .from('avatars')
-        .getPublicUrl(fileName);
-        
-      return { success: true, url: publicUrlData?.publicUrl };
+      return { success: true, url };
     } catch (err) {
       console.error('[STORE] cloud-upload-chat-image failed:', err.message);
       return { success: false, error: err.message };
@@ -2857,6 +3056,6 @@ function initStoreIpc(ipcMain) {
 module.exports = {
   USER_DATA, DATA_DIR, DATA_FILE, BANNERS_DIR, TEMP_DIR,
   ensureDir, loadData, saveData, saveDataSync, initStoreIpc,
-  getHardwareId, readLocalAppData, writeLocalAppData, getInMemorySession, isSessionVIP,
+  getHardwareId, readLocalAppData, writeLocalAppData, getInMemorySession, saveInMemorySession, isSessionVIP,
   savePlaybackPositionInternal: (params) => savePlaybackPositionFn ? savePlaybackPositionFn(params) : null
 };

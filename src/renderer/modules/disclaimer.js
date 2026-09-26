@@ -132,10 +132,12 @@
       `;
       secBtn.textContent = secondaryBtnText;
       secBtn.onmouseover = () => { secBtn.style.background = 'rgba(255, 255, 255, 0.12)'; };
-      secBtn.onmouseout = () => { secBtn.style.background = 'rgba(255, 255, 255, 0.06)'; };
       secBtn.onclick = () => {
-        overlay.remove();
-        if (typeof onSecondary === 'function') onSecondary();
+        try {
+          if (typeof onSecondary === 'function') onSecondary();
+        } finally {
+          overlay.remove();
+        }
       };
       actions.appendChild(secBtn);
     }
@@ -162,8 +164,11 @@
     priBtn.onmouseover = () => { priBtn.style.background = '#e5e5e5'; priBtn.style.transform = 'translateY(-1px)'; };
     priBtn.onmouseout = () => { priBtn.style.background = '#ffffff'; priBtn.style.transform = 'none'; };
     priBtn.onclick = () => {
-      overlay.remove();
-      if (typeof onPrimary === 'function') onPrimary();
+      try {
+        if (typeof onPrimary === 'function') onPrimary();
+      } finally {
+        overlay.remove();
+      }
     };
     actions.appendChild(priBtn);
 
@@ -187,16 +192,30 @@
     document.head.appendChild(style);
   }
 
+  function isAppDisclaimerAccepted() {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('mvWindow') === 'player' || window.location.href.includes('playerWindow')) {
+        return true;
+      }
+      if (localStorage.getItem('mv_disclaimer_app_seen') === 'true' ||
+          localStorage.getItem('meem_disclaimer_app_seen') === 'true' ||
+          localStorage.getItem('disclaimer_accepted') === 'true' ||
+          window.appData?.disclaimerAppSeen === true ||
+          window.appData?.settings?.disclaimerAppSeen === true) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
   // 1. App First-Launch Disclaimer (General legal + Moral/Religious responsibility)
   function showAppFirstLaunchDisclaimer() {
-    try {
-      const seen = localStorage.getItem('mv_disclaimer_app_seen') === 'true' || window.appData?.disclaimerAppSeen === true;
-      if (seen) return;
-    } catch (e) {}
+    if (isAppDisclaimerAccepted()) return;
 
     const contentHtml = `
       <p style="margin-top:0; color: rgba(255,255,255,0.7); font-size: 0.88rem;">
-        Welcome to <strong>MediaVault</strong> — your personal, high-performance media organizer and player interface.
+        Welcome to <strong>MEEM</strong> — your personal, high-performance media organizer and player interface.
       </p>
       
       <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); padding: 16px; border-radius: 14px; margin-bottom: 8px;">
@@ -204,7 +223,7 @@
           <i class="fas fa-hand-holding-heart"></i> Moral & Religious Responsibility
         </strong>
         <p style="margin: 0; font-size: 0.84rem; color: rgba(255,255,255,0.75); line-height: 1.6;">
-          MediaVault is a general playback tool. You bear sole moral, ethical, and religious responsibility before God (Allah) for whatever content you choose to view, download, or stream using this application. Entertainment should enrich your life, not burden your conscience. Please ensure your usage aligns with righteous values and avoids harmful or forbidden content.
+          MEEM is a general playback tool. You bear sole moral, ethical, and religious responsibility before God (Allah) for whatever content you choose to view, download, or stream using this application. Entertainment should enrich your life, not burden your conscience. Please ensure your usage aligns with righteous values and avoids harmful or forbidden content.
         </p>
       </div>
 
@@ -213,7 +232,7 @@
           <i class="fas fa-gavel"></i> Terms of Use & Legal Disclaimer
         </strong>
         <ul style="margin: 0; padding-left: 18px; color: rgba(255,255,255,0.75); font-size: 0.84rem; line-height: 1.6;">
-          <li style="margin-bottom: 6px;">MediaVault does <strong>not host, stream, index, or store</strong> any digital media files on its servers.</li>
+          <li style="margin-bottom: 6px;">MEEM does <strong>not host, stream, index, or store</strong> any digital media files on its servers.</li>
           <li style="margin-bottom: 6px;">All external streams, metadata, and add-ons are provided by independent third parties.</li>
           <li>You are solely responsible for ensuring your media usage complies with applicable copyright laws in your jurisdiction.</li>
         </ul>
@@ -230,8 +249,18 @@
       onPrimary: () => {
         try {
           localStorage.setItem('mv_disclaimer_app_seen', 'true');
-          if (window.appData) window.appData.disclaimerAppSeen = true;
-          if (typeof window.persist === 'function') window.persist(true);
+          localStorage.setItem('meem_disclaimer_app_seen', 'true');
+          localStorage.setItem('disclaimer_accepted', 'true');
+          if (window.appData) {
+            window.appData.disclaimerAppSeen = true;
+            if (!window.appData.settings) window.appData.settings = {};
+            window.appData.settings.disclaimerAppSeen = true;
+          }
+          if (typeof window.persist === 'function') {
+            window.persist(true);
+          } else if (window.api?.saveData && window.appData) {
+            window.api.saveData({ appData: window.appData }).catch(() => {});
+          }
         } catch (e) {}
       }
     });
@@ -266,9 +295,9 @@
           <i class="fas fa-exclamation-triangle"></i> External Stream Notice
         </strong>
         <ul style="margin: 0; padding-left: 18px; color: rgba(255,255,255,0.75); font-size: 0.84rem; line-height: 1.6;">
-          <li style="margin-bottom: 6px;">MediaVault is not affiliated with external media providers or streaming servers.</li>
+          <li style="margin-bottom: 6px;">MEEM is not affiliated with external media providers or streaming servers.</li>
           <li style="margin-bottom: 6px;">Playback speed, stream quality, and subtitle availability are controlled by external hosts.</li>
-          <li>MediaVault does not guarantee availability, stability, or accuracy of third-party streams.</li>
+          <li>MEEM does not guarantee availability, stability, or accuracy of third-party streams.</li>
         </ul>
       </div>
       <label style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: rgba(255,255,255,0.7); cursor: pointer; margin-top: 6px;">
@@ -289,7 +318,11 @@
         if (checkbox && checkbox.checked) {
           try {
             localStorage.setItem('mv_disclaimer_stream_seen', 'true');
-            if (window.appData) window.appData.disclaimerStreamSeen = true;
+            localStorage.setItem('meem_disclaimer_dont_show', '1');
+            if (window.appData) {
+              window.appData.disclaimerStreamSeen = true;
+              window.appData.disclaimerDontShow = true;
+            }
             if (typeof window.persist === 'function') window.persist(true);
           } catch (e) {}
         }
@@ -298,8 +331,14 @@
     });
   }
 
-  // 3. Mod & Addon Installation Warning (Triggers EVERY time a mod/addon is installed + Religious responsibility)
+  // 3. Mod & Addon Installation Warning (Triggers on mod/addon install with Don't show again option)
   function showModInstallDisclaimer(addonOrName, onConfirm, onCancel) {
+    const seen = localStorage.getItem('mv_disclaimer_mod_seen') === 'true' || window.appData?.disclaimerModSeen === true;
+    if (seen) {
+      if (typeof onConfirm === 'function') onConfirm();
+      return;
+    }
+
     const name = (typeof addonOrName === 'string') ? addonOrName : (addonOrName?.name || 'Add-on');
     const version = (typeof addonOrName === 'object' && addonOrName?.version) ? ` (v${addonOrName.version})` : '';
 
@@ -324,10 +363,14 @@
         <ul style="margin: 0; padding-left: 18px; color: rgba(255,255,255,0.75); font-size: 0.84rem; line-height: 1.6;">
           <li style="margin-bottom: 6px;">Addons run third-party code and communicate directly with external web servers.</li>
           <li style="margin-bottom: 6px;">Ensure you trust the developer or source before enabling this extension.</li>
-          <li>MediaVault does not review, control, or guarantee third-party add-on code.</li>
+          <li>MEEM does not review, control, or guarantee third-party add-on code.</li>
         </ul>
       </div>
-      <p style="margin-bottom:0; font-size: 0.84rem; color: rgba(255,255,255,0.5);">Do you want to proceed with installing this addon?</p>
+      
+      <label style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: rgba(255,255,255,0.7); cursor: pointer; margin-top: 10px;">
+        <input type="checkbox" id="mv-mod-disclaimer-dontshow" checked style="accent-color: #ffffff; width: 16px; height: 16px; cursor: pointer;">
+        Do not show this addon warning again
+      </label>
     `;
 
     createDisclaimerModal({
@@ -338,6 +381,18 @@
       primaryBtnText: 'Install & Enable',
       secondaryBtnText: 'Cancel',
       onPrimary: () => {
+        const checkbox = document.getElementById('mv-mod-disclaimer-dontshow');
+        if (checkbox && checkbox.checked) {
+          try {
+            localStorage.setItem('mv_disclaimer_mod_seen', 'true');
+            localStorage.setItem('meem_disclaimer_dont_show', '1');
+            if (window.appData) {
+              window.appData.disclaimerModSeen = true;
+              window.appData.disclaimerDontShow = true;
+            }
+            if (typeof window.persist === 'function') window.persist(true);
+          } catch (e) {}
+        }
         if (typeof onConfirm === 'function') onConfirm();
       },
       onSecondary: () => {
@@ -448,9 +503,24 @@
 
   // Auto-trigger App First-Launch Disclaimer on initialization
   document.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('mvWindow') === 'player' || window.location.href.includes('playerWindow')) {
+      return;
+    }
     setTimeout(() => {
-      showAppFirstLaunchDisclaimer();
-    }, 1200);
+      if (!isAppDisclaimerAccepted()) {
+        showAppFirstLaunchDisclaimer();
+      }
+    }, 1800);
+  });
+
+  window.addEventListener('app-data-loaded', () => {
+    if (window.appData?.disclaimerAppSeen || window.appData?.settings?.disclaimerAppSeen) {
+      localStorage.setItem('mv_disclaimer_app_seen', 'true');
+      localStorage.setItem('meem_disclaimer_app_seen', 'true');
+      const existing = document.getElementById('mv-disclaimer-app-modal');
+      if (existing) existing.remove();
+    }
   });
 })();
 

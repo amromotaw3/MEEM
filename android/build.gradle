@@ -34,6 +34,13 @@ subprojects {
                 }
             }
         }
+        project.tasks.matching { it.name.contains("Kotlin") }.configureEach {
+            try {
+                kotlinOptions {
+                    jvmTarget = "17"
+                }
+            } catch (Exception e) {}
+        }
     }
 }
 

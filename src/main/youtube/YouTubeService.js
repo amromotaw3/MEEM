@@ -484,80 +484,99 @@ class YouTubeService {
 
       let streamUrl = null;
       let audioStreamUrl = null;
-      const targetHeight = (quality && quality !== 'best' && quality !== 'Auto') ? parseInt(quality) : null;
+      let chosenVideoFmt = null;
+      const targetHeight = (quality && quality !== 'best' && quality !== 'Auto') ? parseInt(quality) : 1080;
 
-      // ── Priority 1: HLS Manifest URL from Innertube (Full HD Adaptive Multi-Bitrate Master Playlist) ──
-      // This is YouTube's master .m3u8 stream providing native 1080p60/720p with combined audio
-      if (streamingData.hls_manifest_url && (!targetHeight || targetHeight >= 720)) {
-        streamUrl = streamingData.hls_manifest_url;
-        console.log('[YouTubeService] ✓ Stream URL resolved via HLS Manifest (Adaptive Full HD 1080p):', streamUrl.slice(0, 60) + '...');
-      }
+      // ── Priority 1: High-Quality Direct 1080p/HD Format Decipher via Innertube ──
+      try {
+        const adaptive = streamingData.adaptive_formats || [];
+        const formats = streamingData.formats || [];
 
-      // ── Priority 2: High-Quality Format Decipher via Innertube ──
-      if (!streamUrl) {
-        try {
-          const adaptive = streamingData.adaptive_formats || [];
-          const formats = streamingData.formats || [];
-          const allFormats = [...adaptive, ...formats];
+        // Helper: Check if format is hardware-accelerated AVC1 (H.264)
+        const isAvc = f => (f.mime_type && f.mime_type.includes('avc1')) || f.itag === 137;
+        const isMuxed = f => f.has_video && f.has_audio;
 
-          let chosenVideoFmt = null;
-          if (targetHeight) {
-            chosenVideoFmt = allFormats.find(f => f.height === targetHeight) ||
-                             allFormats.find(f => f.height && f.height <= targetHeight);
+        // If targetHeight <= 720, check if a muxed format exists (zero A/V desync risk)
+        if (targetHeight && targetHeight <= 720) {
+          chosenVideoFmt = formats.find(f => isMuxed(f) && f.height === targetHeight);
+        }
+
+        if (!chosenVideoFmt && targetHeight) {
+          // Look for matching height format, preferring AVC1 (H.264)
+          const exactMatches = adaptive.filter(f => f.has_video && f.height === targetHeight);
+          chosenVideoFmt = exactMatches.find(isAvc) || exactMatches[0] ||
+                           formats.find(f => f.has_video && f.height === targetHeight);
+
+          if (!chosenVideoFmt) {
+            const above = adaptive.filter(f => f.has_video && f.height >= targetHeight).sort((a, b) => (a.height || 0) - (b.height || 0));
+            chosenVideoFmt = above.find(isAvc) || above[0];
           }
           if (!chosenVideoFmt) {
-            // Sort by resolution height descending (1080p -> 720p -> 480p -> 360p)
-            const sorted = allFormats.filter(f => f.has_video).sort((a, b) => (b.height || 0) - (a.height || 0));
-            chosenVideoFmt = sorted[0];
+            const below = adaptive.filter(f => f.has_video && f.height <= targetHeight).sort((a, b) => (b.height || 0) - (a.height || 0));
+            chosenVideoFmt = below.find(isAvc) || below[0];
           }
-
-          if (chosenVideoFmt) {
-            if (typeof chosenVideoFmt.decipher === 'function' && yt.session?.player) {
-              streamUrl = await chosenVideoFmt.decipher(yt.session.player);
-            } else if (chosenVideoFmt.url) {
-              streamUrl = chosenVideoFmt.url;
-            }
-            console.log(`[YouTubeService] ✓ YouTube ${chosenVideoFmt.height || 'HD'}p stream resolved via Innertube`);
-          }
-
-          // Extract companion audio stream if adaptive format (video-only) was chosen
-          if (streamUrl && chosenVideoFmt && chosenVideoFmt.has_audio === false) {
-            try {
-              const audioFmt = info.chooseFormat({ type: 'audio', quality: 'best' }) ||
-                               adaptive.find(f => f.has_audio && !f.has_video);
-              if (audioFmt) {
-                audioStreamUrl = typeof audioFmt.decipher === 'function' && yt.session?.player
-                  ? await audioFmt.decipher(yt.session.player)
-                  : audioFmt.url;
-              }
-            } catch (aErr) {}
-          }
-        } catch (chooseErr) {
-          console.warn('[YouTubeService] Innertube format resolution warning:', chooseErr.message);
         }
+
+        if (!chosenVideoFmt) {
+          const allVideo = [...adaptive, ...formats].filter(f => f.has_video).sort((a, b) => (b.height || 0) - (a.height || 0));
+          chosenVideoFmt = allVideo.find(f => f.height === 1080 && isAvc(f)) || allVideo[0];
+        }
+
+        if (chosenVideoFmt) {
+          if (typeof chosenVideoFmt.decipher === 'function' && yt.session?.player) {
+            streamUrl = await chosenVideoFmt.decipher(yt.session.player);
+          } else if (chosenVideoFmt.url) {
+            streamUrl = chosenVideoFmt.url;
+          }
+          console.log(`[YouTubeService] ✓ Direct YouTube ${chosenVideoFmt.height || '1080'}p (${chosenVideoFmt.mime_type || 'video'}) stream resolved via Innertube`);
+        }
+
+        // Extract companion audio stream if adaptive format (video-only) was chosen
+        if (streamUrl && chosenVideoFmt && chosenVideoFmt.has_audio === false) {
+          try {
+            // Helper: Check if audio is AAC/MP4A (itag 140 or mp4a codec)
+            const isAac = f => (f.mime_type && f.mime_type.includes('mp4a')) || f.itag === 140;
+            const audioFormats = adaptive.filter(f => f.has_audio && !f.has_video);
+            const audioFmt = audioFormats.find(isAac) ||
+                             info.chooseFormat({ type: 'audio', quality: 'best' }) ||
+                             audioFormats[0];
+            if (audioFmt) {
+              audioStreamUrl = typeof audioFmt.decipher === 'function' && yt.session?.player
+                ? await audioFmt.decipher(yt.session.player)
+                : audioFmt.url;
+            }
+          } catch (aErr) {}
+        }
+      } catch (chooseErr) {
+        console.warn('[YouTubeService] Innertube format resolution warning:', chooseErr.message);
       }
 
-      // ── Priority 3: Direct yt-dlp binary with 1080p HD video + audio extraction ──
-      if (!streamUrl) {
+      // ── Priority 2: Direct yt-dlp binary with 1080p HD video + audio extraction ──
+      const needsCompanionAudio = Boolean(chosenVideoFmt && chosenVideoFmt.has_audio === false && !audioStreamUrl);
+      if (!streamUrl || needsCompanionAudio) {
         try {
           const { execYtDlp } = require('../downloader-adapter');
           const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-          let fmtArg;
-          if (targetHeight) {
-            fmtArg = `-g -f "bestvideo[height=${targetHeight}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=${targetHeight}]+bestaudio/bestvideo[height<=${targetHeight}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${targetHeight}]+bestaudio/best[height<=${targetHeight}]/22/18/best"`;
-          } else {
-            fmtArg = `-g -f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/bestvideo[height<=1080]/22/18/best"`;
-          }
-          const dlpOutput = await execYtDlp(`--no-check-certificate ${fmtArg} --extractor-args "youtube:player_client=android,web" "${ytUrl}"`, { timeout: 9000 });
+          const maxH = targetHeight || 1080;
+          const args = [
+            '--no-playlist',
+            '--no-check-certificate',
+            '--js-runtimes', 'node',
+            '-g',
+            '-f', `bestvideo[height<=${maxH}][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=${maxH}]+bestaudio/best[height<=${maxH}]/best`,
+            ytUrl
+          ];
+          const dlpOutput = await execYtDlp(args, { timeout: 15000 });
           if (dlpOutput && dlpOutput.includes('http')) {
-            const lines = dlpOutput.split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
-            if (lines.length >= 2) {
+            const lines = dlpOutput.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith('http'));
+            if (lines.length === 1) {
+              streamUrl = lines[0];
+              audioStreamUrl = null;
+              console.log('[YouTubeService] ✓ Direct playable YouTube stream resolved via yt-dlp:', streamUrl.slice(0, 60) + '...');
+            } else if (lines.length >= 2) {
               streamUrl = lines[0];
               audioStreamUrl = lines[1];
-              console.log(`[YouTubeService] ✓ YouTube ${targetHeight ? targetHeight + 'p' : '1080p'} video + audio streams resolved via yt-dlp binary`);
-            } else if (lines.length === 1) {
-              streamUrl = lines[0];
-              console.log('[YouTubeService] ✓ Single stream resolved via yt-dlp binary:', streamUrl.slice(0, 60) + '...');
+              console.log(`[YouTubeService] ✓ YouTube 1080p video + audio streams resolved via yt-dlp binary`);
             }
           }
         } catch (dlpErr) {
@@ -565,7 +584,57 @@ class YouTubeService {
         }
       }
 
-      // Priority 4: Fallback to Cobalt API instances
+      // ── Priority 3: HLS Manifest URL from Innertube ──
+      if (!streamUrl && streamingData.hls_manifest_url) {
+        streamUrl = streamingData.hls_manifest_url;
+        audioStreamUrl = null;
+        console.log('[YouTubeService] ✓ Stream URL resolved via HLS Manifest:', streamUrl.slice(0, 60) + '...');
+      }
+
+      // ── Priority 4: Invidious / Piped proxy instances (1080p direct playback) ──
+      if (!streamUrl && videoId) {
+        const axios = require('axios');
+        const invidInstances = [
+          `https://inv.tux.pizza/latest_version?id=${videoId}&itag=22`,
+          `https://invidious.nerqv.ps/latest_version?id=${videoId}&itag=22`,
+          `https://inv.tux.pizza/latest_version?id=${videoId}&itag=18`
+        ];
+        for (const invUrl of invidInstances) {
+          try {
+            const res = await axios.head(invUrl, { timeout: 3000, maxRedirects: 5 });
+            if (res.status === 200 || res.status === 302 || res.status === 301) {
+              streamUrl = invUrl;
+              console.log('[YouTubeService] ✓ Stream resolved via Invidious proxy:', invUrl);
+              break;
+            }
+          } catch (e) {}
+        }
+
+        if (!streamUrl) {
+          const pipedEndpoints = [
+            `https://pipedapi.kavin.rocks/streams/${videoId}`,
+            `https://api.piped.privacydev.net/streams/${videoId}`
+          ];
+          for (const endpoint of pipedEndpoints) {
+            try {
+              const res = await axios.get(endpoint, { timeout: 3500 });
+              if (res.data && res.data.videoStreams && res.data.videoStreams.length > 0) {
+                const bestStream = res.data.videoStreams.find(s => s.quality === '1080p' || s.quality === '1080p60') ||
+                                   res.data.videoStreams.find(s => s.quality === '720p' || s.quality === '720p60') ||
+                                   res.data.videoStreams[0];
+                const pUrl = bestStream?.proxyUrl || bestStream?.url;
+                if (pUrl) {
+                  streamUrl = pUrl;
+                  console.log('[YouTubeService] ✓ 1080p/HD stream resolved via Piped:', endpoint);
+                  break;
+                }
+              }
+            } catch (e) {}
+          }
+        }
+      }
+
+      // Priority 5: Fallback to Cobalt API instances
       if (!streamUrl) {
         const instances = [
           'https://co.wuk.sh/api/json',
@@ -619,9 +688,11 @@ class YouTubeService {
       try {
         const { execYtDlp } = require('../downloader-adapter');
         const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        const dlpUrl = await execYtDlp(`--no-check-certificate -g -f "best[ext=mp4]/best" "${ytUrl}"`, { timeout: 12000 });
-        if (dlpUrl && dlpUrl.startsWith('http')) {
-          const streamUrl = dlpUrl.split('\n')[0].trim();
+        const dlpOutput = await execYtDlp(`--no-check-certificate -g -f "bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/bestvideo+bestaudio/best" "${ytUrl}"`, { timeout: 12000 });
+        if (dlpOutput && dlpOutput.includes('http')) {
+          const lines = dlpOutput.split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+          const streamUrl = lines[0];
+          const audioStreamUrl = lines.length > 1 ? lines[1] : null;
           const thumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
           return {
             success: true,
@@ -632,9 +703,10 @@ class YouTubeService {
               thumbnail: thumb,
               poster: thumb,
               streamUrl,
+              audioStreamUrl,
               captions: [],
               availableQualities: ['1080p', '720p', '480p', '360p', 'Auto'],
-              currentQuality: 'Auto'
+              currentQuality: '1080p'
             }
           };
         }
@@ -1583,7 +1655,7 @@ class YouTubeService {
       try {
         const { execYtDlp } = require('../downloader-adapter');
         const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        const formatArg = mode === 'video' ? '-f "best[ext=mp4]/best"' : '-x --audio-format mp3';
+        const formatArg = mode === 'video' ? '-f "bestvideo[height>=1080]+bestaudio/bestvideo+bestaudio/best" --merge-output-format mp4' : '-x --audio-format mp3';
         
         if (typeof onProgress === 'function') {
           onProgress({ id: downloadId, status: 'downloading', title: safeTitle, percent: 15, speed: '1.8 MB/s', eta: '00:25', error: null });

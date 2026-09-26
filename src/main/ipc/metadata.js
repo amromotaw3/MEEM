@@ -4,7 +4,7 @@ const fs = require('fs');
 const https = require('https');
 const { BANNERS_DIR, DATA_DIR, ensureDir, loadData, saveData, getInMemorySession } = require('../store');
 
-let currentFanartKey = '9b894a8fe501790e488c98a5ee605e34';
+let currentFanartKey = null;
 let metadataProvider = 'cinemeta'; // 'cinemeta' or 'mal'
 
 const JIKAN_BASE = 'https://api.jikan.moe/v4';
@@ -246,6 +246,8 @@ function buildUnifiedResponse(base) {
     year: base.year || null,
     runtime: base.runtime || null,
     rating: base.rating || null,
+    imdb_rating: base.imdb_rating || base.meta?.imdbRating || (base.source?.metadata === 'cinemeta' ? base.rating : null) || null,
+    tmdb_rating: base.tmdb_rating || base.meta?.tmdb_rating || base.meta?.vote_average || null,
     genres: base.genres || [],
     certification: base.certification || base.meta?.certification || base.meta?.contentRating || base.meta?.content_rating || null,
     content_rating: base.content_rating || base.contentRating || base.meta?.content_rating || base.meta?.contentRating || base.meta?.certification || null,
@@ -287,27 +289,12 @@ async function mapMalIdToExternal(malId) {
       const tvdb = data.thetvdb || data.tvdb || data.tvdb_id || data.thetvdb_id || null;
       const tmdb = data.themoviedb || data.tmdb || data.tmdb_id || data.themoviedb_id || null;
       const anilist = data.anilist || data.anilist_id || null;
-      if (tvdb || tmdb) {
+      if (tvdb || tmdb || anilist) {
         return { tmdb, tvdb, anilistId: anilist };
       }
     }
 
-    const query = `
-      query ($mal: Int) {
-        Media(idMal: $mal, type: ANIME) {
-          id
-          idMal
-        }
-      }
-    `;
-    const resp = await axios.post(
-      'https://graphql.anilist.co',
-      { query, variables: { mal: Number(malId) } },
-      { timeout: 8000, headers: { 'Content-Type': 'application/json' } }
-    );
-    const media = resp.data?.data?.Media;
-    if (!media) return null;
-    return { tmdb: null, tvdb: null, anilistId: media.id || null };
+    return null;
   } catch (err) {
     console.warn('[ID Mapper] Error:', err.message);
     return null;
@@ -316,12 +303,13 @@ async function mapMalIdToExternal(malId) {
 
 async function getWesternMedia({ id, type }) {
   try {
+    const isTv = type === 'tv' || type === 'series' || type === 'anime';
     if (id && (id.toString().includes('\\') || id.toString().includes('/') || (id.toString().includes(':') && !id.toString().startsWith('tmdb:') && !id.toString().startsWith('mal:')))) {
       // Return empty response immediately if id is a local file path
-      return buildUnifiedResponse({ type: type === 'tv' ? 'tv' : 'movie', source: { metadata: null, visuals: null } });
+      return buildUnifiedResponse({ type: isTv ? 'tv' : 'movie', source: { metadata: null, visuals: null } });
     }
 
-    const cinemetaType = type === 'tv' ? 'series' : 'movie';
+    const cinemetaType = isTv ? 'series' : 'movie';
     let cinemetaUrl;
     
     if (id && id.toString().startsWith('tt')) {
@@ -343,12 +331,14 @@ async function getWesternMedia({ id, type }) {
     }
     const result = {
       id: id || cinemetaMeta?.id || null,
-      type: type === 'tv' ? 'tv' : 'movie',
+      type: isTv ? 'tv' : 'movie',
       title: cinemetaMeta?.name || cinemetaMeta?.title || null,
       synopsis: cinemetaMeta?.overview || cinemetaMeta?.description || null,
       year: cinemetaMeta?.year || cinemetaMeta?.released || null,
       runtime: cinemetaMeta?.runtime || null,
       rating: cinemetaMeta?.imdbRating || cinemetaMeta?.rating || null,
+      imdb_rating: cinemetaMeta?.imdbRating || cinemetaMeta?.rating || null,
+      tmdb_rating: null,
       genres: cinemetaMeta?.genres || [],
       certification: cinemetaMeta?.certification || cinemetaMeta?.contentRating || cinemetaMeta?.content_rating || null,
       content_rating: cinemetaMeta?.content_rating || cinemetaMeta?.contentRating || cinemetaMeta?.certification || null,
@@ -365,11 +355,11 @@ async function getWesternMedia({ id, type }) {
     };
 
     let fanartId = null;
-    let fanartType = type === 'tv' ? 'tv' : 'movies';
+    let fanartType = isTv ? 'tv' : 'movies';
 
     if (result.imdb_id) {
       fanartId = result.imdb_id;
-    } else if (result.tvdb_id && type === 'tv') {
+    } else if (result.tvdb_id && isTv) {
       fanartId = result.tvdb_id;
       fanartType = 'tv';
     } else if (result.tmdb_id) {
@@ -429,8 +419,15 @@ async function getWesternMedia({ id, type }) {
         const tmdbItem = resultsList?.[0];
         if (tmdbItem) {
           result.tmdb_id = tmdbItem.id;
+          if (tmdbItem.vote_average != null && tmdbItem.vote_average > 0) {
+            result.tmdb_rating = tmdbItem.vote_average;
+          }
           if (result.meta) {
             result.meta.tmdb_id = tmdbItem.id;
+            if (tmdbItem.vote_average != null && tmdbItem.vote_average > 0) {
+              result.meta.tmdb_rating = tmdbItem.vote_average;
+              result.meta.vote_average = tmdbItem.vote_average;
+            }
           }
 
           if (overrideEnabled) {
@@ -440,7 +437,7 @@ async function getWesternMedia({ id, type }) {
               if (result.meta) result.meta.poster = tmdbPoster;
             }
             if ((scope === 'both' || scope === 'banners') && tmdbItem.backdrop_path) {
-              const tmdbBackdrop = `https://image.tmdb.org/t/p/w1280${tmdbItem.backdrop_path}`;
+              const tmdbBackdrop = `https://image.tmdb.org/t/p/original${tmdbItem.backdrop_path}`;
               result.backdrops = [tmdbBackdrop, ...result.backdrops];
               if (result.meta) result.meta.background = tmdbBackdrop;
             }
@@ -621,7 +618,7 @@ function initMetadataIpc(ipcMain) {
         return { metas: [] };
       }
 
-      const cinemetaType = type === 'tv' ? 'series' : 'movie';
+      const cinemetaType = (type === 'tv' || type === 'series') ? 'series' : 'movie';
       const catalogId = id || 'top';
       const url = `https://v3-cinemeta.strem.io/catalog/${cinemetaType}/${catalogId}.json`;
       const resp = await fetchCinemetaUrl(url);
@@ -755,15 +752,53 @@ function initMetadataIpc(ipcMain) {
     return false;
   });
 
+  const DEFAULT_FANART_KEY = '9b894a8fe501790e488c98a5ee605e34';
+
+  function isFanartAddonInstalled() {
+    try {
+      const sessionStore = getInMemorySession();
+      const appData = sessionStore?.appData || {};
+      const addons = appData.installedAddons || [];
+      return addons.some(a => {
+        if (a.enabled === false) return false;
+        const id = String(a.id || '').toLowerCase();
+        const u = String(a.url || a.manifestUrl || '').toLowerCase();
+        const n = String(a.name || '').toLowerCase();
+        return id.includes('fanart') || u.includes('fanart') || n.includes('fanart');
+      });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getFanartKey() {
+    if (!isFanartAddonInstalled()) return null;
+    if (currentFanartKey) return currentFanartKey;
+    try {
+      const sessionStore = getInMemorySession();
+      const appData = sessionStore?.appData || {};
+      if (appData.fanartKey && appData.fanartKey.trim()) {
+        currentFanartKey = appData.fanartKey.trim();
+        return currentFanartKey;
+      }
+      if (appData.fanartApiKey && appData.fanartApiKey.trim()) {
+        currentFanartKey = appData.fanartApiKey.trim();
+        return currentFanartKey;
+      }
+    } catch (_) {}
+    return DEFAULT_FANART_KEY;
+  }
+
   ipcMain.handle('fanart-get-images', async (_e, { imdbId, type }) => {
     try {
-      if (!currentFanartKey) return null;
+      const key = getFanartKey();
+      if (!key) return null;
       const fanartType = type === 'tv' || type === 'series' ? 'tv' : 'movies';
       const cacheKey = `${fanartType}_${imdbId}`;
       if (fanartCache[cacheKey] && (Date.now() - fanartCache[cacheKey].timestamp < 7 * 24 * 60 * 60 * 1000)) {
         return fanartCache[cacheKey].data;
       }
-      const url = `${FANART_BASE}/${fanartType}/${imdbId}?api_key=${currentFanartKey}`;
+      const url = `${FANART_BASE}/${fanartType}/${imdbId}?api_key=${key}`;
       const res = await axios.get(url, { timeout: 10000 });
       fanartCache[cacheKey] = { data: res.data, timestamp: Date.now() };
       saveFanartCache();
@@ -779,13 +814,14 @@ function initMetadataIpc(ipcMain) {
 
   ipcMain.handle('fanart-images', async (_e, type, imdbId) => {
     try {
-      if (!currentFanartKey) return null;
+      const key = getFanartKey();
+      if (!key) return null;
       const fanartType = type === 'tv' || type === 'series' ? 'tv' : 'movies';
       const cacheKey = `${fanartType}_${imdbId}`;
       if (fanartCache[cacheKey] && (Date.now() - fanartCache[cacheKey].timestamp < 7 * 24 * 60 * 60 * 1000)) {
         return fanartCache[cacheKey].data;
       }
-      const url = `${FANART_BASE}/${fanartType}/${imdbId}?api_key=${currentFanartKey}`;
+      const url = `${FANART_BASE}/${fanartType}/${imdbId}?api_key=${key}`;
       const res = await axios.get(url, { timeout: 10000 });
       fanartCache[cacheKey] = { data: res.data, timestamp: Date.now() };
       saveFanartCache();
@@ -805,7 +841,28 @@ function initMetadataIpc(ipcMain) {
     const vMatch = youtubeUrl.match(/(?:v=|\/embed\/|\/1.1\/|v\/|https:\/\/youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
     const videoId = vMatch ? vMatch[1] : null;
 
-    // 1. Primary: Use YouTubeService (youtubei.js / Innertube) locally to get playable stream URL
+    // 0. Primary: Fast Cobalt API resolution (Bypasses all YouTube geo-locks & embed restrictions in ~200ms)
+    const cobaltEndpoints = [
+      'https://api.cobalt.tools',
+      'https://co.wuk.sh/api/json',
+      'https://api.vve.wtf/api/json',
+      'https://cobalt.catbox.video/api/json'
+    ];
+    for (const endpoint of cobaltEndpoints) {
+      try {
+        const res = await axios.post(
+          endpoint.endsWith('/json') ? endpoint : `${endpoint}/`,
+          { url: youtubeUrl, videoQuality: '1080', isAudioMuted: false },
+          { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 4000 }
+        );
+        if (res.data && res.data.url) {
+          console.log('[Cobalt] 1080p Stream resolved (Geo-Bypassed):', res.data.url.slice(0, 60) + '...');
+          return res.data.url;
+        }
+      } catch (_) {}
+    }
+
+    // 1. Secondary: Use YouTubeService (youtubei.js / Innertube) locally to get playable stream URL
     if (videoId) {
       try {
         const YouTubeService = require('../youtube/YouTubeService');
@@ -819,34 +876,35 @@ function initMetadataIpc(ipcMain) {
       }
     }
 
-    // 2. Secondary: Try local yt-dlp fallback prioritizing High Definition (1080p/720p)
+    // 2. Secondary: Try local yt-dlp fallback prioritizing 1080p Full HD
     try {
       const { execYtDlp } = require('../downloader-adapter');
       const directUrl = await execYtDlp(
-        `--no-playlist --flat-playlist --socket-timeout 5 -g -f "best[height<=1080][height>=720][ext=mp4]/best[height<=1080]/22/bestvideo[height<=1080]+bestaudio/best" --extractor-args "youtube:player_client=android,web" "${youtubeUrl}"`,
+        `--no-playlist --flat-playlist --socket-timeout 5 --geo-bypass -g -f "bestvideo[height>=1080][ext=mp4]/bestvideo[height>=1080]/bestvideo[height>=720][ext=mp4]/bestvideo[height>=720]/best[height>=720]/best" --extractor-args "youtube:player_client=mweb,tv,ios,android_creator" "${youtubeUrl}"`,
         { timeout: 8000 }
       );
       if (directUrl && directUrl.startsWith('http')) {
         const stream = directUrl.split('\n')[0].trim();
-        console.log('[YTDLP] Fast resolved HD YouTube trailer stream:', stream.slice(0, 60) + '...');
+        console.log('[YTDLP] Fast resolved 1080p/HD YouTube trailer stream:', stream.slice(0, 60) + '...');
         return stream;
       }
     } catch (err) {
       console.warn('[YTDLP] Stream resolution failed, trying proxy fallbacks:', err.message);
     }
 
-    // 2. Secondary: Invidious / Piped using proxied stream URLs (prevents IP-binding 403)
+    // 2. Secondary: Invidious / Piped using proxied stream URLs (prioritizing 1080p itags)
     if (videoId) {
       const invidInstances = [
-        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=22`,
-        `https://invidious.nerqv.ps/latest_version?id=${videoId}&itag=22`,
-        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=18`
+        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=137`,
+        `https://invidious.nerqv.ps/latest_version?id=${videoId}&itag=137`,
+        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=248`,
+        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=22`
       ];
       for (const invUrl of invidInstances) {
         try {
           const res = await axios.head(invUrl, { timeout: 3000, maxRedirects: 5 });
           if (res.status === 200 || res.status === 302 || res.status === 301) {
-            console.log('[Invidious] Stream resolved via proxy:', invUrl);
+            console.log('[Invidious] 1080p/HD Stream resolved via proxy:', invUrl);
             return invUrl;
           }
         } catch (e) {}
@@ -860,10 +918,12 @@ function initMetadataIpc(ipcMain) {
         try {
           const res = await axios.get(endpoint, { timeout: 3500 });
           if (res.data && res.data.videoStreams && res.data.videoStreams.length > 0) {
-            const bestStream = res.data.videoStreams.find(s => s.quality === '720p' || s.quality === '360p') || res.data.videoStreams[0];
+            const bestStream = res.data.videoStreams.find(s => s.quality === '1080p' || s.quality === '1080p60') ||
+                               res.data.videoStreams.find(s => s.quality === '720p' || s.quality === '720p60') ||
+                               res.data.videoStreams[0];
             const streamUrl = bestStream?.proxyUrl || bestStream?.url;
             if (streamUrl) {
-              console.log('[TrailerAPI] Stream resolved via Piped:', endpoint);
+              console.log('[TrailerAPI] 1080p/HD Stream resolved via Piped:', endpoint);
               return streamUrl;
             }
           }
@@ -871,23 +931,25 @@ function initMetadataIpc(ipcMain) {
       }
     }
 
-    // 3. Tertiary: Cobalt API
+    // 3. Tertiary: Cobalt API (requesting 1080p minimum)
     const instances = [
       'https://co.wuk.sh/api/json',
       'https://api.vve.wtf/api/json',
+      'https://cobalt.catbox.video/api/json',
       'https://api.cobalt.tools/api/json'
     ];
     for (const endpoint of instances) {
       try {
-        const res = await axios.post(endpoint, 
-          { url: youtubeUrl, videoQuality: '720' }, 
+        const res = await axios.post(
+          endpoint,
+          { url: youtubeUrl, videoQuality: '1080', isAudioMuted: true },
           { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 4000 }
         );
         if (res.data && res.data.url) {
-          console.log('[Cobalt] Resolved stream from:', endpoint);
+          console.log('[Cobalt] 1080p Stream resolved for backdrop video');
           return res.data.url;
         }
-      } catch (err) {}
+      } catch (e) {}
     }
     return null;
   });
@@ -916,6 +978,8 @@ function initMetadataIpc(ipcMain) {
           overview: d.synopsis || d.background || '',
           genres: d.genres ? d.genres.map(g => g.name) : [],
           rating: d.score,
+          score: d.score,
+          mal_score: d.score,
           vote_average: d.score,
           year: d.year || (d.aired?.from ? d.aired.from.substring(0, 4) : ''),
           release_date: d.aired?.from || '',
@@ -944,77 +1008,117 @@ function initMetadataIpc(ipcMain) {
     return { data: [] };
   });
 
-  ipcMain.handle('jikan-schedule', async (_e, filter) => {
+  let anilistScheduleCache = { timestamp: 0, items: [] };
+
+  async function fetchAniListScheduleFromMain(filter) {
     try {
-      const now = Math.floor(Date.now() / 1000);
-      const start = now - 86400 * 2;
-      const end = now + 86400 * 5;
-      const query = `query {
-        Page(page: 1, perPage: 50) {
-          airingSchedules(airingAt_greater: ${start}, airingAt_lesser: ${end}, sort: TIME) {
+      if (anilistScheduleCache.items.length > 0 && (Date.now() - anilistScheduleCache.timestamp < 30 * 60 * 1000)) {
+        if (!filter) return anilistScheduleCache.items;
+        return anilistScheduleCache.items.filter(it => it.broadcast?.day?.toLowerCase() === filter.toLowerCase());
+      }
+
+      const d = new Date();
+      const dayOfWeek = d.getDay(); // 0 = Sunday
+      const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate() - dayOfWeek, 0, 0, 0);
+      const startOfWeek = Math.floor(startOfDay.getTime() / 1000);
+      const endOfWeek = startOfWeek + (7 * 86400);
+
+      const query = `query ($start: Int, $end: Int, $page: Int) {
+        Page(page: $page, perPage: 50) {
+          pageInfo { hasNextPage }
+          airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) {
             id
-            episode
             airingAt
+            episode
             media {
               id
               idMal
               title { romaji english native }
-              coverImage { extraLarge large }
+              coverImage { extraLarge large medium }
               bannerImage
+              format
+              status
               genres
               averageScore
-              episodes
-              description
+              isAdult
             }
           }
         }
       }`;
 
-      const aniResp = await axios.post('https://graphql.anilist.co', { query }, { timeout: 7000 }).catch(() => null);
-      if (aniResp?.data?.data?.Page?.airingSchedules?.length > 0) {
-        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-        const mapped = aniResp.data.data.Page.airingSchedules.map(item => {
-          const date = new Date(item.airingAt * 1000);
-          const dayName = days[date.getDay()];
-          const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const title = item.media.title.english || item.media.title.romaji || item.media.title.native;
-          return {
-            id: item.media.idMal || item.media.id,
-            mal_id: item.media.idMal || item.media.id,
-            title: title,
-            title_english: item.media.title.english || title,
-            images: {
-              jpg: {
-                large_image_url: item.media.coverImage?.extraLarge || item.media.coverImage?.large,
-                image_url: item.media.coverImage?.large
-              }
-            },
-            broadcast: {
-              day: dayName,
-              string: `${timeStr} (Ep ${item.episode})`,
-              time: timeStr
-            },
-            score: item.media.averageScore ? (item.media.averageScore / 10).toFixed(1) : null,
-            episodes: item.media.episodes || item.episode,
-            synopsis: item.media.description?.replace(/<[^>]*>/g, '') || ''
-          };
-        });
-
-        if (filter) {
-          const targetDay = String(filter).trim().toLowerCase();
-          return { data: mapped.filter(x => x.broadcast.day === targetDay) };
-        }
-        return { data: mapped };
+      let allSchedules = [];
+      for (let page = 1; page <= 4; page++) {
+        const resp = await axios.post('https://graphql.anilist.co', {
+          query,
+          variables: { start: startOfWeek, end: endOfWeek, page }
+        }, { timeout: 8000 });
+        const list = resp.data?.data?.Page?.airingSchedules || [];
+        allSchedules.push(...list);
+        if (!resp.data?.data?.Page?.pageInfo?.hasNextPage) break;
       }
 
-      // Fallback to Jikan if AniList is unreachable
+      const mapped = [];
+      const seenMediaIds = new Set();
+      for (const s of allSchedules) {
+        if (!s.media || s.media.isAdult) continue;
+        const mediaId = s.media.idMal || s.media.id;
+        if (seenMediaIds.has(String(mediaId))) continue;
+        seenMediaIds.add(String(mediaId));
+
+        const airDate = new Date(s.airingAt * 1000);
+        const dayName = airDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+        const timeString = airDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const title = s.media.title?.english || s.media.title?.romaji || 'Anime';
+        const poster = s.media.coverImage?.extraLarge || s.media.coverImage?.large || s.media.coverImage?.medium || '';
+        const score = s.media.averageScore ? (s.media.averageScore / 10).toFixed(1) : null;
+
+        mapped.push({
+          id: mediaId,
+          mal_id: mediaId,
+          anilist_id: s.media.id,
+          title: title,
+          title_english: s.media.title?.english || title,
+          images: {
+            jpg: {
+              large_image_url: poster,
+              image_url: poster
+            }
+          },
+          broadcast: {
+            day: dayName,
+            time: timeString,
+            string: `Ep ${s.episode} · ${dayName.toUpperCase()} ${timeString}`
+          },
+          score: score,
+          status: 'Ongoing'
+        });
+      }
+
+      if (mapped.length > 0) {
+        anilistScheduleCache = { timestamp: Date.now(), items: mapped };
+      }
+
+      if (!filter) return mapped;
+      return mapped.filter(it => it.broadcast?.day?.toLowerCase() === filter.toLowerCase());
+    } catch (err) {
+      console.warn('[Metadata] AniList schedule fallback error:', err.message);
+      return [];
+    }
+  }
+
+  ipcMain.handle('jikan-schedule', async (_e, filter) => {
+    try {
       const endpoint = filter ? `/schedules?filter=${filter}` : `/schedules`;
       const res = await jikanFetch(endpoint);
-      if (res && res.data && Array.isArray(res.data)) return res;
-      return { data: [] };
+      if (res && res.data && Array.isArray(res.data) && res.data.length > 0) return res;
+
+      // Fallback to AniList GraphQL if Jikan fails or is empty
+      const fallbackItems = await fetchAniListScheduleFromMain(filter);
+      return { data: fallbackItems };
     } catch (err) {
-      console.error('[Metadata] Anime schedule error:', err.message);
-      return { data: [] };
+      console.error('[Metadata] Anime schedule error, trying AniList:', err.message);
+      const fallbackItems = await fetchAniListScheduleFromMain(filter);
+      return { data: fallbackItems };
     }
   });
 
@@ -1024,95 +1128,66 @@ function initMetadataIpc(ipcMain) {
       const q = String(searchTerm).trim();
       const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-      // 1. Query AniList
-      const gql = `query ($search: String) {
-        Page(page: 1, perPage: 25) {
-          media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
-            id
-            idMal
-            title { romaji english native }
-            status
-            episodes
-            nextAiringEpisode {
-              id
-              episode
-              airingAt
-              timeUntilAiring
-            }
-            coverImage { extraLarge large medium }
-            bannerImage
-            averageScore
-            description
-          }
-        }
-      }`;
-
-      const [anilistResp, animeScheduleResp] = await Promise.allSettled([
-        axios.post('https://graphql.anilist.co', { query: gql, variables: { search: q } }, {
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          timeout: 8000
-        }),
+      // 1. Query Jikan and AnimeSchedule.net
+      const queries = [
         axios.get(`https://animeschedule.net/api/v3/anime?q=${encodeURIComponent(q)}`, { timeout: 8000 })
-      ]);
+      ];
+      if (q.length >= 3) {
+        queries.push(axios.get(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=15`, { timeout: 8000 }));
+      }
+
+      const settled = await Promise.allSettled(queries);
+      const animeScheduleResp = settled[0];
+      const jikanResp = settled[1];
 
       const mapped = [];
       const seenTitles = new Set();
 
-      // Process AniList items
-      if (anilistResp.status === 'fulfilled' && anilistResp.value?.data?.data?.Page?.media) {
-        anilistResp.value.data.data.Page.media.forEach(media => {
-          const title = media.title?.english || media.title?.romaji || media.title?.native || 'Unknown Anime';
-          let scheduleInfo = 'Finished / Complete';
-          let dayName = 'Unknown';
-          let timeStr = '';
+      // Process Jikan items
+      if (jikanResp?.status === 'fulfilled' && Array.isArray(jikanResp.value?.data?.data)) {
+        jikanResp.value.data.data.forEach(anime => {
+          const title = anime.title_english || anime.title || 'Unknown Anime';
+          let scheduleInfo = anime.status || 'Finished';
+          let dayName = anime.broadcast?.day || 'Unknown';
+          let timeStr = anime.broadcast?.time || '';
           let badgeColor = 'rgba(255,255,255,0.1)';
 
-          if (media.nextAiringEpisode) {
-            const next = media.nextAiringEpisode;
-            const date = new Date(next.airingAt * 1000);
-            dayName = days[date.getDay()];
-            timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            
-            const daysLeft = Math.floor(next.timeUntilAiring / 86400);
-            const hoursLeft = Math.floor((next.timeUntilAiring % 86400) / 3600);
-            const timeLeftStr = daysLeft > 0 ? `in ${daysLeft}d ${hoursLeft}h` : `in ${hoursLeft}h`;
-
-            scheduleInfo = `Ep ${next.episode} on ${dayName} at ${timeStr} (${timeLeftStr})`;
+          if (anime.airing) {
+            scheduleInfo = anime.broadcast?.string ? `Airing: ${anime.broadcast.string}` : 'Currently Airing';
             badgeColor = 'rgba(99, 102, 241, 0.95)';
-          } else if (media.status === 'RELEASING') {
-            scheduleInfo = 'Currently Airing (Schedule TBA)';
-            badgeColor = 'rgba(16, 185, 129, 0.9)';
-          } else if (media.status === 'NOT_YET_RELEASED') {
+          } else if (anime.status === 'Not yet aired') {
             scheduleInfo = 'Upcoming (Not Yet Released)';
             badgeColor = 'rgba(245, 158, 11, 0.9)';
-          } else if (media.status === 'FINISHED') {
-            scheduleInfo = `Finished (${media.episodes ? media.episodes + ' Episodes' : 'Complete'})`;
+          } else {
+            scheduleInfo = `Finished (${anime.episodes ? anime.episodes + ' Episodes' : 'Complete'})`;
             badgeColor = 'rgba(107, 114, 128, 0.8)';
           }
 
-          seenTitles.add(title.toLowerCase());
-          mapped.push({
-            id: media.idMal || media.id,
-            mal_id: media.idMal || media.id,
-            title: title,
-            title_english: media.title?.english || title,
-            images: {
-              jpg: {
-                large_image_url: media.coverImage?.extraLarge || media.coverImage?.large,
-                image_url: media.coverImage?.large || media.coverImage?.medium
-              }
-            },
-            broadcast: {
-              day: dayName.toLowerCase(),
-              string: scheduleInfo,
-              time: timeStr
-            },
-            badgeColor,
-            status: media.status,
-            score: media.averageScore ? (media.averageScore / 10).toFixed(1) : null,
-            episodes: media.episodes,
-            synopsis: media.description?.replace(/<[^>]*>/g, '') || ''
-          });
+          if (!seenTitles.has(title.toLowerCase())) {
+            seenTitles.add(title.toLowerCase());
+            mapped.push({
+              id: anime.mal_id,
+              mal_id: anime.mal_id,
+              title: title,
+              title_english: anime.title_english || title,
+              images: {
+                jpg: {
+                  large_image_url: anime.images?.webp?.large_image_url || anime.images?.jpg?.large_image_url,
+                  image_url: anime.images?.webp?.image_url || anime.images?.jpg?.image_url
+                }
+              },
+              broadcast: {
+                day: dayName.toLowerCase(),
+                string: scheduleInfo,
+                time: timeStr
+              },
+              badgeColor,
+              status: anime.status,
+              score: anime.score ? anime.score.toFixed(1) : null,
+              episodes: anime.episodes,
+              synopsis: anime.synopsis || ''
+            });
+          }
         });
       }
 
@@ -1193,28 +1268,75 @@ function initMetadataIpc(ipcMain) {
     try {
       if (!tvId) return { episodes: [] };
       const data = await loadData();
-      const tmdbKey = data.tmdbKey || '';
+      const tmdbKey = data.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
 
       let resolvedTvId = tvId;
       if (String(tvId).startsWith('tt')) {
-        const apiKeyForFind = tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
-        const tmdbFindUrl = `https://api.themoviedb.org/3/find/${tvId}?api_key=${apiKeyForFind}&external_source=imdb_id`;
+        const tmdbFindUrl = `https://api.themoviedb.org/3/find/${tvId}?api_key=${tmdbKey}&external_source=imdb_id`;
         const tmdbFindResp = await axios.get(tmdbFindUrl, { timeout: 6000 }).catch(() => null);
         const resultsList = tmdbFindResp?.data?.tv_results;
         const tmdbItem = resultsList?.[0];
-        if (tmdbItem) {
+        if (tmdbItem && tmdbItem.id) {
           resolvedTvId = tmdbItem.id;
         } else {
-          console.warn(`[Metadata] Could not resolve TMDB ID for IMDb ID: ${tvId}`);
+          console.warn(`[Metadata] Could not resolve TMDB ID for IMDb ID: ${tvId}, falling back to Cinemeta/ElfHosted`);
         }
       }
 
-      if (!tmdbKey) {
-        // Fallback to Stremio TMDB addon
-        const addonUrl = `https://tmdb.elfhosted.com/meta/series/tmdb:${resolvedTvId}.json`;
-        const resp = await axios.get(addonUrl, { timeout: 8000 });
-        const meta = resp.data?.meta;
-        if (meta && meta.videos) {
+      // If resolvedTvId is numeric TMDB ID, query TMDB API
+      if (/^\d+$/.test(String(resolvedTvId))) {
+        try {
+          const url = `https://api.themoviedb.org/3/tv/${resolvedTvId}/season/${seasonNum}?api_key=${tmdbKey}`;
+          const resp = await axios.get(url, { timeout: 8000 }).catch(() => null);
+          if (resp && resp.data && Array.isArray(resp.data.episodes) && resp.data.episodes.length > 0) {
+            return {
+              episodes: resp.data.episodes.map(ep => ({
+                episode_number: ep.episode_number,
+                season_number: ep.season_number,
+                name: ep.name,
+                still_path: ep.still_path ? `https://image.tmdb.org/t/p/w300${ep.still_path}` : null,
+                air_date: ep.air_date
+              }))
+            };
+          }
+        } catch (tmdbErr) {
+          console.warn('[Metadata] TMDB season fetch error:', tmdbErr.message);
+        }
+      }
+
+      // Fallback 1: Cinemeta series endpoint
+      const imdbIdForCinemeta = String(tvId).startsWith('tt') ? tvId : null;
+      if (imdbIdForCinemeta) {
+        try {
+          const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/series/${imdbIdForCinemeta}.json`;
+          const cinemetaResp = await axios.get(cinemetaUrl, { timeout: 8000 }).catch(() => null);
+          const cinemetaMeta = cinemetaResp?.data?.meta || cinemetaResp?.data;
+          if (cinemetaMeta && Array.isArray(cinemetaMeta.videos) && cinemetaMeta.videos.length > 0) {
+            const filtered = cinemetaMeta.videos.filter(v => Number(v.season) === Number(seasonNum));
+            if (filtered.length > 0) {
+              return {
+                episodes: filtered.map(v => ({
+                  episode_number: v.episode,
+                  season_number: v.season,
+                  name: v.title || v.name || `Episode ${v.episode}`,
+                  still_path: v.thumbnail || v.still || v.still_path || v.image || null,
+                  air_date: v.released || null
+                }))
+              };
+            }
+          }
+        } catch (cinErr) {
+          console.warn('[Metadata] Cinemeta season fetch error:', cinErr.message);
+        }
+      }
+
+      // Fallback 2: Stremio ElfHosted TMDB addon
+      try {
+        const idPath = String(tvId).startsWith('tt') ? tvId : `tmdb:${resolvedTvId}`;
+        const addonUrl = `https://tmdb.elfhosted.com/meta/series/${idPath}.json`;
+        const resp = await axios.get(addonUrl, { timeout: 8000 }).catch(() => null);
+        const meta = resp?.data?.meta;
+        if (meta && Array.isArray(meta.videos) && meta.videos.length > 0) {
           const filtered = meta.videos.filter(v => Number(v.season) === Number(seasonNum));
           if (filtered.length > 0) {
             return {
@@ -1228,21 +1350,8 @@ function initMetadataIpc(ipcMain) {
             };
           }
         }
-        return { episodes: [] };
-      }
-      
-      const url = `https://api.themoviedb.org/3/tv/${resolvedTvId}/season/${seasonNum}?api_key=${tmdbKey}`;
-      const resp = await axios.get(url, { timeout: 8000 });
-      if (resp.data && resp.data.episodes) {
-        return {
-          episodes: resp.data.episodes.map(ep => ({
-            episode_number: ep.episode_number,
-            season_number: ep.season_number,
-            name: ep.name,
-            still_path: ep.still_path ? `https://image.tmdb.org/t/p/w300${ep.still_path}` : null,
-            air_date: ep.air_date
-          }))
-        };
+      } catch (elfErr) {
+        console.warn('[Metadata] ElfHosted season fetch error:', elfErr.message);
       }
     } catch (err) {
       console.error('[Metadata] tmdb-season-details error:', err.message);

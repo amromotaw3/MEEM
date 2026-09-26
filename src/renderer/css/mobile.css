@@ -19,6 +19,17 @@
         display: none !important; /* Fully Hide Top Bar as requested */
     }
 
+    /* Hide desktop window control buttons on mobile */
+    #btn-minimize,
+    #btn-maximize,
+    #btn-close,
+    .profile-top-controls,
+    .intro-top-controls,
+    #btn-player-win-min,
+    #psd-btn-minimize {
+        display: none !important;
+    }
+
     /* Premium Dark Mode - True Luxury Obsidian Monochrome */
     :root {
         --bg: #050508 !important;
@@ -449,6 +460,57 @@
         max-width: 100vw !important;
         padding: 10px !important;
         border-radius: 16px !important;
+    }
+
+    #fav-avatar-modal .search-container h2 {
+        font-size: 1.6rem !important;
+        margin-bottom: 16px !important;
+        margin-top: 10px !important;
+    }
+
+    #fav-avatar-modal #fav-modal-close {
+        top: 14px !important;
+        left: 14px !important;
+        width: 38px !important;
+        height: 38px !important;
+    }
+
+    #fav-avatar-modal .search-box,
+    #fav-avatar-modal #fav-search-box-wrap {
+        height: 48px !important;
+        padding: 0 10px 0 14px !important;
+        border-radius: 16px !important;
+        margin-bottom: 16px !important;
+        gap: 8px !important;
+    }
+
+    #fav-avatar-modal .search-box i.fa-search,
+    #fav-avatar-modal #fav-search-box-wrap i.fa-search {
+        font-size: 18px !important;
+        margin-right: 2px !important;
+    }
+
+    #fav-avatar-modal #fav-search-input {
+        font-size: 14px !important;
+        min-width: 0 !important;
+    }
+
+    #fav-avatar-modal #btn-upload-custom-banner {
+        padding: 6px 12px !important;
+        height: 34px !important;
+        border-radius: 10px !important;
+        font-size: 0.85rem !important;
+        margin-right: 0 !important;
+        flex-shrink: 0 !important;
+        gap: 0 !important;
+        min-width: 34px !important;
+        justify-content: center !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+
+    #fav-avatar-modal #btn-upload-custom-banner .banner-upload-text {
+        display: none !important;
     }
 
     #fav-media-grid {
@@ -2994,7 +3056,7 @@ body.modal-open .modal-overlay {
         display: flex !important;
         align-items: center !important;
         justify-content: space-between !important;
-        padding: calc(env(safe-area-inset-top, 0px) + 16px) 18px 14px 18px !important;
+        padding: calc(env(safe-area-inset-top, 0px) + 38px) 18px 16px 18px !important;
         background: rgba(255, 255, 255, 0.02) !important;
         border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
         flex-shrink: 0 !important;
@@ -3008,15 +3070,16 @@ body.modal-open .modal-overlay {
     }
 
     .drawer-brand-logo {
-        width: 32px !important;
-        height: 32px !important;
-        min-width: 32px !important;
-        min-height: 32px !important;
-        border-radius: 9px !important;
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        border-radius: 0 !important;
         object-fit: contain !important;
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.14) !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5)) !important;
         display: block !important;
     }
 
@@ -3135,7 +3198,7 @@ body.modal-open .modal-overlay {
     #sidebar {
         display: flex !important;
         flex-direction: column !important;
-        justify-content: center !important;
+        justify-content: flex-start !important;
         position: static !important;
         width: 100% !important;
         min-width: 100% !important;
@@ -3149,7 +3212,7 @@ body.modal-open .modal-overlay {
         border: none !important;
         box-shadow: none !important;
         transform: none !important;
-        padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 20px) 16px !important;
+        padding: 28px 16px calc(env(safe-area-inset-bottom, 0px) + 90px) 16px !important;
         margin: 0 !important;
         border-radius: 0 !important;
         align-self: stretch !important;
@@ -3233,7 +3296,7 @@ body.modal-open .modal-overlay {
         display: flex !important;
         flex-direction: column !important;
         width: 100% !important;
-        margin: 0 0 10px 0 !important;
+        margin: 0 0 6px 0 !important;
         padding: 0 !important;
     }
 
@@ -3241,7 +3304,7 @@ body.modal-open .modal-overlay {
         display: block !important;
         width: calc(100% - 16px) !important;
         height: 1px !important;
-        margin: 10px 8px !important;
+        margin: 6px 8px !important;
         background: rgba(255, 255, 255, 0.06) !important;
         border: none !important;
     }
@@ -3254,11 +3317,11 @@ body.modal-open .modal-overlay {
         transform: none !important;
         position: static !important;
         pointer-events: auto !important;
-        font-size: 10px !important;
+        font-size: 9.5px !important;
         font-weight: 800 !important;
-        letter-spacing: 1.6px !important;
-        color: rgba(255, 255, 255, 0.38) !important;
-        padding: 8px 14px 4px !important;
+        letter-spacing: 1.4px !important;
+        color: rgba(255, 255, 255, 0.4) !important;
+        padding: 4px 10px 2px !important;
         margin: 0 !important;
         text-transform: uppercase !important;
     }
@@ -3267,16 +3330,16 @@ body.modal-open .modal-overlay {
     .sidebar-wrapper #sidebar .nav-btn,
     .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn {
         width: 100% !important;
-        height: 48px !important;
-        min-height: 48px !important;
-        padding: 0 16px !important;
-        margin: 3px 0 !important;
+        height: 38px !important;
+        min-height: 38px !important;
+        padding: 0 12px !important;
+        margin: 1px 0 !important;
         display: flex !important;
         flex-direction: row !important;
         justify-content: flex-start !important;
         align-items: center !important;
-        gap: 15px !important;
-        border-radius: 14px !important;
+        gap: 10px !important;
+        border-radius: 10px !important;
         background: transparent !important;
         box-sizing: border-box !important;
         outline: none !important;
@@ -3314,9 +3377,9 @@ body.modal-open .modal-overlay {
     .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn svg,
     .sidebar-wrapper #sidebar .nav-btn i,
     .sidebar-wrapper:not(:hover):not(.hovered) #sidebar .nav-btn i {
-        width: 19px !important;
-        height: 19px !important;
-        font-size: 17px !important;
+        width: 16px !important;
+        height: 16px !important;
+        font-size: 15px !important;
         margin: 0 !important;
         color: rgba(255, 255, 255, 0.7) !important;
         stroke: currentColor !important;
@@ -3340,7 +3403,7 @@ body.modal-open .modal-overlay {
         transform: none !important;
         position: static !important;
         pointer-events: auto !important;
-        font-size: 13.5px !important;
+        font-size: 12.5px !important;
         font-weight: 500 !important;
         color: rgba(255, 255, 255, 0.75) !important;
         letter-spacing: 0.2px !important;
@@ -3478,18 +3541,18 @@ body.modal-open .modal-overlay {
         color: #ffffff !important;
     }
 
-    /* Settings Button & Last Sidebar Group inside Drawer - Grouped naturally under other buttons */
+    /* Settings Button & Last Sidebar Group inside Drawer - Grouped at the very bottom */
     .sidebar-wrapper #sidebar .sidebar-group:last-of-type,
     .sidebar-wrapper #sidebar .sidebar-group:last-child {
-        margin-top: 0 !important;
-        padding-top: 0 !important;
+        margin-top: auto !important;
+        padding-top: 10px !important;
         border-top: none !important;
-        margin-bottom: 8px !important;
+        margin-bottom: 12px !important;
     }
 
     .sidebar-wrapper #sidebar .sidebar-separator:last-of-type {
         display: block !important;
-        margin: 10px 8px !important;
+        margin: auto 8px 8px 8px !important;
     }
 
     .sidebar-wrapper #sidebar #nav-settings,
@@ -3504,10 +3567,11 @@ body.modal-open .modal-overlay {
         border: 1px solid rgba(255, 255, 255, 0.22) !important;
     }
 
-    /* ── IPTV View Mobile Overhaul ── */
+    /* ── IPTV View Mobile Multi-Step Overhaul ── */
     #view-iptv {
-        padding: 12px 12px calc(var(--dock-h, 60px) + 30px) !important;
+        padding: 10px 10px calc(var(--dock-h, 60px) + 30px) !important;
         height: auto !important;
+        min-height: 100% !important;
         overflow-y: auto !important;
     }
 
@@ -3516,16 +3580,100 @@ body.modal-open .modal-overlay {
         flex-direction: column !important;
         height: auto !important;
         overflow: visible !important;
-        gap: 14px !important;
+        gap: 12px !important;
         width: 100% !important;
+        padding: 0 !important;
     }
 
     .iptv-resizer {
         display: none !important;
     }
 
-    /* Player on top for mobile viewing */
-    .iptv-right-panel {
+    /* Step 1: Default / Sources View */
+    .iptv-container:not([data-mobile-step="categories"]):not([data-mobile-step="channels"]) .iptv-sources-panel,
+    .iptv-container[data-mobile-step="sources"] .iptv-sources-panel {
+        display: flex !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        border-radius: 16px !important;
+        background: #09090f !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        padding: 14px !important;
+        box-sizing: border-box !important;
+    }
+
+    .iptv-container:not([data-mobile-step="categories"]):not([data-mobile-step="channels"]) #iptv-sources-view,
+    .iptv-container[data-mobile-step="sources"] #iptv-sources-view {
+        display: flex !important;
+    }
+
+    .iptv-container:not([data-mobile-step="categories"]):not([data-mobile-step="channels"]) #iptv-categories-view,
+    .iptv-container[data-mobile-step="sources"] #iptv-categories-view,
+    .iptv-container:not([data-mobile-step="categories"]):not([data-mobile-step="channels"]) .iptv-middle-panel,
+    .iptv-container[data-mobile-step="sources"] .iptv-middle-panel,
+    .iptv-container:not([data-mobile-step="categories"]):not([data-mobile-step="channels"]) .iptv-right-panel,
+    .iptv-container[data-mobile-step="sources"] .iptv-right-panel {
+        display: none !important;
+    }
+
+    /* Step 2: Categories of selected source */
+    .iptv-container[data-mobile-step="categories"] .iptv-sources-panel {
+        display: flex !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        border-radius: 16px !important;
+        background: #09090f !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        padding: 14px !important;
+        box-sizing: border-box !important;
+    }
+
+    .iptv-container[data-mobile-step="categories"] #iptv-sources-view {
+        display: none !important;
+    }
+
+    .iptv-container[data-mobile-step="categories"] #iptv-categories-view {
+        display: flex !important;
+    }
+
+    .iptv-container[data-mobile-step="categories"] .iptv-middle-panel,
+    .iptv-container[data-mobile-step="categories"] .iptv-right-panel {
+        display: none !important;
+    }
+
+    /* Step 3: Channels & Live Player */
+    .iptv-container[data-mobile-step="channels"] .iptv-sources-panel {
+        display: none !important;
+    }
+
+    .iptv-container[data-mobile-step="channels"] .iptv-middle-panel {
+        display: flex !important;
+        order: 2 !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        flex: none !important;
+        border-radius: 16px !important;
+        background: #09090f !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        padding: 12px !important;
+        box-sizing: border-box !important;
+    }
+
+    .iptv-container[data-mobile-step="channels"] #iptv-btn-back-categories {
+        display: inline-flex !important;
+    }
+
+    .iptv-container[data-mobile-step="channels"] .iptv-right-panel {
+        display: flex !important;
         order: 1 !important;
         width: 100% !important;
         min-width: 100% !important;
@@ -3550,44 +3698,11 @@ body.modal-open .modal-overlay {
         background: #000000 !important;
     }
 
-    /* Channels below video player */
-    .iptv-middle-panel {
-        order: 2 !important;
-        width: 100% !important;
-        min-width: 100% !important;
-        max-width: 100% !important;
-        height: auto !important;
-        max-height: none !important;
-        flex: none !important;
-        border-radius: 16px !important;
-        background: #09090f !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        padding: 12px !important;
-        box-sizing: border-box !important;
-    }
-
     .iptv-channels-list {
         grid-template-columns: repeat(2, 1fr) !important;
         gap: 10px !important;
-        max-height: 300px !important;
+        max-height: 380px !important;
         overflow-y: auto !important;
-    }
-
-    /* Sources list below channels */
-    .iptv-sources-panel {
-        order: 3 !important;
-        width: 100% !important;
-        min-width: 100% !important;
-        max-width: 100% !important;
-        height: auto !important;
-        max-height: 180px !important;
-        flex: none !important;
-        border-radius: 16px !important;
-        background: #09090f !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        padding: 12px !important;
-        overflow-y: auto !important;
-        box-sizing: border-box !important;
     }
 
     /* ── Live Radio Mobile Overhaul ── */
@@ -3636,35 +3751,531 @@ body.modal-open .modal-overlay {
     .radio-grid {
         grid-template-columns: repeat(2, 1fr) !important;
         gap: 12px !important;
-        padding-bottom: 40px !important;
+        padding-bottom: 80px !important;
     }
 
-    /* Fixed Bottom Mini Player on Mobile */
+    /* Fixed Bottom Mini Player for Radio on Mobile (Smooth Floating Pill matching Music Bar) */
     .radio-player-bar {
         position: fixed !important;
-        left: 10px !important;
-        right: 10px !important;
+        top: auto !important;
+        right: auto !important;
+        left: 50% !important;
         bottom: 12px !important;
-        width: auto !important;
+        transform: translateX(-50%) translateY(150%) !important;
+        width: calc(100vw - 20px) !important;
         max-width: none !important;
+        height: 58px !important;
+        max-height: none !important;
         border-radius: 16px !important;
-        background: rgba(18, 18, 28, 0.95) !important;
-        backdrop-filter: blur(16px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.15) !important;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+        background: rgba(16, 16, 22, 0.96) !important;
+        backdrop-filter: blur(25px) !important;
+        -webkit-backdrop-filter: blur(25px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        box-shadow: 0 10px 35px rgba(0, 0, 0, 0.75) !important;
         z-index: 99999 !important;
-    }
-
-    .radio-player-inner {
-        flex-direction: row !important;
-        padding: 10px 14px !important;
-        gap: 10px !important;
+        padding: 0 12px !important;
+        display: flex !important;
         align-items: center !important;
         justify-content: space-between !important;
+        gap: 8px !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        box-sizing: border-box !important;
+        transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease !important;
     }
 
-    .radio-player-volume {
+    .radio-player-bar.active {
+        transform: translateX(-50%) translateY(0) !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        display: flex !important;
+    }
+
+    .radio-bar-track-info {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        flex: 1 !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        cursor: pointer !important;
+    }
+
+    .radio-bar-thumb {
+        width: 38px !important;
+        height: 38px !important;
+        min-width: 38px !important;
+        min-height: 38px !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .radio-bar-meta {
+        display: flex !important;
+        flex-direction: column !important;
+        min-width: 0 !important;
+        flex: 1 !important;
+        gap: 2px !important;
+    }
+
+    .radio-bar-song-title {
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        color: #ffffff !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        display: block !important;
+        line-height: 1.2 !important;
+    }
+
+    .radio-bar-live-tag {
+        font-size: 10px !important;
+        font-weight: 700 !important;
+        color: #ff4757 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+
+    .radio-bar-heart-btn,
+    .radio-vol-wrap {
         display: none !important;
+    }
+
+    .radio-bar-center {
+        display: flex !important;
+        flex: none !important;
+        width: auto !important;
+        margin: 0 !important;
+    }
+
+    .radio-play-pause-circle {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        border-radius: 50% !important;
+        background: #ffffff !important;
+        border: none !important;
+        color: #000000 !important;
+        box-shadow: 0 4px 12px rgba(255, 255, 255, 0.25) !important;
+    }
+
+    .radio-play-pause-circle i {
+        color: #000000 !important;
+        font-size: 14px !important;
+    }
+
+    .radio-bar-right {
+        display: flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        flex: none !important;
+        min-width: auto !important;
+    }
+
+    .radio-tool-btn#radio-bar-stop {
+        width: 32px !important;
+        height: 32px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        opacity: 0.7 !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       MOBILE MUSIC PAGE VIEW OVERHAUL (#view-music)
+       ══════════════════════════════════════════════════════════════ */
+    #view-music {
+        padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px calc(env(safe-area-inset-bottom, 0px) + 90px) 12px !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+    }
+
+    #view-music .music-page-inner {
+        padding: 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+
+    #view-music .music-top-bar {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        margin-bottom: 16px !important;
+        flex-wrap: nowrap !important;
+        width: 100% !important;
+    }
+
+    #view-music .music-search-container {
+        flex: 1 !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    #view-music .music-search-input {
+        padding: 10px 16px 10px 38px !important;
+        font-size: 13px !important;
+        height: 44px !important;
+        box-sizing: border-box !important;
+    }
+
+    #view-music .music-search-icon {
+        left: 14px !important;
+        font-size: 13px !important;
+    }
+
+    #view-music .music-actions-group {
+        flex-shrink: 0 !important;
+    }
+
+    #view-music .music-pill-btn {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+        height: 44px !important;
+        box-sizing: border-box !important;
+        white-space: nowrap !important;
+    }
+
+    #view-music .music-filter-row {
+        gap: 8px !important;
+        margin-bottom: 18px !important;
+        padding-bottom: 8px !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    #view-music .music-filter-chip {
+        padding: 6px 14px !important;
+        font-size: 12px !important;
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
+    }
+
+    #view-music .music-hero-banner {
+        flex-direction: column !important;
+        padding: 18px 16px !important;
+        border-radius: 16px !important;
+        margin-bottom: 20px !important;
+    }
+
+    #view-music .music-hero-artwork {
+        display: none !important;
+    }
+
+    #view-music .music-hero-title {
+        font-size: 1.35rem !important;
+        line-height: 1.3 !important;
+    }
+
+    #view-music .music-hero-desc {
+        font-size: 0.82rem !important;
+    }
+
+    #view-music .music-section {
+        margin-bottom: 24px !important;
+    }
+
+    #view-music .music-carousel-track {
+        gap: 12px !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding-bottom: 8px !important;
+    }
+
+    #view-music .spotify-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 12px !important;
+    }
+
+    #view-music .spotify-card {
+        min-width: 135px !important;
+        max-width: none !important;
+        padding: 10px !important;
+        border-radius: 14px !important;
+    }
+
+    #view-music .spotify-card-title {
+        font-size: 0.88rem !important;
+        margin-top: 8px !important;
+    }
+
+    #view-music .spotify-card-artist {
+        font-size: 0.76rem !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       MOBILE FULLSCREEN MUSIC PLAYER OVERHAUL (#fullscreen-music-modal)
+       ══════════════════════════════════════════════════════════════ */
+    #fullscreen-music-modal {
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        z-index: 2000000 !important;
+        background: #07070a !important;
+        overflow: hidden !important;
+    }
+
+    /* Hide mini player bar when full-screen player is open */
+    #fullscreen-music-modal.open ~ #global-music-player-bar,
+    body.fs-music-open #global-music-player-bar {
+        display: none !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-music-inner {
+        padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px calc(env(safe-area-inset-bottom, 0px) + 18px) 16px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-top-nav {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        margin-bottom: 8px !important;
+        flex-shrink: 0 !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-close-btn {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        font-size: 14px !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-nav-pills {
+        padding: 3px !important;
+        gap: 2px !important;
+        background: rgba(0, 0, 0, 0.6) !important;
+    }
+
+    #fullscreen-music-modal .fs-tab-btn {
+        font-size: 0.74rem !important;
+        padding: 5px 9px !important;
+        gap: 4px !important;
+    }
+
+    #fullscreen-music-modal .fs-top-right-actions {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+    }
+
+    #fullscreen-music-modal .fs-alt-close-btn {
+        display: none !important;
+    }
+
+    #fullscreen-music-modal .fs-translate-trigger-btn {
+        padding: 5px 8px !important;
+        font-size: 11px !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-body {
+        flex: 1 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        overflow: hidden !important;
+        padding: 0 !important;
+        min-height: 0 !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-artwork-view[style*="display: none"],
+    #fullscreen-music-modal .fullscreen-lyrics-view[style*="display: none"],
+    #fullscreen-music-modal .fullscreen-queue-view[style*="display: none"] {
+        display: none !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-artwork-view:not([style*="display: none"]) {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    #fullscreen-music-modal .fs-large-cover {
+        width: min(65vw, 240px) !important;
+        height: min(65vw, 240px) !important;
+        max-width: 240px !important;
+        max-height: 240px !important;
+        border-radius: 18px !important;
+        margin: 0 auto 12px auto !important;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85) !important;
+    }
+
+    #fullscreen-music-modal .fs-visualizer-container {
+        display: none !important;
+    }
+
+    #fullscreen-music-modal .fs-track-info {
+        width: 100% !important;
+        text-align: center !important;
+        padding: 0 14px !important;
+        box-sizing: border-box !important;
+        margin-bottom: 4px !important;
+    }
+
+    #fullscreen-music-modal .fs-track-title {
+        font-size: 1.22rem !important;
+        font-weight: 800 !important;
+        line-height: 1.3 !important;
+        color: #ffffff !important;
+        margin: 0 0 3px 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    #fullscreen-music-modal .fs-track-artist {
+        font-size: 0.86rem !important;
+        color: rgba(255, 255, 255, 0.7) !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-bottom-bar {
+        width: 100% !important;
+        padding: 0 !important;
+        flex-shrink: 0 !important;
+        margin-top: auto !important;
+    }
+
+    #fullscreen-music-modal .fs-bar-row {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 8px !important;
+        width: 100% !important;
+    }
+
+    #fullscreen-music-modal .fs-bar-left {
+        display: none !important;
+    }
+
+    #fullscreen-music-modal .fs-bar-center {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: none !important;
+        display: flex !important;
+        flex-direction: column-reverse !important;
+        gap: 10px !important;
+    }
+
+    #fullscreen-music-modal .music-bar-progress-row {
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+    }
+
+    #fullscreen-music-modal .music-time-label {
+        font-size: 11px !important;
+        min-width: 32px !important;
+        color: rgba(255, 255, 255, 0.5) !important;
+    }
+
+    #fullscreen-music-modal .music-progress-bar-container {
+        flex: 1 !important;
+        height: 16px !important;
+    }
+
+    #fullscreen-music-modal .music-bar-controls {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        max-width: 320px !important;
+        margin: 0 auto !important;
+    }
+
+    #fullscreen-music-modal .music-play-pause-circle {
+        width: 52px !important;
+        height: 52px !important;
+        min-width: 52px !important;
+        min-height: 52px !important;
+        font-size: 19px !important;
+    }
+
+    #fullscreen-music-modal .music-ctrl-btn {
+        width: 38px !important;
+        height: 38px !important;
+        font-size: 16px !important;
+    }
+
+    #fullscreen-music-modal .fs-bar-right {
+        width: 100% !important;
+        min-width: 0 !important;
+        display: flex !important;
+        justify-content: space-around !important;
+        gap: 6px !important;
+        padding-top: 6px !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+    }
+
+    #fullscreen-music-modal .fs-bar-right .music-vol-wrap {
+        display: none !important;
+    }
+
+    #fullscreen-music-modal .fs-bar-right .music-tool-btn {
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 14px !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-lyrics-view:not([style*="display: none"]) {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        padding: 0 !important;
+    }
+
+    #fullscreen-music-modal .fs-lyrics-sidebar {
+        display: none !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-lyrics-container {
+        padding: 12px 10px 50px 10px !important;
+        width: 100% !important;
+    }
+
+    #fullscreen-music-modal .lyric-line {
+        font-size: 1.25rem !important;
+        line-height: 1.4 !important;
+    }
+
+    #fullscreen-music-modal .fullscreen-queue-view:not([style*="display: none"]) {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        height: 100% !important;
+        padding: 8px 4px !important;
+        max-width: 100% !important;
     }
 
     /* ══════════════════════════════════════════════════════════════
@@ -3910,9 +4521,14 @@ body.modal-open .modal-overlay {
         display: none !important;
     }
 
-    /* Display ONLY the clean centered MEEM app icon */
+    #app-splash .splash-title-img,
     #app-splash .splash-title {
-        display: none !important;
+        display: block !important;
+        height: 28px !important;
+        width: auto !important;
+        max-width: 70vw !important;
+        margin-top: 10px !important;
+        object-fit: contain !important;
     }
 
     #app-splash .splash-logo-wrapper {
@@ -3921,15 +4537,16 @@ body.modal-open .modal-overlay {
     }
 
     #app-splash .splash-logo-img {
-        width: 108px !important;
-        height: 108px !important;
-        border-radius: 26px !important;
-        background: #000000 !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.9), 0 0 30px rgba(255, 255, 255, 0.05) !important;
+        width: 110px !important;
+        height: 110px !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
         animation: none !important;
         transform: none !important;
         opacity: 1 !important;
+        object-fit: contain !important;
     }
 }
 

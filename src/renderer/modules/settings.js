@@ -8,8 +8,13 @@
     if ($('#update-auto-check')) $('#update-auto-check').checked = appData.autoUpdate !== false;
     if ($('#mobile-internal-downloader')) $('#mobile-internal-downloader').checked = appData.mobileInternalDownloader !== false;
     if ($('#pref-video-trailers')) $('#pref-video-trailers').checked = appData.enableVideoTrailers !== false;
+    if ($('#pref-hide-youtube-trending')) $('#pref-hide-youtube-trending').checked = appData.hideYouTubeTrending === true;
 
-    // Dynamically show/hide settings cards based on installed Mods/Addons
+    // Dynamically show/hide settings cards and options based on installed Mods/Addons
+    if (window.AppCapabilities && typeof window.AppCapabilities.refresh === 'function') {
+      window.AppCapabilities.refresh();
+    }
+
     const addons = appData.installedAddons || [];
     const urls = addons.map(a => (a.url || a.manifestUrl || '').toLowerCase());
     const ids = addons.map(a => (a.id || '').toLowerCase());
@@ -21,9 +26,27 @@
       names.some(n => n.includes(p))
     );
 
-    const hasTmdbMod = hasAddon(['tmdb', 'tmdb-addon', 'tmdb.elfhosted']);
-    const hasSubdlMod = hasAddon(['subdl', 'opensubtitles', 'subscene']);
-    const hasTraktMod = hasAddon(['trakt', 'mytrakt']);
+    const hasTmdbMod = hasAddon(['tmdb', 'tmdb-addon', 'tmdb.elfhosted', 'com.mediavault.tmdb']);
+    const hasSubdlMod = hasAddon(['subdl', 'opensubtitles', 'subscene', 'com.mediavault.subdl']);
+    const hasTraktMod = hasAddon(['trakt', 'mytrakt', 'com.mediavault.trakt']);
+
+    const hasYoutubeMod = window.AppCapabilities ? window.AppCapabilities.can('youtube') : addons.some(a => {
+      if (a.enabled === false) return false;
+      const id = String(a.id || '').toLowerCase();
+      const url = String(a.url || a.manifestUrl || '').toLowerCase();
+      const name = String(a.name || '').toLowerCase();
+      return id === 'com.mediavault.youtube' || url.includes('addon-youtube') || (id.includes('youtube') && !id.includes('music') && !id.includes('ytmusic')) || (name === 'youtube' || name.includes('youtube addon'));
+    });
+
+    const hasStreamMod = addons.some(a => {
+      if (a.enabled === false) return false;
+      const res = Array.isArray(a.resources) ? a.resources : [];
+      const hasStreamRes = res.some(r => (typeof r === 'string' ? r : r?.name) === 'stream');
+      const u = String(a.url || a.manifestUrl || '').toLowerCase();
+      const id = String(a.id || '').toLowerCase();
+      const name = String(a.name || '').toLowerCase();
+      return hasStreamRes || u.includes('torrentio') || id.includes('torrentio') || name.includes('torrentio') || u.includes('stream') || id.includes('stream');
+    });
 
     const tmdbCard = $('#tmdb-connection-card');
     if (tmdbCard) tmdbCard.style.display = hasTmdbMod ? '' : 'none';
@@ -33,6 +56,21 @@
 
     const traktCard = $('#trakt-connection-card');
     if (traktCard) traktCard.style.display = hasTraktMod ? '' : 'none';
+
+    // YouTube Mod-Gated Settings
+    const ytQualityRow = $('#setting-row-youtube-quality');
+    if (ytQualityRow) ytQualityRow.style.display = hasYoutubeMod ? 'flex' : 'none';
+
+    const ytTrendingRow = $('#setting-row-youtube-trending');
+    if (ytTrendingRow) ytTrendingRow.style.display = hasYoutubeMod ? 'flex' : 'none';
+
+    // Stream Mod-Gated Auto-Play Card
+    const smartAutoPlayCard = $('#smart-autoplay-settings-card');
+    if (smartAutoPlayCard) smartAutoPlayCard.style.display = hasStreamMod ? '' : 'none';
+
+    if ($('#select-youtube-quality') && window.appData?.youtubeQuality) {
+      $('#select-youtube-quality').value = window.appData.youtubeQuality;
+    }
   }
 
   function renderSettingsFolders() {
@@ -91,6 +129,18 @@
       updateCb.onchange = () => {
         appData.autoUpdate = updateCb.checked;
         persist();
+      };
+    }
+
+    const hideYtTrendingCb = $('#pref-hide-youtube-trending');
+    if (hideYtTrendingCb) {
+      hideYtTrendingCb.onchange = () => {
+        appData.hideYouTubeTrending = hideYtTrendingCb.checked;
+        persist();
+        const sec = $('#discover-youtube-section');
+        if (sec) {
+          sec.style.display = appData.hideYouTubeTrending ? 'none' : 'block';
+        }
       };
     }
 
@@ -158,6 +208,43 @@
           showToast('Error launching VLC: ' + e.message);
         } finally {
           btnTestVlc.disabled = false;
+        }
+      };
+    }
+
+    const btnLaunchMeemPlayer = $('#btn-launch-meem-player');
+    if (btnLaunchMeemPlayer) {
+      btnLaunchMeemPlayer.onclick = async () => {
+        btnLaunchMeemPlayer.disabled = true;
+        showToast('🚀 Starting MEEM Player...');
+        try {
+          if (window.api && window.api.invoke) {
+            const res = await window.api.invoke('open-in-meem-player', { launchOnly: true });
+            if (res && res.success) {
+              showToast('✅ MEEM Player launched successfully!');
+            } else {
+              showToast('⚠️ Could not launch MEEM Player: ' + (res?.error || 'Executable not found'));
+            }
+          }
+        } catch (e) {
+          showToast('❌ Error launching MEEM Player: ' + e.message);
+        } finally {
+          btnLaunchMeemPlayer.disabled = false;
+        }
+      };
+    }
+
+    const selYtQuality = $('#select-youtube-quality');
+    if (selYtQuality) {
+      if (window.appData && window.appData.youtubeQuality) {
+        selYtQuality.value = window.appData.youtubeQuality;
+      }
+      selYtQuality.onchange = () => {
+        window.appData = window.appData || {};
+        window.appData.youtubeQuality = selYtQuality.value;
+        if (typeof window.persist === 'function') window.persist();
+        if (typeof showToast === 'function') {
+          showToast(`YouTube Quality set to: ${selYtQuality.options[selYtQuality.selectedIndex]?.text || selYtQuality.value}`);
         }
       };
     }

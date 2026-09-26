@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MediaVault — Signing in…</title>
+  <title>MEEM — Signing in…</title>
   <style>
     body {
       margin: 0;
@@ -22,23 +22,26 @@
       padding: 32px;
       border-radius: 20px;
       background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(168,85,247,0.25);
+      border: 1px solid rgba(255,255,255,0.15);
     }
-    a { color: #c084fc; word-break: break-all; }
+    a { color: #ffffff; word-break: break-all; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Signing you in…</h1>
-    <p id="status">Opening MediaVault…</p>
+    <p id="status">Opening MEEM…</p>
     <p id="fallback" style="display:none;margin-top:16px;font-size:14px;opacity:0.85;">
-      If the app did not open, <a id="open-link" href="#">tap here to return to MediaVault</a>.
+      If the app did not open, <a id="open-link" href="#">tap here to return to MEEM</a>.
     </p>
   </div>
   <script>
     (function () {
       var params = window.location.hash || window.location.search || '';
-      var redirect = 'com.mediavault.app://callback' + params;
+      var isAndroid = /android/i.test(navigator.userAgent || '');
+      var queryOrHash = params.startsWith('?') ? params.substring(1) : (params.startsWith('#') ? params.substring(1) : params);
+      var intentUri = 'intent://auth/callback?' + queryOrHash + '#Intent;scheme=meem;package=com.meem.app;end;';
+      var redirect = isAndroid ? intentUri : ('meem://auth/callback' + params);
 
       function showFallback() {
         var link = document.getElementById('open-link');
@@ -46,13 +49,13 @@
         if (link) link.href = redirect;
         if (fb) fb.style.display = 'block';
         var status = document.getElementById('status');
-        if (status) status.textContent = 'Sign-in complete. Tap the link below to open MediaVault.';
+        if (status) status.textContent = 'Sign-in complete. Tap the link below to open MEEM.';
       }
 
       try {
-        window.location.replace(redirect);
-      } catch (e) {
         window.location.href = redirect;
+      } catch (e) {
+        try { window.location.href = 'meem://auth/callback' + params; } catch (_) {}
       }
 
       setTimeout(function () {

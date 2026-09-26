@@ -26,18 +26,15 @@ function initPatreonIpc(ipcMain) {
         appSession.user.patreon = authResult.patreonUser;
         store.saveInMemorySession(appSession);
 
-        // 2. Sync to Supabase if client is configured
+        // 2. Sync to Supabase users_accounts via activate_user_subscription RPC
         try {
           const { getSupabaseClient } = require('../supabaseRpc');
           const supabase = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
-          if (supabase) {
-            let q = supabase.from('users_accounts').update({
-              subscription_expires_at: authResult.expiresAt,
-              updated_at: new Date().toISOString()
+          if (supabase && userId) {
+            await supabase.rpc('activate_user_subscription', {
+              p_user_id: userId,
+              p_subscription_expires_at: authResult.expiresAt
             });
-            if (userId) q = q.eq('id', userId);
-            else if (userEmail) q = q.eq('email', userEmail.trim().toLowerCase());
-            await q;
             console.log('[Patreon IPC] Updated Supabase users_accounts with subscription_expires_at:', authResult.expiresAt);
           }
         } catch (dbErr) {

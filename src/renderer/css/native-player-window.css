@@ -33,40 +33,10 @@ body.mv-native-player-window #view-player.active {
 /* Draggable edge overlays for borderless window dragging */
 body.mv-native-player-window .window-drag-edge-top {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 5px;
+  left: 10px;
+  right: 10px;
   height: 8px;
-  z-index: 99999;
-  -webkit-app-region: drag;
-  background: transparent;
-}
-body.mv-native-player-window .window-drag-edge-bottom {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 8px;
-  z-index: 99999;
-  -webkit-app-region: drag;
-  background: transparent;
-}
-body.mv-native-player-window .window-drag-edge-left {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 8px;
-  z-index: 99999;
-  -webkit-app-region: drag;
-  background: transparent;
-}
-body.mv-native-player-window .window-drag-edge-right {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  width: 8px;
   z-index: 99999;
   -webkit-app-region: drag;
   background: transparent;

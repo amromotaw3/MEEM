@@ -17,14 +17,16 @@ function getVlcExecutable() {
       path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'VideoLAN', 'VLC', 'vlc.exe'),
       path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'VideoLAN', 'VLC', 'vlc.exe'),
       path.join(process.env['LOCALAPPDATA'] || '', 'Programs', 'VLC', 'vlc.exe'),
-      path.join(process.env['USERPROFILE'] || '', 'AppData', 'Local', 'Programs', 'VLC', 'vlc.exe')
+      path.join(process.env['USERPROFILE'] || '', 'AppData', 'Local', 'Programs', 'VLC', 'vlc.exe'),
+      'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
+      'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe'
     ];
     for (const p of pathsToTest) {
       if (p && fs.existsSync(p)) {
         return p;
       }
     }
-    return 'vlc';
+    return null;
   } else if (process.platform === 'darwin') {
     const macPaths = [
       '/Applications/VLC.app/Contents/MacOS/VLC',
@@ -33,9 +35,23 @@ function getVlcExecutable() {
     for (const p of macPaths) {
       if (fs.existsSync(p)) return p;
     }
-    return 'open';
+    return null;
+  } else {
+    const linuxPaths = ['/usr/bin/vlc', '/usr/local/bin/vlc', '/bin/vlc', '/snap/bin/vlc'];
+    for (const p of linuxPaths) {
+      if (fs.existsSync(p)) return p;
+    }
+    return 'vlc';
   }
-  return 'vlc';
+}
+
+function isVlcAvailable() {
+  const exe = getVlcExecutable();
+  if (!exe) return false;
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    return fs.existsSync(exe);
+  }
+  return true;
 }
 
 function getVlcSkinPath() {
@@ -100,50 +116,58 @@ function resolveRealMediaUrlOrPath(raw) {
 }
 
 function getMeemPlayerConfig() {
+  const { app } = require('electron');
   const os = require('os');
   const userHome = os.homedir() || process.env.USERPROFILE || '';
   const exeName = process.platform === 'win32' ? 'MEEM-Player.exe' : 'MEEM-Player';
-  const cppExeName = process.platform === 'win32' ? 'MEEM-Player-CPP.exe' : 'MEEM-Player-CPP';
 
-  // Candidate directories where MEEM Player may reside
-  const dirCandidates = [
-    // 1. Packaged Electron app extraResources directory (Production Build)
-    process.resourcesPath ? path.join(process.resourcesPath, 'MEEM-Player') : null,
-    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'MEEM-Player') : null,
-    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'MEEM-Player') : null,
+  // Strict check for INSTALLED MEEM Player only (No dev workspace or portable runner scripts)
+  const candidateExePaths = [];
 
-    // 2. Application root folder (installed next to main executable)
-    process.execPath ? path.join(path.dirname(process.execPath), 'resources', 'MEEM-Player') : null,
-    process.execPath ? path.join(path.dirname(process.execPath), 'MEEM-Player') : null,
+  // 1. Packaged Electron app directory (when app is installed and packaged)
+  if (process.resourcesPath) {
+    candidateExePaths.push(path.join(process.resourcesPath, 'MEEM-Player', exeName));
+    candidateExePaths.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'MEEM-Player', exeName));
+  }
+  if (process.execPath) {
+    candidateExePaths.push(path.join(path.dirname(process.execPath), 'resources', 'MEEM-Player', exeName));
+    candidateExePaths.push(path.join(path.dirname(process.execPath), 'MEEM-Player', exeName));
+  }
 
-    // 3. Development Workspace candidates
-    `C:\\Users\\motawa\\Documents\\MEEM-Workspace\\MEEM Player`,
-    path.join(userHome, 'Documents', 'MEEM-Workspace', 'MEEM Player'),
-    path.join(process.cwd(), '..', 'MEEM Player'),
-    path.join(process.cwd(), 'MEEM Player'),
-    path.join(__dirname, '..', '..', '..', 'MEEM Player')
-  ].filter(Boolean);
+  // 2. Standard Windows Installed App directories
+  if (process.platform === 'win32') {
+    candidateExePaths.push(
+      path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'MEEM Player', exeName),
+      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'MEEM Player', exeName),
+      path.join(process.env['LOCALAPPDATA'] || '', 'Programs', 'MEEM Player', exeName),
+      path.join(process.env['LOCALAPPDATA'] || '', 'MEEM Player', exeName),
+      'C:\\Program Files\\MEEM Player\\MEEM-Player.exe',
+      'C:\\Program Files (x86)\\MEEM Player\\MEEM-Player.exe',
+      path.join(userHome, 'Documents', 'MEEM-Workspace', 'MEEM Player', exeName),
+      path.join(__dirname, '..', '..', '..', 'MEEM Player', exeName)
+    );
+  } else if (process.platform === 'darwin') {
+    candidateExePaths.push(
+      '/Applications/MEEM Player.app/Contents/MacOS/MEEM-Player',
+      path.join(userHome, 'Applications', 'MEEM Player.app', 'Contents', 'MacOS', 'MEEM-Player')
+    );
+  } else {
+    candidateExePaths.push(
+      '/usr/bin/MEEM-Player',
+      '/usr/local/bin/MEEM-Player',
+      '/opt/MEEM-Player/MEEM-Player'
+    );
+  }
 
-  for (const dir of dirCandidates) {
-    if (!fs.existsSync(dir)) continue;
-
-    // A. Check C++ Executable (MEEM-Player.exe or MEEM-Player-CPP.exe)
-    const rootExe = path.join(dir, exeName);
-    if (fs.existsSync(rootExe)) {
-      return { available: true, type: 'exe', command: rootExe, cwd: dir };
-    }
-    const cppExe = path.join(dir, cppExeName);
-    if (fs.existsSync(cppExe)) {
-      return { available: true, type: 'exe', command: cppExe, cwd: dir };
-    }
-
-    // B. Check C++ Runner Script
-    const batCpp = path.join(dir, 'run_cpp_player.bat');
-    if (fs.existsSync(batCpp)) {
-      return { available: true, type: 'bat', command: batCpp, cwd: dir };
+  for (const exePath of candidateExePaths) {
+    if (exePath && fs.existsSync(exePath)) {
+      const dir = path.dirname(exePath);
+      console.log(`[MEEM Player] Found installed MEEM Player: ${exePath}`);
+      return { available: true, type: 'exe', command: exePath, cwd: dir };
     }
   }
 
+  console.log('[MEEM Player] Installed MEEM Player not found on system.');
   return { available: false };
 }
 
@@ -187,6 +211,24 @@ function openWebEmbedPlayerWindow(embedUrl, opts = {}) {
   return { success: true, player: 'meem-web-player', streamUrl: embedUrl };
 }
 
+function extractSeasonEpisode(filename) {
+  if (!filename) return null;
+  const clean = String(filename).trim();
+  const sMatch = clean.match(/(?:s|season\s*)(\d{1,2})[\s._-]*(?:e|ep|episode\s*)(\d{1,3})/i);
+  if (sMatch) {
+    return { season: parseInt(sMatch[1], 10), episode: parseInt(sMatch[2], 10) };
+  }
+  const xMatch = clean.match(/\b(\d{1,2})x(\d{1,3})\b/i);
+  if (xMatch) {
+    return { season: parseInt(xMatch[1], 10), episode: parseInt(xMatch[2], 10) };
+  }
+  const eMatch = clean.match(/(?:e|ep|episode)[\s._-]*(\d{1,3})\b/i);
+  if (eMatch) {
+    return { season: 1, episode: parseInt(eMatch[1], 10) };
+  }
+  return null;
+}
+
 async function openInMeemPlayer(args) {
   const opts = typeof args === 'string' ? { path: args } : (args || {});
   let raw = opts.path || opts.url || opts.streamUrl || opts.mediaUrl;
@@ -196,13 +238,37 @@ async function openInMeemPlayer(args) {
   let torrentSelectedIdx = 0;
 
   // Extract Poster / Thumbnail & Series Metadata
-  const poster = opts.poster || opts.thumbnail || opts.still_path || opts.image ||
-                 opts.item?.thumbnail || opts.item?.still_path || opts.item?.poster || opts.item?.poster_path ||
-                 opts.show?.poster || opts.show?.poster_path || opts.show?.still_path;
+  let poster = opts.poster || opts.thumbnail || opts.still_path || opts.image ||
+               opts.item?.thumbnail || opts.item?.still_path || opts.item?.poster || opts.item?.poster_path ||
+               opts.show?.poster || opts.show?.poster_path || opts.show?.still_path;
+  if (poster && poster.startsWith('/') && !poster.startsWith('//')) {
+    poster = `https://image.tmdb.org/t/p/w500${poster}`;
+  }
+
   const showTitle = opts.showTitle || opts.seriesTitle || opts.item?.showTitle || opts.item?.seriesTitle || opts.show?.title || opts.show?.name;
   const season = opts.season ?? opts.item?.season;
   const episode = opts.episode ?? opts.item?.episode;
   const subTitle = showTitle ? (season != null && episode != null ? `${showTitle} • S${season}E${episode}` : `${showTitle}`) : (opts.subtitle || opts.subTitle || null);
+
+  // Resolve TMDB & IMDb IDs
+  const resolvedTmdbId = opts.tmdbId || opts.item?.tmdbId || opts.item?.id || opts.show?.id || (opts.id && !String(opts.id).startsWith('tt') ? opts.id : null);
+  const resolvedImdbId = opts.imdbId || opts.item?.imdb_id || opts.item?.imdbId || (opts.id && String(opts.id).startsWith('tt') ? opts.id : null);
+
+  // Read preferred YouTube playback quality & API Keys from settings
+  let preferredQuality = '1080';
+  let localData = {};
+  try {
+    const { readLocalAppData } = require('../store');
+    localData = readLocalAppData() || {};
+    if (localData?.youtubeQuality) {
+      preferredQuality = localData.youtubeQuality;
+    }
+  } catch (_) {}
+  if (opts.quality) preferredQuality = String(opts.quality);
+
+  const tmdbKey = localData?.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
+  const subdlApiKey = localData?.subdlConfig?.apiKey || localData?.subdlKey || '';
+  const subdlLanguages = Array.isArray(localData?.subdlConfig?.languages) ? localData.subdlConfig.languages.join(',') : 'AR,EN';
 
   // If magnet or torrent file, resolve stream URL
   if (raw && (raw.startsWith('magnet:') || raw.endsWith('.torrent'))) {
@@ -219,8 +285,28 @@ async function openInMeemPlayer(args) {
     }
   }
 
-  if (!raw && (!opts.playlist || opts.playlist.length === 0)) {
-    return { success: false, error: 'No media path provided' };
+  const config = getMeemPlayerConfig();
+  if (!config.available) {
+    console.warn('[MEEM Player] Standalone MEEM Player executable not found.');
+    if (isVlcAvailable()) {
+      console.log('[MediaPlay] MEEM Player not installed. Falling back to VLC Media Player...');
+      return openInVlc(args);
+    }
+    console.warn('[MediaPlay] Neither MEEM Player nor VLC is installed.');
+    return { success: false, noPlayer: true, error: 'no media player to use' };
+  }
+
+  // If requested to launch in standalone/idle mode without a specific file
+  if (opts.launchOnly || (!raw && (!opts.playlist || opts.playlist.length === 0))) {
+    console.log(`[MEEM Player] Launching standalone MEEM Player in idle mode: ${config.command}`);
+    const child = spawn(config.command, [], {
+      cwd: config.cwd,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false
+    });
+    child.unref();
+    return { success: true, player: 'meem-player', launched: true };
   }
 
   let targetPath = raw ? resolveRealMediaUrlOrPath(raw) : '';
@@ -234,10 +320,58 @@ async function openInMeemPlayer(args) {
     }
   }
 
-  const config = getMeemPlayerConfig();
-  if (!config.available) {
-    console.error('[MEEM Player] Standalone MEEM Player executable not found');
-    return { success: false, error: 'MEEM Player executable not found' };
+  let extraAudioUrl = opts.audio || opts.audioUrl || opts.extraAudioUrl || null;
+  let resolvedVideoId = null;
+
+  // Handle YouTube URLs: Resolve to direct playable stream URL for MEEM Player using user's quality preference
+  const ytMatch = (targetPath && targetPath.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)) ||
+                  (raw && String(raw).match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)) ||
+                  (opts.item?.videoId ? [null, opts.item.videoId] : null) ||
+                  (opts.videoId ? [null, opts.videoId] : null);
+  if (ytMatch && (!targetPath || !targetPath.startsWith('http') || targetPath.includes('youtube.com') || targetPath.includes('youtu.be') || !extraAudioUrl)) {
+    const videoId = ytMatch[1];
+    resolvedVideoId = videoId;
+    try {
+      const YouTubeService = require('../youtube/YouTubeService');
+      const ytRes = await YouTubeService.getVideoDetails(videoId, preferredQuality);
+      if (ytRes && ytRes.success && ytRes.details?.streamUrl) {
+        targetPath = ytRes.details.streamUrl;
+        extraAudioUrl = ytRes.details.audioStreamUrl || null;
+        if (!poster && ytRes.details.thumbnail) {
+          poster = ytRes.details.thumbnail;
+        }
+        if (!opts.title && !opts.name && ytRes.details.title) {
+          opts.title = ytRes.details.title;
+        }
+        console.log(`[MEEM Player] ✓ Resolved direct YouTube ${preferredQuality}p stream for ${videoId} (hasAudio: ${!!extraAudioUrl})`);
+      }
+    } catch (e) {
+      console.warn('[MEEM Player] Failed to resolve YouTube stream URL:', e.message);
+    }
+  } else if (ytMatch) {
+    resolvedVideoId = ytMatch[1];
+    if (!poster) {
+      poster = `https://i.ytimg.com/vi/${resolvedVideoId}/hqdefault.jpg`;
+    }
+  }
+
+  // Handle Directory target: Scan for video files and build playlist
+  if (targetPath && fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
+    try {
+      const VIDEO_EXTS = ['.mkv', '.mp4', '.avi', '.mov', '.webm', '.ts', '.m4v', '.flv'];
+      const dirFiles = fs.readdirSync(targetPath);
+      const videoFiles = dirFiles
+        .filter(f => VIDEO_EXTS.includes(path.extname(f).toLowerCase()))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+        .map(f => path.join(targetPath, f));
+
+      if (videoFiles.length > 0) {
+        console.log(`[MEEM Player] Target is directory, resolved to first video: ${videoFiles[0]}`);
+        targetPath = videoFiles[0];
+      }
+    } catch (e) {
+      console.warn('[MEEM Player] Error reading directory:', e.message);
+    }
   }
 
   const cliArgs = [];
@@ -245,22 +379,75 @@ async function openInMeemPlayer(args) {
     cliArgs.push(config.script);
   }
 
-  // Check if a full playlist array was provided (e.g. from local TV show or season torrent)
-  let playlistItems = Array.isArray(opts.playlist) ? [...opts.playlist] : [];
+  const isTvShow = Boolean(season != null || (opts.type && opts.type !== 'movie') || (showTitle && showTitle !== opts.title));
 
-  // If torrent returned multiple video files, convert them to a playlist
+  // Check if a full playlist array was provided (e.g. from TV show details screen)
+  let playlistItems = [];
+  if (Array.isArray(opts.playlist) && opts.playlist.length > 0) {
+    playlistItems = opts.playlist.map(item => {
+      let thumb = item.thumbnail || item.still_path || item.poster || item.poster_path || '';
+      if (thumb && thumb.startsWith('/') && !thumb.startsWith('//')) {
+        thumb = `https://image.tmdb.org/t/p/w500${thumb}`;
+      }
+      return {
+        path: item.path || item.url || '',
+        title: item.title || item.name || '',
+        show_title: item.show_title || item.showTitle || showTitle || '',
+        season: item.season != null ? item.season : (season || 0),
+        episode: item.episode != null ? item.episode : (episode || 0),
+        thumbnail: thumb || poster || '',
+        tmdb_id: item.tmdb_id || item.tmdbId || (resolvedTmdbId ? String(resolvedTmdbId) : ''),
+        imdb_id: item.imdb_id || item.imdbId || (resolvedImdbId ? String(resolvedImdbId) : ''),
+        overview: item.overview || ''
+      };
+    });
+  }
+
+  // If torrent returned multiple video files, convert them to a smart playlist with TMDB episode stills
   if (torrentFiles && torrentFiles.length > 0) {
     const portMatch = targetPath.match(/:(\d+)\//);
     const streamPort = portMatch ? portMatch[1] : '11470';
-    const isTvShow = Boolean(season != null || (opts.type && opts.type !== 'movie') || (showTitle && showTitle !== opts.title));
-    playlistItems = torrentFiles.map((f, i) => ({
-      path: `http://127.0.0.1:${streamPort}/${f.idx}/${encodeURIComponent(f.name)}`,
-      title: (!isTvShow || torrentFiles.length === 1) ? (opts.title || f.name) : f.name,
-      show_title: isTvShow ? (showTitle || opts.title || '') : '',
-      season: isTvShow ? (season || 1) : 0,
-      episode: isTvShow ? (f.idx + 1) : 0,
-      thumbnail: poster || ''
-    }));
+
+    // Fetch TMDB Season episodes if resolvedTmdbId is known for TV Show
+    let tmdbEpisodesMap = {};
+    if (isTvShow && resolvedTmdbId) {
+      try {
+        const axios = require('axios');
+        const targetSeason = season || 1;
+        const tmdbSeasonUrl = `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${targetSeason}?api_key=${tmdbKey}`;
+        const seasonResp = await axios.get(tmdbSeasonUrl, { timeout: 2000 }).catch(() => null);
+        if (seasonResp && seasonResp.data && Array.isArray(seasonResp.data.episodes)) {
+          seasonResp.data.episodes.forEach(ep => {
+            tmdbEpisodesMap[ep.episode_number] = {
+              name: ep.name,
+              still: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : null,
+              overview: ep.overview || ''
+            };
+          });
+        }
+      } catch (_) {}
+    }
+
+    playlistItems = torrentFiles.map((f, i) => {
+      const parsedEp = extractSeasonEpisode(f.name);
+      const epNum = parsedEp ? parsedEp.episode : (f.idx + 1);
+      const snNum = parsedEp ? parsedEp.season : (season || 1);
+      const tmdbEp = tmdbEpisodesMap[epNum];
+      const epTitle = (tmdbEp && tmdbEp.name) ? tmdbEp.name : ((!isTvShow || torrentFiles.length === 1) ? (opts.title || f.name) : f.name);
+      const epThumb = (tmdbEp && tmdbEp.still) ? tmdbEp.still : (poster || '');
+
+      return {
+        path: `http://127.0.0.1:${streamPort}/${f.idx}/${encodeURIComponent(f.name)}`,
+        title: epTitle,
+        show_title: isTvShow ? (showTitle || opts.title || '') : '',
+        season: isTvShow ? snNum : 0,
+        episode: isTvShow ? epNum : 0,
+        thumbnail: epThumb,
+        tmdb_id: resolvedTmdbId ? String(resolvedTmdbId) : '',
+        imdb_id: resolvedImdbId ? String(resolvedImdbId) : '',
+        overview: tmdbEp?.overview || ''
+      };
+    });
   }
 
   let tempPlaylistPath = null;
@@ -287,6 +474,17 @@ async function openInMeemPlayer(args) {
   if (opts.subtitle || opts.subPath) cliArgs.push(`--sub=${opts.subtitle || opts.subPath}`);
   if (poster) cliArgs.push(`--poster=${poster}`);
   if (subTitle) cliArgs.push(`--subtitle=${subTitle}`);
+  if (extraAudioUrl) cliArgs.push(`--audio=${extraAudioUrl}`);
+  if (resolvedVideoId) {
+    cliArgs.push(`--video-id=${resolvedVideoId}`);
+    cliArgs.push(`--yt-quality=${preferredQuality}`);
+  }
+  if (resolvedTmdbId) cliArgs.push(`--tmdb-id=${resolvedTmdbId}`);
+  if (resolvedImdbId) cliArgs.push(`--imdb-id=${resolvedImdbId}`);
+  if (season != null) cliArgs.push(`--season=${season}`);
+  if (episode != null) cliArgs.push(`--episode=${episode}`);
+  if (tmdbKey) cliArgs.push(`--tmdb-key=${tmdbKey}`);
+  if (subdlApiKey) cliArgs.push(`--subdl-key=${subdlApiKey}`);
 
   // Playback key and profile for progress tracking
   const pbKey = opts.pbKey || (opts.item ? (opts.item.id || opts.item.path) : targetPath);
@@ -313,6 +511,40 @@ async function openInMeemPlayer(args) {
   }
 
   const syncFilePath = path.join(os.tmpdir(), `meem_player_sync_${Date.now()}.json`);
+
+  // Write dedicated UTF-8 metadata JSON for MEEM Player to ensure 100% accurate Unicode (Arabic) decoding
+  let tempMetaPath = null;
+  try {
+    const metaData = {
+      title: opts.title || opts.name || '',
+      subtitle: subTitle || '',
+      showTitle: showTitle || '',
+      poster: poster || '',
+      thumbnail: poster || '',
+      path: targetPath || '',
+      sub: opts.subtitle || opts.subPath || '',
+      audio: extraAudioUrl || '',
+      startTime: opts.startTime || 0,
+      pbKey: pbKey || '',
+      profileId: profileId || '',
+      videoId: resolvedVideoId || '',
+      ytQuality: preferredQuality || '1080',
+      mediaType: isTvShow ? 'tv' : 'movie',
+      tmdbId: resolvedTmdbId ? String(resolvedTmdbId) : '',
+      imdbId: resolvedImdbId ? String(resolvedImdbId) : '',
+      season: season != null ? Number(season) : 0,
+      episode: episode != null ? Number(episode) : 0,
+      tmdbApiKey: tmdbKey,
+      subdlApiKey: subdlApiKey,
+      subdlLanguages: subdlLanguages,
+      syncPort: syncPort || 0
+    };
+    tempMetaPath = path.join(os.tmpdir(), `meem_meta_${Date.now()}.json`);
+    fs.writeFileSync(tempMetaPath, JSON.stringify(metaData, null, 2), 'utf-8');
+    cliArgs.push(`--meta-json=${tempMetaPath}`);
+  } catch (e) {
+    console.warn('[MEEM Player] Could not write metadata json:', e.message);
+  }
 
   if (pbKey) cliArgs.push(`--pb-key=${pbKey}`);
   if (profileId) cliArgs.push(`--profile-id=${profileId}`);
@@ -372,12 +604,22 @@ async function openInMeemPlayer(args) {
     });
   }
 
+  if (child.stderr) {
+    child.stderr.on('data', (chunk) => {
+      const msg = chunk.toString().trim();
+      if (msg) console.warn('[MEEM Player STDERR]', msg);
+    });
+  }
+
   child.on('exit', () => {
     if (activeMeemPlayerChild === child) {
       activeMeemPlayerChild = null;
       stopStreaming().catch(() => {});
       if (tempPlaylistPath && fs.existsSync(tempPlaylistPath)) {
         try { fs.unlinkSync(tempPlaylistPath); } catch (e) {}
+      }
+      if (tempMetaPath && fs.existsSync(tempMetaPath)) {
+        try { fs.unlinkSync(tempMetaPath); } catch (e) {}
       }
 
       // Check sync file for final reported progress
@@ -443,7 +685,30 @@ async function handleExternalPlayerProgress(data, context = null) {
       meta = { ...meta, show: ctx.show, showTitle: ctx.show.title || ctx.show.name };
     }
 
-    if (!meta) {
+    const isYt = Boolean(
+      ctx?.type === 'youtube' ||
+      ctx?.item?.isYoutube ||
+      ctx?.item?.type === 'youtube' ||
+      (typeof key === 'string' && (/^[a-zA-Z0-9_-]{11}$/.test(key) || key.startsWith('yt:') || key.startsWith('yt_')))
+    );
+
+    if (isYt) {
+      const vId = (typeof key === 'string' && (key.startsWith('yt:') || key.startsWith('yt_'))) ? key.replace(/^yt[:_]/, '') : key;
+      const ytThumb = `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+      meta = meta || {};
+      meta.id = vId;
+      meta.videoId = vId;
+      meta.type = 'youtube';
+      meta.isYoutube = true;
+      if (!meta.title || meta.title === vId || meta.title === 'Playback') {
+        meta.title = (ctx?.title && ctx.title !== vId && ctx.title !== 'Playback') ? ctx.title : 'YouTube Video';
+      }
+      meta.poster = meta.poster || ctx?.poster || ytThumb;
+      meta.thumbnail = meta.thumbnail || ytThumb;
+      meta.backdrop_path = meta.backdrop_path || ytThumb;
+      meta.backdrop = meta.backdrop || ytThumb;
+      if (ctx?.item?.author) meta.author = ctx.item.author;
+    } else if (!meta) {
       meta = {
         id: key,
         title: ctx?.title || 'Playback',
@@ -518,6 +783,14 @@ async function openInVlc(args) {
       return { success: false, error: 'No media path provided' };
     }
 
+    if (!isVlcAvailable()) {
+      const meemConfig = getMeemPlayerConfig();
+      if (meemConfig.available) {
+        return openInMeemPlayer(args);
+      }
+      return { success: false, noPlayer: true, error: 'no media player to use' };
+    }
+
     let targetPath = resolveRealMediaUrlOrPath(raw);
 
     const vlcCmd = getVlcExecutable();
@@ -576,11 +849,32 @@ function initMediaPlayIpc(ipcMain) {
     
     // Explicit request for VLC
     if (opts.player === 'vlc' || opts.engine === 'vlc') {
+      if (isVlcAvailable()) {
+        return openInVlc(args);
+      }
+      const meemConfig = getMeemPlayerConfig();
+      if (meemConfig.available) {
+        return openInMeemPlayer(args);
+      }
+      return { success: false, noPlayer: true, error: 'no media player to use' };
+    }
+
+    // Default flow:
+    // 1. Try MEEM Player first
+    const meemConfig = getMeemPlayerConfig();
+    if (meemConfig.available) {
+      return openInMeemPlayer(args);
+    }
+
+    // 2. If MEEM Player is not installed, fallback to VLC
+    if (isVlcAvailable()) {
+      console.log('[MediaPlay] MEEM Player not installed, falling back to VLC Media Player');
       return openInVlc(args);
     }
 
-    // DEFAULT & EXCLUSIVE: Launch MEEM Player
-    return openInMeemPlayer(args);
+    // 3. If neither is installed, return no media player to use
+    console.warn('[MediaPlay] Neither MEEM Player nor VLC is available.');
+    return { success: false, noPlayer: true, error: 'no media player to use' };
   }
 
   ipcMain.handle('play-media', async (_e, args) => playMedia(args));

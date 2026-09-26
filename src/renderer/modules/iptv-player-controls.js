@@ -226,13 +226,42 @@
       showError('Unable to play stream');
     });
 
+    // ── Video Click: Play / Pause ──
+    videoEl.addEventListener('click', (e) => {
+      if (e.target.closest('button, input, .iptv-player-controls')) return;
+      if (videoEl.paused) {
+        videoEl.play().catch(() => {});
+      } else {
+        videoEl.pause();
+      }
+      showControls();
+    });
+
     // ── Volume ──
+    let initIptvVol = 0.8;
+    try {
+      const stored = localStorage.getItem('meem_global_volume');
+      if (stored !== null && !isNaN(parseFloat(stored))) {
+        initIptvVol = Math.max(0, Math.min(1, parseFloat(stored)));
+      } else if (window.appData && window.appData.volume !== undefined) {
+        initIptvVol = Math.max(0, Math.min(1, window.appData.volume / 100));
+      }
+    } catch (_) {}
+    videoEl.volume = initIptvVol;
+    if (volSlider) volSlider.value = initIptvVol;
+    updateVolumeIcon(videoEl.volume, videoEl.muted);
+
     if (volSlider) {
       volSlider.addEventListener('input', () => {
-        videoEl.volume = parseFloat(volSlider.value);
+        const val = Math.max(0, Math.min(1, parseFloat(volSlider.value)));
+        videoEl.volume = val;
         videoEl.muted  = (videoEl.volume === 0);
         updateVolumeIcon(videoEl.volume, videoEl.muted);
         showControls();
+        try {
+          localStorage.setItem('meem_global_volume', val.toFixed(2));
+          if (window.appData) window.appData.volume = Math.round(val * 100);
+        } catch (_) {}
       });
     }
 

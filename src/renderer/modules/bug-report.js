@@ -49,7 +49,7 @@
     else if (/linux/i.test(userAgent)) platform = 'Linux';
 
     return {
-      app_version: '3.10.1',
+      app_version: '3.10.2',
       platform: platform,
       screen_resolution: `${window.screen.width}x${window.screen.height}`,
       window_size: `${window.innerWidth}x${window.innerHeight}`,
@@ -217,7 +217,7 @@
       submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Submitting...';
     }
 
-    const systemInfo = includeDiag ? getSystemInfo() : { app_version: '3.10.1' };
+    const systemInfo = includeDiag ? getSystemInfo() : { app_version: '3.10.2' };
     const userEmail = appData?.user?.email || null;
     const userId = appData?.user?.id || null;
 
@@ -407,7 +407,7 @@
               <div class="bug-item-meta">
                 <span><i class="fa-regular fa-user"></i> ${escapeHtml(user)}</span>
                 <span><i class="fa-regular fa-clock"></i> ${dateStr}</span>
-                ${sysInfo.platform ? `<span><i class="fa-solid fa-desktop"></i> ${escapeHtml(sysInfo.platform)} (${escapeHtml(sysInfo.app_version || 'v3.10.1')})</span>` : ''}
+                ${sysInfo.platform ? `<span><i class="fa-solid fa-desktop"></i> ${escapeHtml(sysInfo.platform)} (${escapeHtml(sysInfo.app_version || 'v3.10.2')})</span>` : ''}
               </div>
             </div>
           </div>

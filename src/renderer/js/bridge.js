@@ -1,5 +1,5 @@
 /**
- * MediaVault Bridge v4.0
+ * MEEM Bridge v4.0
  * Handles real API fetching, robust data persistence, and
  * INTERNAL VIDEO PLAYER for Android/Mobile.
  *
@@ -15,12 +15,11 @@
     
     let Filesystem, Directory, Share, LocalServer;
     if (isAndroid) {
-        Filesystem = window.Capacitor.Plugins.Filesystem;
-        Share = window.Capacitor.Plugins.Share;
-        LocalServer = window.Capacitor.Plugins.LocalServer;
+        Filesystem = window.Capacitor?.Plugins?.Filesystem;
+        Share = window.Capacitor?.Plugins?.Share;
+        LocalServer = window.Capacitor?.Plugins?.LocalServer;
         if (!LocalServer) {
             console.warn('[Bridge] LocalServer plugin NOT found in window.Capacitor.Plugins. Trying fallback...');
-            // alert('Critical: Native LocalServer plugin not found. Please ensure you have rebuilt the app in Android Studio.');
         } else {
             console.log('[Bridge] LocalServer plugin successfully loaded.');
         }
@@ -38,15 +37,15 @@
     if (isElectron) return;
 
     // Supabase configuration — set by supabase-public.js or preload (Electron)
-    const SUPABASE_URL = window.SUPABASE_URL || window.MEDIAVAULT_SUPABASE_URL || window.NEXT_PUBLIC_SUPABASE_URL || 'https://vvjnkgdrhyxilnderjdy.supabase.co';
-    const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || window.MEDIAVAULT_SUPABASE_ANON_KEY || window.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2am5rZ2RyaHl4aWxuZGVyamR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMTM2ODEsImV4cCI6MjA5NDg4OTY4MX0.Rb1OLJGXDToYZz-8h_gy2UNx_ou0P6BwGXc1ExFWSCU';
+    const SUPABASE_URL = window.MEEM_SUPABASE_URL || window.SUPABASE_URL || window.MEDIAVAULT_SUPABASE_URL || window.NEXT_PUBLIC_SUPABASE_URL || 'https://vvjnkgdrhyxilnderjdy.supabase.co';
+    const SUPABASE_ANON_KEY = window.MEEM_SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || window.MEDIAVAULT_SUPABASE_ANON_KEY || window.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2am5rZ2RyaHl4aWxuZGVyamR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMTM2ODEsImV4cCI6MjA5NDg4OTY4MX0.Rb1OLJGXDToYZz-8h_gy2UNx_ou0P6BwGXc1ExFWSCU';
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       console.warn('[Bridge] Supabase config missing — load js/supabase-public.js or set env in .env');
     } else {
       console.log('[Bridge] Supabase configured:', SUPABASE_URL.replace(/^https?:\/\//, '').split('/')[0]);
     }
 
-    const BACKEND_URL = (window.MEDIAVAULT_BACKEND_URL || '').replace(/\/$/, '');
+    const BACKEND_URL = (window.MEEM_BACKEND_URL || window.MEDIAVAULT_BACKEND_URL || '').replace(/\/$/, '');
 
     const pendingDeepLinkUrls = [];
     let activeDeepLinkHandler = null;
@@ -62,9 +61,36 @@
         if (!url) return;
         console.log('[Bridge] Dispatching deep link:', redactUrl(url));
         if (activeDeepLinkHandler) {
-            activeDeepLinkHandler(url);
+            try { activeDeepLinkHandler(url); } catch (e) { console.error('[Bridge] activeDeepLinkHandler error:', e); }
         } else {
             pendingDeepLinkUrls.push(url);
+        }
+        try {
+            window.dispatchEvent(new CustomEvent('meem-deep-link', { detail: { url } }));
+            window.dispatchEvent(new CustomEvent('mediavault-deep-link', { detail: { url } }));
+        } catch (_) {}
+    }
+
+    // Early deep link listener on native Android
+    if (isAndroid) {
+        const initEarlyDeepLink = () => {
+            const App = window.Capacitor?.Plugins?.App;
+            if (!App) return false;
+            try {
+                App.addListener('appUrlOpen', (data) => {
+                    if (data && data.url) dispatchDeepLink(data.url);
+                });
+                App.getLaunchUrl().then(res => {
+                    if (res && res.url) dispatchDeepLink(res.url);
+                }).catch(() => {});
+                return true;
+            } catch (_) { return false; }
+        };
+        if (!initEarlyDeepLink()) {
+            const earlyT = setInterval(() => {
+                if (initEarlyDeepLink()) clearInterval(earlyT);
+            }, 200);
+            setTimeout(() => clearInterval(earlyT), 10000);
         }
     }
 
@@ -110,7 +136,8 @@
         }
 
         // Preserve local-only watchlist items (not yet synced to DB)
-        const localProf = localProfiles.find(p => p.id === profileId);
+        const existingProfilesList = (cloudSession && Array.isArray(cloudSession.profiles)) ? cloudSession.profiles : ((window.appData && Array.isArray(window.appData.profiles)) ? window.appData.profiles : []);
+        const localProf = existingProfilesList.find(p => p && p.id === profileId);
         const localWatchlist = localProf?.watchlist || [];
         const dbWatchlistIds = new Set((watchlistData || []).map(row => row.media_id));
         const localOnlyWatchlist = localWatchlist.filter(item => item && item.id && !dbWatchlistIds.has(item.id));
@@ -191,11 +218,25 @@
 
         const lockedItems = (lockedData || []).map(row => row.item_path);
 
-        // 4. Fetch custom_lists and list_items
+        // 4. Fetch custom_lists and list_items across user's profiles
+        let profileIds = [profileId];
+        try {
+            const { data: { user } } = await client.auth.getUser();
+            if (user && user.id) {
+                const { data: userProfiles } = await client
+                    .from('account_profiles')
+                    .select('id')
+                    .eq('user_id', user.id);
+                if (userProfiles && userProfiles.length > 0) {
+                    profileIds = userProfiles.map(p => p.id);
+                }
+            }
+        } catch (_) {}
+
         const { data: listsData, error: clError } = await client
             .from('custom_lists')
-            .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
-            .eq('profile_id', profileId);
+            .select('id, profile_id, list_name, theme_color, type, list_items(id, media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
+            .in('profile_id', profileIds);
         if (clError) {
             console.error('[Bridge] load custom lists error:', clError.message);
             throw clError;
@@ -215,7 +256,7 @@
                     const sharedListIds = memberRefs.map(m => m.list_id);
                     const { data: fetchedShared, error: sharedError } = await client
                         .from('custom_lists')
-                        .select('id, profile_id, list_name, theme_color, type, list_items(media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
+                        .select('id, profile_id, list_name, theme_color, type, list_items(id, media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
                         .in('id', sharedListIds);
                     if (!sharedError && fetchedShared) {
                         sharedLists = fetchedShared;
@@ -227,7 +268,7 @@
         }
 
         // Preserve local-only lists (not yet synced to DB)
-        const localProfile = localProfiles.find(p => p.id === profileId);
+        const localProfile = existingProfilesList.find(p => p && p.id === profileId);
         const localOnlyLists = (localProfile?.custom_lists || []).filter(localList => {
             const isInDb = (listsData || []).some(dbList => dbList.id === localList.id);
             const isInShared = sharedLists.some(sharedList => sharedList.id === localList.id);
@@ -305,7 +346,7 @@
 
     async function cloudAuthHttp(path, body) {
       if (!BACKEND_URL) {
-        return { error: 'Cloud sign-in requires MEDIAVAULT_BACKEND_URL.' };
+        return { error: 'Cloud sign-in requires MEEM_BACKEND_URL.' };
       }
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6000);
@@ -327,10 +368,29 @@
       }
     }
 
+    function withTimeout(promise, ms = 30000, timeoutMsg = 'Operation timed out') {
+        return Promise.race([
+            promise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMsg)), ms))
+        ]);
+    }
+
+    function unwrapRpcRow(row) {
+        if (!row) return null;
+        if (Array.isArray(row)) return row[0] || null;
+        return row;
+    }
+
     let _supabaseClient = null;
     function getSupabaseClient() {
+        if (window._supabaseRendererClientShared) {
+            return window._supabaseRendererClientShared;
+        }
         if (typeof window.getSupabaseRendererClient === 'function') {
-            return window.getSupabaseRendererClient();
+            try {
+                const c = window.getSupabaseRendererClient();
+                if (c) return c;
+            } catch (_) {}
         }
         if (_supabaseClient) return _supabaseClient;
         if (window.supabase && typeof window.supabase.createClient === 'function') {
@@ -609,7 +669,7 @@
     window.PlayMediaService = PlayMediaService;
 
     // --- State & Helpers ---
-    const STORAGE_KEY = 'mediavault_app_data'; // Stored via Capacitor Storage on mobile, in-memory fallback on web
+    const STORAGE_KEY = 'meem_app_data'; // Stored via Capacitor Storage on mobile, in-memory fallback on web
 
     // In-memory session cache (populated from cloud on boot)
     let cloudSession = null;
@@ -621,33 +681,35 @@
     //      installed via `npx cap sync`
     //   3. in-memory Map — last resort, keeps values stable within the session
     const _memoryStore = new Map();
-    // Prefer @capacitor/preferences (Capacitor 4+), fall back to the legacy
-    // @capacitor/storage plugin name if present.
-    function _nativeStore() {
-        return window.Capacitor?.Plugins?.Preferences || window.Capacitor?.Plugins?.Storage || null;
-    }
-    function _lsGet(key) {
-        try { return (typeof localStorage !== 'undefined') ? localStorage.getItem(key) : null; } catch (_) { return null; }
-    }
-    function _lsSet(key, value) {
-        try { if (typeof localStorage !== 'undefined') localStorage.setItem(key, value); } catch (_) { /* quota/disabled */ }
-    }
-    function _lsRemove(key) {
-        try { if (typeof localStorage !== 'undefined') localStorage.removeItem(key); } catch (_) { /* ignore */ }
-    }
+    const _nativeStore = () => window.Capacitor?.Plugins?.Preferences || window.Capacitor?.Plugins?.Storage || null;
+    const _lsGet = (k) => { try { return window.localStorage.getItem(k); } catch (_) { return null; } };
+    const _lsSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch (_) {} };
+    const _lsRemove = (k) => { try { window.localStorage.removeItem(k); } catch (_) {} };
     async function storageGet(key) {
+        let val = null;
         try {
             const Storage = _nativeStore();
             if (Storage && Storage.get) {
                 const res = await Storage.get({ key });
-                if (res && res.value != null) return res.value;
+                if (res && res.value != null) val = res.value;
             }
         } catch (e) {
             console.warn('[Bridge] storageGet (native) failed:', e.message);
         }
-        const ls = _lsGet(key);
-        if (ls != null) return ls;
-        return _memoryStore.has(key) ? _memoryStore.get(key) : null;
+        if (val == null) val = _lsGet(key);
+        if (val == null && _memoryStore.has(key)) val = _memoryStore.get(key);
+        if (val != null) return val;
+
+        // Auto fallback for legacy mediavault_ keys
+        if (key.startsWith('meem_')) {
+            const legacyKey = key.replace(/^meem_/, 'mediavault_');
+            const legacyVal = await storageGet(legacyKey);
+            if (legacyVal != null) {
+                await storageSet(key, legacyVal); // migrate forward
+                return legacyVal;
+            }
+        }
+        return null;
     }
     async function storageSet(key, value) {
         // Always keep an in-memory + localStorage copy so values survive within the
@@ -668,6 +730,17 @@
     async function storageRemove(key) {
         _memoryStore.delete(key);
         _lsRemove(key);
+        if (key.startsWith('meem_')) {
+            const legacyKey = key.replace(/^meem_/, 'mediavault_');
+            _memoryStore.delete(legacyKey);
+            _lsRemove(legacyKey);
+            try {
+                const Storage = _nativeStore();
+                if (Storage && Storage.remove) {
+                    await Storage.remove({ key: legacyKey });
+                }
+            } catch (_) {}
+        }
         try {
             const Storage = _nativeStore();
             if (Storage && Storage.remove) {
@@ -709,7 +782,7 @@
                     showBannedOverlay(reason);
                     return;
                 } else {
-                    await storageRemove('mediavault_device_banned');
+                    await storageRemove('meem_device_banned');
                 }
             } catch (e) {
                 console.warn('[Bridge] check_hardware_ban RPC failed:', e.message);
@@ -721,7 +794,7 @@
                         showBannedOverlay('Banned (backend)');
                         return;
                     } else if (fb && fb.ok) {
-                        await storageRemove('mediavault_device_banned');
+                        await storageRemove('meem_device_banned');
                     }
                 } catch (fbErr) { /* ignore fallback errors */ }
             }
@@ -748,7 +821,7 @@
                 cloudSession = { user: sessionRow.user, profiles: sessionRow.profiles || [] };
                 console.log('[Bridge] Cloud session initialized for', cloudSession.user?.email || 'unknown');
                 window.cloudSession = cloudSession;
-                await storageRemove('mediavault_device_banned');
+                await storageRemove('meem_device_banned');
             } else {
                 console.log('[Bridge] Device not authenticated via Supabase');
             }
@@ -763,43 +836,38 @@
         return false;
     }
 
-    // Get Android device hardware ID — persistent across app restarts.
-    // Cached in-memory so it stays IDENTICAL for every call within a session even if
-    // the persistent store is unavailable. Without this, a missing storage/Device
-    // plugin produced a brand-new random ID on each call, registering a new device
-    // every time and quickly hitting DEVICE_LIMIT_REACHED.
     let _cachedHardwareId = null;
     async function getHardwareId() {
-        if (!checkIsAndroid() && !isAndroid) return 'web-unknown';
         if (_cachedHardwareId) return _cachedHardwareId;
 
-        let storedId = await storageGet('mediavault_device_id');
+        // 1. Immediate synchronous localStorage check
+        let storedId = null;
+        try {
+            storedId = window.localStorage.getItem('meem_device_id') || window.localStorage.getItem('mediavault_device_id');
+        } catch (_) {}
+
         if (storedId && String(storedId).trim() && storedId !== 'web-unknown') {
             _cachedHardwareId = String(storedId).trim();
             return _cachedHardwareId;
         }
 
+        // 2. Storage adapter check (Capacitor Preferences)
         try {
-            const Device = window.Capacitor?.Plugins?.Device;
-            if (Device && typeof Device.getId === 'function') {
-                const info = await Device.getId();
-                const nativeId = info?.identifier || info?.uuid;
-                if (nativeId && String(nativeId).trim()) {
-                    storedId = 'android-' + String(nativeId).trim();
-                    await storageSet('mediavault_device_id', storedId);
-                    _cachedHardwareId = storedId;
-                    return storedId;
-                }
+            storedId = await storageGet('meem_device_id');
+            if (storedId && String(storedId).trim() && storedId !== 'web-unknown') {
+                _cachedHardwareId = String(storedId).trim();
+                try { window.localStorage.setItem('meem_device_id', _cachedHardwareId); } catch (_) {}
+                return _cachedHardwareId;
             }
-        } catch (e) {
-            console.warn('[Bridge] Device.getId failed, using generated ID:', e.message);
-        }
+        } catch (_) {}
 
-        const uuid = (crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString();
-        storedId = 'android-' + uuid;
-        await storageSet('mediavault_device_id', storedId);
+        // 3. Fast generated persistent UUID (instant, zero hangs, zero native plugin dependencies)
+        const uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).substring(2, 10));
+        storedId = (checkIsAndroid() || isAndroid) ? ('android-' + uuid) : ('client-' + uuid);
+        try { window.localStorage.setItem('meem_device_id', storedId); } catch (_) {}
+        try { storageSet('meem_device_id', storedId); } catch (_) {}
         _cachedHardwareId = storedId;
-        return storedId;
+        return _cachedHardwareId;
     }
 
     // Kick off session init (async IIFE).
@@ -920,10 +988,10 @@
                         const banResult = await supabaseRpc('check_hardware_ban', { hardware_id: hwId });
                         if (banResult && Array.isArray(banResult) && banResult.length > 0) {
                             banReasonText = banResult[0].reason || 'This device has been banned.';
-                            await storageSet('mediavault_device_banned', 'true');
+                            await storageSet('meem_device_banned', 'true');
                             isHardwareBanned = true;
                         } else {
-                            await storageRemove('mediavault_device_banned');
+                            await storageRemove('meem_device_banned');
                         }
                     } catch (e) {
                         console.warn('[Bridge] check_hardware_ban RPC failed:', e.message);
@@ -934,15 +1002,15 @@
                     return { banned: true, banReason: banReasonText, hardwareId: hwId };
                 }
 
-                // 2ï¸âƒ£ Check if locally flagged as banned to prevent offline bypass
-                const isLocallyBanned = await storageGet('mediavault_device_banned');
+                // 2ï¸ âƒ£ Check if locally flagged as banned to prevent offline bypass
+                const isLocallyBanned = await storageGet('meem_device_banned');
                 if (isLocallyBanned === 'true' || isLocallyBanned === true) {
                     return { banned: true, banReason: 'Permanently Banned (Offline Signature)', hardwareId: hwId };
                 }
 
                 // Try to load/restore Supabase session
                 let session = null;
-                const storedSession = await storageGet('mediavault_supabase_session');
+                const storedSession = await storageGet('meem_supabase_session');
                 if (storedSession) {
                     try {
                         session = JSON.parse(storedSession);
@@ -974,7 +1042,7 @@
                     if (isBanned) {
                         // Account is banned — block regardless of any local session.
                         console.warn('[Bridge] User is banned:', sessionRow.user.email);
-                        await storageSet('mediavault_device_banned', 'true');
+                        await storageSet('meem_device_banned', 'true');
                         const cleared = {
                             ...(localData || {}),
                             authenticated: false, user: null, profiles: [], activeProfileId: null,
@@ -1001,8 +1069,9 @@
                         console.log('[Bridge] device_session=false but valid Supabase session present — recovering instead of wiping.');
 
                         // Best-effort: bind this device so device_session works next launch.
+                        const supaEmail = supaUser.email || supaUser.user_metadata?.email || `${supaUser.id}@oauth.local`;
                         try {
-                            const reg = unwrapRpcRow(await supabaseRpc('sync_user_session', { p_user_id: supaUser.id, p_email: supaUser.email, p_username: '', p_hardware_id: hwId }));
+                            const reg = unwrapRpcRow(await supabaseRpc('sync_user_session', { p_user_id: supaUser.id, p_email: supaEmail, p_username: supaUser.user_metadata?.username || supaUser.user_metadata?.name || '', p_hardware_id: hwId }));
                             if (reg && reg.error === 'DEVICE_LIMIT_REACHED') {
                                 const cleared = {
                                     ...(localData || {}),
@@ -1013,12 +1082,12 @@
                                 return { ...cleared, hardwareId: hwId };
                             }
                             if (reg && reg.success) {
-                                sessionRow = { authenticated: true, user: reg.user || { id: supaUser.id, email: supaUser.email }, profiles: reg.profiles || [] };
+                                sessionRow = { authenticated: true, user: reg.user || { id: supaUser.id, email: supaEmail }, profiles: reg.profiles || [] };
                             }
                         } catch (e) { console.warn('[Bridge] sync_user_session during load failed:', e.message); }
 
                         if (!sessionRow || !sessionRow.authenticated) {
-                            sessionRow = { authenticated: true, user: { id: supaUser.id, email: supaUser.email }, profiles: [] };
+                            sessionRow = { authenticated: true, user: { id: supaUser.id, email: supaEmail }, profiles: [] };
                             try {
                                 const client = getSupabaseClient();
                                 const { data: accData } = await client.from('users_accounts').select('*').eq('id', supaUser.id).maybeSingle();
@@ -1031,11 +1100,11 @@
                         }
                     }
 
-                    // Still not authenticated (no valid Supabase session) â†’ only clear if not locally authenticated
+                    // Still not authenticated (no valid Supabase session) → only clear if not locally authenticated
                     if (sessionRow && !sessionRow.authenticated) {
-                        if (localData && localData.authenticated && localData.user) {
-                            console.warn('[Bridge] device_session unauthenticated, but preserving valid local session.');
-                            return { ...localData, hardwareId: hwId };
+                        if ((localData && localData.authenticated && localData.user) || (cloudSession && cloudSession.authenticated && cloudSession.user) || (window.appData && window.appData.authenticated && window.appData.user)) {
+                            console.warn('[Bridge] device_session unauthenticated, but preserving valid local/memory session.');
+                            return { ...(localData || {}), ...(cloudSession || {}), authenticated: true, hardwareId: hwId };
                         }
                         console.warn('[Bridge] No valid session — clearing local auth state.');
                         const cleared = {
@@ -1047,7 +1116,7 @@
                     }
                 }
                 if (sessionRow && sessionRow.authenticated) {
-                    await storageRemove('mediavault_device_banned');
+                    await storageRemove('meem_device_banned');
                     const client = getSupabaseClient();
                     const profiles = sessionRow.profiles || [];
                     if (client && profiles.length) {
@@ -1111,15 +1180,15 @@
                 await storageSet(STORAGE_KEY, JSON.stringify(toSave));
                 
                 if (toSave._supabaseSession === null) {
-                    await storageRemove('mediavault_supabase_session');
+                    await storageRemove('meem_supabase_session');
                 } else if (data.session) {
-                    await storageSet('mediavault_supabase_session', JSON.stringify(data.session));
+                    await storageSet('meem_supabase_session', JSON.stringify(data.session));
                 }
 
                 if (toSave.authenticated && toSave.user && toSave.user.id) {
                     const client = getSupabaseClient();
                     if (client) {
-                        const storedSession = await storageGet('mediavault_supabase_session');
+                        const storedSession = await storageGet('meem_supabase_session');
                         const activeSession = data.session || (storedSession ? JSON.parse(storedSession) : null);
                         if (activeSession) {
                             try {
@@ -1280,27 +1349,9 @@
 
                                     // 5. Sync custom lists & list items
                                     const localLists = profile.custom_lists || [];
-                                    const { data: dbLists, error: clFetchError } = await client
-                                        .from('custom_lists')
-                                        .select('id, list_name')
-                                        .eq('profile_id', profile.id);
-                                    if (clFetchError) throw clFetchError;
-
-                                    const dbListsByName = new Map((dbLists || []).map(x => [x.list_name.toLowerCase(), x]));
-                                    const localListsByName = new Set(localLists.map(x => x.name.toLowerCase()));
-
-                                    const listsToDelete = (dbLists || []).filter(x => !localListsByName.has(x.list_name.toLowerCase()));
-                                    if (listsToDelete.length > 0) {
-                                        const listIdsToDelete = listsToDelete.map(x => x.id);
-                                        const { error: delListsError } = await client
-                                            .from('custom_lists')
-                                            .delete()
-                                            .in('id', listIdsToDelete);
-                                        if (delListsError) throw delListsError;
-                                    }
-
-                                    // NOTE: Auto-leave on sync REMOVED — caused race condition deleting
-                                    // newly-accepted invitations. Leave via explicit user action only.
+                                    // NOTE: Auto-deletion of custom_lists on sync is disabled.
+                                    // Lists must only be deleted via explicit user action (cloud-delete-custom-list)
+                                    // to prevent cross-profile or race condition deletions.
 
                                     for (const localList of localLists) {
                                         let listId = localList.id;
@@ -1357,14 +1408,19 @@
                                         const dbItemIds = new Set((dbItems || []).map(x => x.media_id));
                                         const localItemIds = new Set(localItems.map(item => String(item.id || item)));
 
-                                        const itemsToDelete = [...dbItemIds].filter(id => !localItemIds.has(id));
-                                        if (itemsToDelete.length > 0) {
-                                            const { error: delItemsError } = await client
-                                                .from('list_items')
-                                                .delete()
-                                                .eq('list_id', listId)
-                                                .in('media_id', itemsToDelete);
-                                            if (delItemsError) throw delItemsError;
+                                        // CRITICAL SAFEGUARD:
+                                        // 1) Never delete items from shared lists during background sync!
+                                        // 2) Never delete items if localItems is empty while dbItems has records.
+                                        if (!isShared && localItems.length > 0 && dbItems && dbItems.length > 0) {
+                                            const itemsToDelete = [...dbItemIds].filter(id => !localItemIds.has(id));
+                                            if (itemsToDelete.length > 0) {
+                                                const { error: delItemsError } = await client
+                                                    .from('list_items')
+                                                    .delete()
+                                                    .eq('list_id', listId)
+                                                    .in('media_id', itemsToDelete);
+                                                if (delItemsError) throw delItemsError;
+                                            }
                                         }
 
                                         if (localItems.length > 0) {
@@ -1490,6 +1546,16 @@
                             p_hardware_id: hwId
                         }).catch(() => null));
 
+                        if (syncRes && syncRes.error) {
+                            if (syncRes.error === 'DEVICE_LIMIT_REACHED') {
+                                return { error: 'DEVICE_LIMIT_REACHED', message: syncRes.message || 'Maximum device limit reached for this account.' };
+                            }
+                            if (syncRes.error === 'HARDWARE_BANNED' || syncRes.error === 'ACCOUNT_BANNED') {
+                                await storageSet('meem_device_banned', 'true');
+                                return { error: syncRes.error, message: syncRes.message || 'This device or account has been suspended.' };
+                            }
+                        }
+
                         result = {
                             success: true,
                             user: syncRes?.user || data.user,
@@ -1541,7 +1607,7 @@
                 await storageSet(STORAGE_KEY, JSON.stringify(toSave));
 
                 if (result.session) {
-                    await storageSet('mediavault_supabase_session', JSON.stringify({
+                    await storageSet('meem_supabase_session', JSON.stringify({
                         access_token: result.session.access_token,
                         refresh_token: result.session.refresh_token
                     }));
@@ -1549,7 +1615,7 @@
                 return result;
             }
 
-            return result || { error: lastError || 'Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ Ø£Ùˆ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ØºÙŠØ± ØµØ­ÙŠØ­Ø©' };
+            return result || { error: lastError || 'Incorrect email or password' };
         },
 
         cloudRegister: async (email, password, username = '') => {
@@ -1572,6 +1638,9 @@
                     );
                     if (error) throw error;
                     if (data && data.user) {
+                        if (data.user.identities && data.user.identities.length === 0) {
+                            return { error: 'An account already exists with this email address. Please sign in instead.' };
+                        }
                         const needsConfirmation = !data.session && !data.user.confirmed_at;
                         result = {
                             success: true,
@@ -1609,7 +1678,7 @@
                 return result;
             }
 
-            return { error: lastError || 'Registration failed. Try a different email.' };
+            return { error: lastError || 'An account already exists with this email address. Please sign in instead.' };
         },
 
         cloudVerifyOtp: async (email, token) => {
@@ -1629,6 +1698,22 @@
                         email,
                         token,
                         type: 'email'
+                    });
+                }
+
+                if (verifyRes.error) {
+                    verifyRes = await client.auth.verifyOtp({
+                        email,
+                        token,
+                        type: 'magiclink'
+                    });
+                }
+
+                if (verifyRes.error) {
+                    verifyRes = await client.auth.verifyOtp({
+                        email,
+                        token,
+                        type: 'recovery'
                     });
                 }
 
@@ -1672,7 +1757,7 @@
                 await storageSet(STORAGE_KEY, JSON.stringify(toSave));
 
                 if (result.session) {
-                    await storageSet('mediavault_supabase_session', JSON.stringify({
+                    await storageSet('meem_supabase_session', JSON.stringify({
                         access_token: result.session.access_token,
                         refresh_token: result.session.refresh_token
                     }));
@@ -1690,11 +1775,12 @@
                 // Support flexible parameter passing (object or positional)
                 if (userId && typeof userId === 'object' && !Array.isArray(userId)) {
                     const opts = userId;
-                    session = opts.session;
-                    username = opts.username;
-                    email = opts.email;
-                    userId = opts.userId || opts.id;
+                    session = opts.session || session;
+                    username = opts.username || opts.p_username || username || '';
+                    email = opts.email || opts.p_email || email || '';
+                    userId = opts.userId || opts.user_id || opts.id;
                 }
+                email = email || (userId ? `${userId}@oauth.local` : '');
 
                 const client = getSupabaseClient();
                 if (client && session && session.access_token) {
@@ -1707,74 +1793,88 @@
                 }
                 const hwId = await getHardwareId();
 
-                // Call sync_user_session directly (handles device binding, ban check, users_accounts, and profiles)
-                let rpcRes = null;
-                try {
-                    rpcRes = unwrapRpcRow(await withTimeout(
-                        supabaseRpc('sync_user_session', {
-                            p_user_id: userId,
-                            p_email: email,
-                            p_username: username || '',
-                            p_hardware_id: hwId
-                        }),
-                        30000,
-                        'Sync user session timed out'
-                    ));
-                } catch (e) {
-                    console.warn('[Bridge] sync_user_session RPC failed:', e.message);
+                // Deduplicate in-flight sync requests for the same user and device
+                const syncKey = `${userId}_${hwId}`;
+                if (window._syncUserSessionPromise && window._syncUserSessionKey === syncKey) {
+                    return await window._syncUserSessionPromise;
                 }
 
-                if (rpcRes && rpcRes.error) {
-                    if (rpcRes.error === 'DEVICE_LIMIT_REACHED') {
-                        return { error: 'DEVICE_LIMIT_REACHED', message: rpcRes.message };
+                window._syncUserSessionKey = syncKey;
+                window._syncUserSessionPromise = (async () => {
+                    // Call sync_user_session directly (handles device binding, ban check, users_accounts, and profiles)
+                    let rpcRes = null;
+                    try {
+                        rpcRes = unwrapRpcRow(await withTimeout(
+                            supabaseRpc('sync_user_session', {
+                                p_user_id: userId,
+                                p_email: email,
+                                p_username: username || '',
+                                p_hardware_id: hwId
+                            }),
+                            30000,
+                            'Sync user session timed out'
+                        ));
+                    } catch (e) {
+                        console.warn('[Bridge] sync_user_session RPC failed:', e.message);
                     }
-                    if (rpcRes.error === 'HARDWARE_BANNED' || rpcRes.error === 'ACCOUNT_BANNED') {
-                        await storageSet('mediavault_device_banned', 'true');
-                        return { error: rpcRes.error, message: rpcRes.message };
+
+                    if (rpcRes && rpcRes.error) {
+                        if (rpcRes.error === 'DEVICE_LIMIT_REACHED') {
+                            return { error: 'DEVICE_LIMIT_REACHED', message: rpcRes.message };
+                        }
+                        if (rpcRes.error === 'HARDWARE_BANNED' || rpcRes.error === 'ACCOUNT_BANNED') {
+                            await storageSet('meem_device_banned', 'true');
+                            return { error: rpcRes.error, message: rpcRes.message };
+                        }
                     }
-                }
 
-                const syncUser = rpcRes?.user || { id: userId, email: email, username: username || '' };
-                let syncProfiles = rpcRes?.profiles || [];
+                    const syncUser = rpcRes?.user || { id: userId, email: email, username: username || '' };
+                    let syncProfiles = rpcRes?.profiles || [];
 
-                if (syncProfiles.length === 0 && cloudSession && Array.isArray(cloudSession.profiles) && cloudSession.profiles.length > 0) {
-                    syncProfiles = cloudSession.profiles;
-                }
+                    if (syncProfiles.length === 0 && cloudSession && Array.isArray(cloudSession.profiles) && cloudSession.profiles.length > 0) {
+                        syncProfiles = cloudSession.profiles;
+                    }
 
-                const result = {
-                    success: true,
-                    user: syncUser,
-                    profiles: syncProfiles,
-                    message: "Synchronized user session directly from Supabase."
-                };
+                    const result = {
+                        success: true,
+                        user: syncUser,
+                        profiles: syncProfiles,
+                        message: "Synchronized user session directly from Supabase."
+                    };
 
-                cloudSession = {
-                    user: result.user,
-                    profiles: result.profiles || [],
-                    activeProfileId: result.profiles?.[0]?.id || null,
-                    authenticated: true,
-                    hardwareId: hwId
-                };
-                window.cloudSession = cloudSession;
+                    cloudSession = {
+                        user: result.user,
+                        profiles: result.profiles || [],
+                        activeProfileId: result.profiles?.[0]?.id || null,
+                        authenticated: true,
+                        hardwareId: hwId
+                    };
+                    window.cloudSession = cloudSession;
 
-                // Save to storage
-                const toSave = {
-                    authenticated: true,
-                    user: result.user,
-                    profiles: result.profiles || [],
-                    activeProfileId: result.profiles?.[0]?.id || null,
-                    hardwareId: hwId
-                };
-                await storageSet(STORAGE_KEY, JSON.stringify(toSave));
+                    // Save to storage
+                    const toSave = {
+                        authenticated: true,
+                        user: result.user,
+                        profiles: result.profiles || [],
+                        activeProfileId: result.profiles?.[0]?.id || null,
+                        hardwareId: hwId
+                    };
+                    await storageSet(STORAGE_KEY, JSON.stringify(toSave));
 
-                if (session && session.access_token) {
-                    await storageSet('mediavault_supabase_session', JSON.stringify({
-                        access_token: session.access_token,
-                        refresh_token: session.refresh_token
-                    }));
-                }
+                    if (session && session.access_token) {
+                        await storageSet('meem_supabase_session', JSON.stringify({
+                            access_token: session.access_token,
+                            refresh_token: session.refresh_token
+                        }));
+                    }
 
-                return result;
+                    return result;
+                })().finally(() => {
+                    window._syncUserSessionPromise = null;
+                    window._syncUserSessionKey = null;
+                });
+
+                return await window._syncUserSessionPromise;
             } catch (e) {
                 console.error('[Bridge] cloudSyncUserSession failed:', e.message);
                 return { error: e.message };
@@ -1802,7 +1902,8 @@
                     try {
                         browserFinishedHandle = await Browser.addListener('browserFinished', () => {
                             console.log('[Bridge] OAuth Browser closed — checking for active session...');
-                            // Dispatch a synthetic event that auth.js is already listening for.
+                            // Dispatch synthetic events that auth.js is listening for.
+                            window.dispatchEvent(new CustomEvent('meem-oauth-browser-closed'));
                             window.dispatchEvent(new CustomEvent('mediavault-oauth-browser-closed'));
                             // Also force a getLaunchUrl check — the deep link may have been
                             // delivered as a launch intent instead of appUrlOpen.
@@ -2063,15 +2164,20 @@
             try {
                 console.log('[Bridge] Requesting Filesystem Permissions...');
                 // Step 1: Request standard Capacitor storage permissions
-                const status = await Filesystem.requestPermissions();
-                console.log('[Bridge] Capacitor permission result:', JSON.stringify(status));
+                if (Filesystem && typeof Filesystem.requestPermissions === 'function') {
+                    const status = await Filesystem.requestPermissions().catch(e => {
+                        console.warn('[Bridge] Filesystem.requestPermissions error:', e);
+                        return null;
+                    });
+                    console.log('[Bridge] Capacitor permission result:', JSON.stringify(status));
+                }
 
                 // Step 2: Check for MANAGE_EXTERNAL_STORAGE (needed on Android 11+ to see user-placed files)
-                if (LocalServer) {
+                if (LocalServer && typeof LocalServer.checkAllFilesAccess === 'function') {
                     try {
                         const allFilesCheck = await LocalServer.checkAllFilesAccess();
-                        console.log('[Bridge] All Files Access:', allFilesCheck.granted);
-                        if (!allFilesCheck.granted) {
+                        console.log('[Bridge] All Files Access:', allFilesCheck?.granted);
+                        if (!allFilesCheck?.granted && typeof LocalServer.requestAllFilesAccess === 'function') {
                             console.log('[Bridge] Requesting All Files Access via system settings...');
                             await LocalServer.requestAllFilesAccess();
                             // The user is taken to Settings — we return true but they need to grant it
@@ -2201,7 +2307,7 @@
                     const n = String(a.name || '').toLowerCase();
                     return id.includes('fanart') || u.includes('fanart') || n.includes('fanart');
                 });
-                const userFanartKey = await storageGet('mediavault_fanart_key');
+                const userFanartKey = await storageGet('meem_fanart_key');
                 const fanartKey = userFanartKey || '9b894a8fe501790e488c98a5ee605e34';
                 let fanartId = result.imdb_id || (type === 'tv' ? result.tvdb_id : result.tmdb_id);
                 if (isFanartInstalled && fanartKey && fanartId) {
@@ -2529,12 +2635,12 @@
 
             const fs = window.Capacitor.Plugins.Filesystem;
             
-            // On mobile, we save to the public Documents folder so MediaVault can scan it.
+            // On mobile, we save to the public Documents folder so MEEM can scan it.
             const SAVE_DIR = 'DOCUMENTS';
             const profileName = params.profileName || 'Default';
             const SAVE_SUBDIR = params.type === 'social' 
-                ? `MediaVault/${profileName}/Social` 
-                : `MediaVault/${profileName}/Downloads`;
+                ? `MEEM/${profileName}/Social` 
+                : `MEEM/${profileName}/Downloads`;
             let progressHandle = null;
 
             try {
@@ -2664,8 +2770,8 @@
             try {
                 const { Filesystem } = window.Capacitor.Plugins;
                 await Filesystem.rename({
-                    from: `MediaVault/${oldName}`,
-                    to: `MediaVault/${newName}`,
+                    from: `MEEM/${oldName}`,
+                    to: `MEEM/${newName}`,
                     directory: 'DOCUMENTS'
                 });
                 return true;
@@ -2678,11 +2784,11 @@
         getProfileMediaPaths: async (profileName) => {
             if (!isAndroid) return { movies: '', shows: '', social: '', music: '' };
             return {
-                movies: `MediaVault/${profileName}/Movies`,
-                shows: `MediaVault/${profileName}/Series`,
-                social: `MediaVault/${profileName}/Social`,
-                music: `MediaVault/${profileName}/Music`,
-                downloads: `MediaVault/${profileName}/Downloads`
+                movies: `MEEM/${profileName}/Movies`,
+                shows: `MEEM/${profileName}/Series`,
+                social: `MEEM/${profileName}/Social`,
+                music: `MEEM/${profileName}/Music`,
+                downloads: `MEEM/${profileName}/Downloads`
             };
         },
 
@@ -2723,8 +2829,10 @@
             if (channel === 'load-app-data') return window.api.loadData();
             if (channel === 'save-app-data') return window.api.saveData(args[0]);
             if (channel === 'search-addons') return window.api.searchAddons(args[0]);
-            if (channel === 'ensure-profile-folders') return window.api.ensureProfileFolders(args[0]);
-            if (channel === 'get-profile-media-paths') return window.api.getProfileMediaPaths(args[0]);
+            if (channel === 'ensure-profile-folders') return (typeof window.api.ensureProfileFolders === 'function') ? window.api.ensureProfileFolders(args[0]) : true;
+            if (channel === 'get-profile-media-paths') return (typeof window.api.getProfileMediaPaths === 'function') ? window.api.getProfileMediaPaths(args[0]) : { movies: '', series: '', social: '', music: '' };
+            if (channel === 'rename-profile-folders') return (typeof window.api.renameProfileFolders === 'function') ? window.api.renameProfileFolders(args[0], args[1]) : true;
+            if (channel === 'delete-profile-data') return (typeof window.api.deleteProfileData === 'function') ? window.api.deleteProfileData(args[0]) : true;
             if (channel === 'lock-orientation') return window.api.lockOrientation(args[0]);
             if (channel === 'unlock-orientation') return window.api.unlockOrientation();
             if (channel === 'open-in-vlc') return window.api.playMedia(typeof args[0] === 'object' ? args[0] : { path: args[0] });
@@ -2738,7 +2846,7 @@
             if (channel === 'cloud-login') return window.api.cloudLogin(args[0]?.email, args[0]?.password);
             if (channel === 'cloud-register') return window.api.cloudRegister(args[0]?.email, args[0]?.password, args[0]?.username);
             if (channel === 'cloud-verify-otp') return window.api.cloudVerifyOtp(args[0]?.email, args[0]?.token);
-            if (channel === 'cloud-sync-user-session') return window.api.cloudSyncUserSession(args[0]?.userId, args[0]?.email, args[0]?.username, args[0]?.session);
+            if (channel === 'cloud-sync-user-session') return window.api.cloudSyncUserSession(args[0]);
             if (channel === 'clear-session') {
                 // Log out across ALL storage layers (memory + localStorage + Preferences),
                 // otherwise the persisted session in Preferences would survive logout.
@@ -2772,6 +2880,378 @@
             if (channel === 'cloud-fetch-requests') return window.api.cloudFetchRequests();
             if (channel === 'cloud-create-request') return window.api.cloudCreateRequest(args[0]?.title);
             if (channel === 'cloud-admin-mutate') return window.api.cloudAdminMutate(args[0]?.action, args[0]?.payload);
+
+            // Custom Lists & Collaboration IPC handlers for Mobile & Web
+            if (channel === 'cloud-refresh-custom-lists') {
+                const profileId = args[0]?.profileId;
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data: { user } } = await client.auth.getUser();
+                    if (!user) return { success: false, error: 'User not authenticated' };
+                    let profileIds = [profileId];
+                    try {
+                        const { data: userProfiles } = await client
+                            .from('account_profiles')
+                            .select('id')
+                            .eq('user_id', user.id);
+                        if (userProfiles && userProfiles.length > 0) {
+                            profileIds = userProfiles.map(p => p.id);
+                        }
+                    } catch (_) {}
+
+                    const { data: listsData, error: clError } = await client
+                        .from('custom_lists')
+                        .select('id, profile_id, list_name, theme_color, type, list_items(id, media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
+                        .in('profile_id', profileIds);
+                    if (clError) throw clError;
+
+                    let sharedLists = [];
+                    const { data: memberRefs } = await client
+                        .from('list_members')
+                        .select('list_id')
+                        .eq('user_id', user.id)
+                        .eq('status', 'joined');
+                    if (memberRefs && memberRefs.length > 0) {
+                        const sharedListIds = memberRefs.map(m => m.list_id);
+                        const { data: fetchedShared, error: sharedError } = await client
+                            .from('custom_lists')
+                            .select('id, profile_id, list_name, theme_color, type, list_items(id, media_id, type, title, poster_path, backdrop_path, release_date, vote_average, overview, source, mal_id, anime_id, item_data, added_at)')
+                            .in('id', sharedListIds);
+                        if (!sharedError && fetchedShared) sharedLists = fetchedShared;
+                    }
+                    return { success: true, listsData: listsData || [], sharedLists: sharedLists || [] };
+                } catch (e) {
+                    console.error('[Bridge] cloud-refresh-custom-lists failed:', e);
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-remove-list-item') {
+                const { listId, mediaId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { error } = await client
+                        .from('list_items')
+                        .delete()
+                        .eq('list_id', listId)
+                        .eq('media_id', String(mediaId));
+                    if (error) throw error;
+                    return { success: true };
+                } catch (e) {
+                    console.error('[Bridge] cloud-remove-list-item failed:', e);
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-delete-custom-list') {
+                const { listId, profileId } = args[0] || {};
+                const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+                if (!isUuid(listId)) {
+                    return { success: true };
+                }
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data: { user } } = await client.auth.getUser();
+                    const { data: listData } = await client
+                        .from('custom_lists')
+                        .select('profile_id')
+                        .eq('id', listId)
+                        .maybeSingle();
+                    if (listData && listData.profile_id === profileId) {
+                        await client.from('custom_lists').delete().eq('id', listId);
+                    } else if (user) {
+                        await client.from('list_members').delete().eq('list_id', listId).eq('user_id', user.id);
+                    }
+                    return { success: true };
+                } catch (e) {
+                    console.error('[Bridge] cloud-delete-custom-list failed:', e);
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-get-pending-invitations') {
+                const client = getSupabaseClient();
+                if (!client) return { success: true, data: [] };
+                try {
+                    const { data: { user } } = await client.auth.getUser();
+                    if (!user) return { success: true, data: [] };
+                    const { data, error } = await client.rpc('get_pending_invitations', { caller_id: user.id });
+                    if (error) throw error;
+                    return { success: true, data: data || [] };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-accept-invitation') {
+                const { membershipId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data: { user } } = await client.auth.getUser();
+                    const { data, error } = await client.rpc('accept_invitation', { p_membership_id: membershipId, p_user_id: user.id });
+                    if (error) throw error;
+                    return { success: true, data };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-decline-invitation') {
+                const { membershipId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data: { user } } = await client.auth.getUser();
+                    const { error } = await client.from('list_members').delete().eq('id', membershipId).eq('user_id', user.id);
+                    if (error) throw error;
+                    return { success: true };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-get-list-sharing-members') {
+                const { listId, ownerProfileId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data: ownerProf } = await client.from('account_profiles').select('id, name, avatar, user_id').eq('id', ownerProfileId).maybeSingle();
+                    const { data: memberRows } = await client.from('list_members').select('user_id, target_profile_id').eq('list_id', listId).eq('status', 'joined');
+                    let joinedMemberProfiles = [];
+                    if (memberRows && memberRows.length > 0) {
+                        const targetProfIds = memberRows.map(m => m.target_profile_id).filter(Boolean);
+                        const legacyUserIds = memberRows.filter(m => !m.target_profile_id).map(m => m.user_id).filter(Boolean);
+                        const fetchedMap = new Map();
+                        if (targetProfIds.length > 0) {
+                            const { data: profsById } = await client.from('account_profiles').select('id, name, avatar, user_id').in('id', targetProfIds);
+                            if (profsById) profsById.forEach(p => fetchedMap.set(p.id, p));
+                        }
+                        if (legacyUserIds.length > 0) {
+                            const { data: profsByUser } = await client.from('account_profiles').select('id, name, avatar, user_id').in('user_id', legacyUserIds);
+                            if (profsByUser) {
+                                const seenUsers = new Set();
+                                profsByUser.forEach(p => {
+                                    if (!seenUsers.has(p.user_id)) {
+                                        seenUsers.add(p.user_id);
+                                        if (!fetchedMap.has(p.id)) fetchedMap.set(p.id, p);
+                                    }
+                                });
+                            }
+                        }
+                        joinedMemberProfiles = Array.from(fetchedMap.values());
+                    }
+                    return { success: true, ownerProf, joinedMemberProfiles };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-invite-collaborator') {
+                const { listId, targetUserId, targetProfileId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const insertObj = { list_id: listId, user_id: targetUserId, role: 'member', status: 'pending' };
+                    if (targetProfileId) insertObj.target_profile_id = targetProfileId;
+                    const { error } = await client.from('list_members').insert(insertObj);
+                    if (error && error.code === '23505') return { success: false, exists: true, message: 'Already invited or member' };
+                    if (error) throw error;
+                    return { success: true };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-kick-list-member') {
+                const { listId, targetUserId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { error } = await client.from('list_members').delete().eq('list_id', listId).eq('user_id', targetUserId);
+                    if (error) throw error;
+                    return { success: true };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-transfer-list-ownership') {
+                const { listId, targetProfileId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { error } = await client.from('custom_lists').update({ profile_id: targetProfileId }).eq('id', listId);
+                    if (error) throw error;
+                    return { success: true };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-load-chat-history') {
+                const { listId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data, error } = await client
+                        .from('collection_messages')
+                        .select(`
+                            id,
+                            message_text,
+                            created_at,
+                            profile_id,
+                            account_profiles (
+                                name,
+                                avatar,
+                                avatar_border_color
+                            )
+                        `)
+                        .eq('list_id', listId)
+                        .order('created_at', { ascending: true })
+                        .limit(100);
+                    if (error) throw error;
+                    return { success: true, data: data || [] };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-send-chat-message') {
+                const { listId, profileId, text } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data, error } = await client
+                        .from('collection_messages')
+                        .insert({
+                            list_id: listId,
+                            profile_id: profileId,
+                            message_text: text
+                        })
+                        .select()
+                        .single();
+                    if (error) throw error;
+                    return { success: true, data };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-send-media-share') {
+                const { listId, profileId, media } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const shareObj = {
+                        id: media.id,
+                        mediaId: media.id,
+                        title: media.title || media.name || '',
+                        posterUrl: media.posterUrl || media.poster || media.poster_path || media.thumbnail || '',
+                        poster: media.posterUrl || media.poster || media.poster_path || media.thumbnail || '',
+                        thumbnail: media.thumbnail || media.posterUrl || media.poster || '',
+                        mediaType: media.mediaType || media.type || (media.media_type) || 'movie',
+                        type: media.type || media.mediaType || (media.media_type) || 'movie',
+                        artist: media.artist || '',
+                        album: media.album || '',
+                        duration: media.duration || 0,
+                        durationFormatted: media.durationFormatted || ''
+                    };
+                    const { data, error } = await client
+                        .from('collection_messages')
+                        .insert({
+                            list_id: listId,
+                            profile_id: profileId,
+                            message_text: `[MEDIA_SHARE]:${JSON.stringify(shareObj)}`
+                        })
+                        .select()
+                        .single();
+                    if (error) throw error;
+                    return { success: true, data };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-upload-chat-image') {
+                const { base64Data, mimeType } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], { type: mimeType });
+                    const fileName = `chat/${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+                    const { data, error } = await client.storage
+                        .from('avatars')
+                        .upload(fileName, blob, { contentType: mimeType, upsert: true });
+                    if (error) throw error;
+                    const { data: publicUrlData } = client.storage
+                        .from('avatars')
+                        .getPublicUrl(fileName);
+                    return { success: true, url: publicUrlData?.publicUrl };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-delete-chat-message') {
+                const { messageId } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { error } = await client
+                        .from('collection_messages')
+                        .delete()
+                        .eq('id', messageId);
+                    if (error) throw error;
+                    return { success: true };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-update-profile-avatar-color') {
+                const { profileId, avatarBorderColor } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { error } = await client
+                        .from('account_profiles')
+                        .update({ avatar_border_color: avatarBorderColor })
+                        .eq('id', profileId);
+                    if (error) throw error;
+                    return { success: true };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-get-allow-invitations') {
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data: { user } } = await client.auth.getUser();
+                    if (!user) throw new Error('Not authenticated');
+                    const { data, error } = await client
+                        .from('users_accounts')
+                        .select('allow_invitations')
+                        .eq('id', user.id)
+                        .maybeSingle();
+                    if (error) throw error;
+                    return { success: true, allowInvitations: data?.allow_invitations !== false };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
+            if (channel === 'cloud-set-allow-invitations') {
+                const { allow } = args[0] || {};
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'Client not ready' };
+                try {
+                    const { data: { user } } = await client.auth.getUser();
+                    if (!user) throw new Error('Not authenticated');
+                    const { error } = await client
+                        .from('users_accounts')
+                        .update({ allow_invitations: Boolean(allow) })
+                        .eq('id', user.id);
+                    if (error) throw error;
+                    return { success: true };
+                } catch (e) {
+                    return { success: false, error: e.message };
+                }
+            }
             if (channel === 'move-file') return window.api.moveFile(args[0]);
             if (channel === 'create-folder') return window.api.createFolder(args[0]);
             if (channel === 'open-external' || channel === 'open-external-url') {
@@ -2950,7 +3430,7 @@
             return results;
         },
         getProfileMediaPaths: async (profileName) => {
-             const base = `MediaVault/${profileName || 'Default'}`;
+             const base = `MEEM/${profileName || 'Default'}`;
              return {
                  movies: `${base}/Movies`,
                  series: `${base}/Series`,
@@ -3134,7 +3614,7 @@
         createFolder: async (folderPath) => {
             if (!isAndroid) return false;
             try {
-                // Remove leading slash and ensure path starts with MediaVault/
+                // Remove leading slash and ensure path starts with MEEM/
                 let cleanPath = folderPath;
                 if (cleanPath.startsWith('/')) cleanPath = cleanPath.substring(1);
                 
@@ -3159,7 +3639,7 @@
         },
         setZoom: (f) => {},
         openInExternalPlayer: async (path) => {
-            if (isAndroid) return PlayMediaService.play(path, { title: 'MediaVault Player' });
+            if (isAndroid) return PlayMediaService.play(path, { title: 'MEEM Player' });
             return window.api.playMedia(typeof path === 'object' ? path : { path });
         },
         downloadFile: async (url, name) => window.api.startDownload({ url, name }),
@@ -3184,6 +3664,52 @@
         },
         getDefaultLibraryRoot: async () => {
             return isAndroid ? 'MEEM' : 'C:/MEEM';
+        },
+        ensureProfileFolders: async (profileName) => {
+            if (!profileName) return true;
+            if (isAndroid) {
+                try {
+                    const fs = window.Capacitor?.Plugins?.Filesystem;
+                    if (fs) {
+                        for (const sub of ['Movies', 'Series', 'Social', 'Music']) {
+                            await fs.mkdir({
+                                path: `MEEM/${profileName}/${sub}`,
+                                directory: 'DOCUMENTS',
+                                recursive: true
+                            }).catch(() => {});
+                        }
+                    }
+                } catch (_) {}
+            }
+            return true;
+        },
+        getProfileMediaPaths: async (profileName) => {
+            if (!profileName) return null;
+            return {
+                movies: `MEEM/${profileName}/Movies`,
+                series: `MEEM/${profileName}/Series`,
+                social: `MEEM/${profileName}/Social`,
+                music: `MEEM/${profileName}/Music`
+            };
+        },
+        renameProfileFolders: async (oldName, newName) => {
+            if (!oldName || !newName || oldName === newName) return true;
+            if (isAndroid) {
+                try {
+                    const fs = window.Capacitor?.Plugins?.Filesystem;
+                    if (fs) {
+                        await fs.rename({
+                            from: `MEEM/${oldName}`,
+                            to: `MEEM/${newName}`,
+                            directory: 'DOCUMENTS'
+                        }).catch(() => {});
+                    }
+                } catch (_) {}
+            }
+            return true;
+        },
+        deleteProfileData: async (profileName) => {
+            return true;
         },
 
         getCommonPaths: async () => {
@@ -3421,8 +3947,8 @@
         playNative: async (options) => {
             if (!isAndroid) return { success: false, error: 'Not on Android' };
             const { url, title } = options;
-            console.log('[Bridge] playNative â†’ Internal Player:', title, url);
-            return PlayMediaService.play(url, { title: title || 'MediaVault' });
+            console.log('[Bridge] playNative → Internal Player:', title, url);
+            return PlayMediaService.play(url, { title: title || 'MEEM' });
         },
 
         /**

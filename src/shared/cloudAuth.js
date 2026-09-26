@@ -9,12 +9,19 @@ const { getSuperAdminEmail } = require('./supabaseEnv');
  * @param {Object} user - The raw user object from the database.
  * @returns {Object|null} The sanitized user object, or null if input is empty.
  */
+const ADMIN_EMAILS = [
+  'amro.motawa@icloud.com',
+  'amromotaw3@gmail.com',
+  'amro.motawa@gmail.com'
+];
+
 function sanitizeUser(user) {
   if (!user) return null;
   const { password_hash, ...safe } = user;
   const email = (safe.email || '').toLowerCase().trim();
-  const isSuperAdmin = email === getSuperAdminEmail().toLowerCase().trim();
-  safe.role = isSuperAdmin ? 'admin' : (safe.role || 'user');
+  const superAdminEmail = (getSuperAdminEmail() || '').toLowerCase().trim();
+  const isSuperAdmin = ADMIN_EMAILS.includes(email) || (superAdminEmail && email === superAdminEmail);
+  safe.role = isSuperAdmin ? 'admin' : (safe.role === 'admin' ? 'admin' : 'user');
   return safe;
 }
 
@@ -247,6 +254,22 @@ async function verifyOtpUser(email, token, hardwareId) {
         email: cleanEmail,
         token: cleanToken,
         type: 'email'
+      });
+    }
+
+    if (verifyRes.error) {
+      verifyRes = await client.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanToken,
+        type: 'magiclink'
+      });
+    }
+
+    if (verifyRes.error) {
+      verifyRes = await client.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanToken,
+        type: 'recovery'
       });
     }
 

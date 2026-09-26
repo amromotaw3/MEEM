@@ -41,14 +41,18 @@
     const appData = window.appData || {};
     const addons = appData.installedAddons || [];
 
-    const hasCatalogAddon = hasAddon(addons, ['cinemeta', 'tmdb', 'tmdb-addon', 'tmdb.elfhosted']);
+    const hasKitsuAddon = hasAddon(addons, ['kitsu', 'kitsu-anime', 'com.meem.kitsu', 'com.mediavault.kitsu']);
+    const hasTmdbAddon = hasAddon(addons, ['tmdb', 'tmdb-addon', 'tmdb.elfhosted', 'com.meem.tmdb', 'com.mediavault.tmdb']);
+    const hasFanartAddon = hasAddon(addons, ['fanart', 'fanart.tv', 'com.meem.fanart', 'com.mediavault.fanart']);
+    const hasCinemetaAddon = hasAddon(addons, ['cinemeta', 'stremio-cinemeta']);
+    const hasCatalogAddon = hasCinemetaAddon || hasTmdbAddon;
     const hasSubAddon = hasAddon(addons, ['subdl', 'opensubtitles', 'subscene']);
     const hasYoutubeAddon = addons.some(a => {
       if (a.enabled === false) return false;
       const id = String(a.id || '').toLowerCase();
       const url = String(a.url || a.manifestUrl || '').toLowerCase();
       const name = String(a.name || '').toLowerCase();
-      return id === 'com.mediavault.youtube' || url.includes('addon-youtube') || (id.includes('youtube') && !id.includes('music') && !id.includes('ytmusic')) || (name === 'youtube' || name.includes('youtube addon'));
+      return id === 'com.meem.youtube' || id === 'com.mediavault.youtube' || url.includes('addon-youtube') || (id.includes('youtube') && !id.includes('music') && !id.includes('ytmusic')) || (name === 'youtube' || name.includes('youtube addon'));
     });
     const hasMusicAddon = addons.some(a => {
       if (a.enabled === false) return false;
@@ -57,6 +61,7 @@
       const name = String(a.name || '').toLowerCase();
       return id === 'com.meem.music.player' || id.includes('music.player') || id.includes('ytmusic') || (id.includes('music') && !id.includes('schedule')) || url.includes('addon-music') || url.includes('music-player') || name.includes('music') || name.includes('spotify');
     });
+
     const hasTmdbConfig = Boolean(appData.tmdbKey && appData.tmdbEnabled !== false);
 
     const prevBannerSearch = state.bannerSearch;
@@ -65,11 +70,16 @@
     const prevYoutube = state.youtube;
     const prevMusic = state.music;
 
+    state.kitsu = hasKitsuAddon;
+    state.tmdb = hasTmdbAddon && hasTmdbConfig;
+    state.fanart = hasFanartAddon;
+    state.cinemeta = hasCinemetaAddon;
     state.catalog = hasCatalogAddon;
-    state.bannerSearch = hasCatalogAddon; // Banner search relies on Cinemeta / TMDB addons
+    state.bannerSearch = (hasTmdbAddon && hasTmdbConfig) || hasFanartAddon;
+    state.avatarSearch = hasKitsuAddon;
     state.subtitles = hasSubAddon;
     state.tmdbImages = hasTmdbConfig;
-    state.animeSearch = true;
+    state.animeSearch = hasKitsuAddon;
     state.localMovies = Array.isArray(appData.movies) && appData.movies.length > 0;
     state.localShows = Array.isArray(appData.shows) && appData.shows.length > 0;
     state.youtube = hasYoutubeAddon;
@@ -90,7 +100,6 @@
     return state;
   }
 
-
   function can(feature) {
     refresh();
     switch (feature) {
@@ -98,6 +107,16 @@
       case 'bannerSearch':
       case 'banner-search':
         return state.bannerSearch;
+      case 'avatar':
+      case 'avatarSearch':
+      case 'avatar-search':
+        return state.avatarSearch;
+      case 'kitsu':
+        return state.kitsu;
+      case 'tmdb':
+        return state.tmdb;
+      case 'fanart':
+        return state.fanart;
       case 'catalog':
         return state.catalog;
       case 'movies':
@@ -108,7 +127,6 @@
       case 'tmdb-images':
         return state.tmdbImages;
       case 'anime':
-      case 'avatar':
         return state.animeSearch;
       case 'music':
       case 'music-player':

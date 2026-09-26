@@ -15,23 +15,32 @@ const BEST_TRACKERS = [
   'udp://tracker.torrent.eu.org:451/announce',
   'udp://tracker.dler.org:6969/announce',
   'udp://explodie.org:6969/announce',
-  'udp://opentracker.i2p.rocks:6969/announce',
-  'udp://tracker.bittor.pw:1337/announce',
-  'udp://movies.subtlety.onl:2710/announce',
-  'udp://tracker.coppersurfer.tk:6969/announce',
-  'udp://tracker.leechers-paradise.org:6969/announce',
-  'udp://p4p.arenabg.com:1337/announce',
-  'udp://tracker.internetwarriors.net:1337/announce',
   'udp://open.demonii.com:1337/announce',
-  'udp://tracker.tiny-vps.com:6969/announce',
-  'http://tracker.openbittorrent.com:80/announce',
+  'udp://tracker.moeking.me:6969/announce',
+  'udp://tracker.theoks.net:6969/announce',
+  'udp://retracker.lanta-net.ru:2710/announce',
   'http://tracker.opentrackr.org:1337/announce',
-  'https://tracker.tamersunion.org:443/announce',
+  'http://tracker.openbittorrent.com:80/announce',
   'wss://tracker.btorrent.xyz',
   'wss://tracker.openwebtorrent.com'
 ];
 
 const VIDEO_EXTENSIONS = /\.(mp4|mkv|avi|webm|mov|m4v|wmv|flv|ts|mpg|mpeg)$/i;
+
+// ─── BROADCAST TORRENT STATUS TO ELECTRON RENDERERS ─────────────────────────
+function broadcastTorrentStatus(stats) {
+  try {
+    const { BrowserWindow } = require('electron');
+    if (BrowserWindow && typeof BrowserWindow.getAllWindows === 'function') {
+      const windows = BrowserWindow.getAllWindows();
+      for (const win of windows) {
+        if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('torrent-stream-status', stats);
+        }
+      }
+    }
+  } catch (_) {}
+}
 
 // ─── WEBTORRENT CLIENT LOADER ────────────────────────────────────────────────
 let WebTorrent = null;
@@ -66,11 +75,10 @@ async function getWTClient() {
   if (!wtClient) {
     const WT = await getWT();
     wtClient = new WT({
-      maxConns: 500,
+      maxConns: 200,
       dht: true,
       tracker: true,
       lsd: true,
-      utp: true,
       downloadLimit: -1,
       uploadLimit: -1
     });
@@ -162,9 +170,11 @@ function startPermanentCompatServer() {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
       res.setHeader('Access-Control-Allow-Headers', '*');
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
       res.setHeader('Server', 'MediaVault/3.0');
 
       if (req.method === 'OPTIONS') {
+        res.setHeader('Access-Control-Allow-Private-Network', 'true');
         res.writeHead(204);
         res.end();
         return;
@@ -183,6 +193,11 @@ function startPermanentCompatServer() {
           status: 'online',
           stremio: true,
           version: '4.4.160',
+          serverVersion: '4.4.160',
+          baseUrl: `http://127.0.0.1:${currentPort}`,
+          appPath: '',
+          cacheSize: 2147483648,
+          btMaxConnections: 55,
           torrents: []
         };
         if (activeTorrent && activeTargetFile) {
@@ -263,10 +278,19 @@ function startPermanentCompatServer() {
       // ── FILE RESOLUTION ──────────────────────────────────────────────────
       let targetFile = activeTargetFile;
       const pathParts = url.pathname.split('/').filter(Boolean);
-      const requestedIdx = pathParts[0] && !isNaN(parseInt(pathParts[0], 10)) ? parseInt(pathParts[0], 10) : null;
+      let requestedIdx = null;
 
-      if (requestedIdx !== null && activeTorrent && activeTorrent.files && activeTorrent.files[requestedIdx]) {
-        targetFile = activeTorrent.files[requestedIdx];
+      if (pathParts.length >= 2 && pathParts[0].length === 40) {
+        // Standard Stremio stream URL: /<infoHash>/<fileIdx>
+        const reqIdx = parseInt(pathParts[1], 10);
+        if (!isNaN(reqIdx) && activeTorrent && activeTorrent.files && activeTorrent.files[reqIdx]) {
+          targetFile = activeTorrent.files[reqIdx];
+        }
+      } else {
+        requestedIdx = pathParts[0] && !isNaN(parseInt(pathParts[0], 10)) ? parseInt(pathParts[0], 10) : null;
+        if (requestedIdx !== null && activeTorrent && activeTorrent.files && activeTorrent.files[requestedIdx]) {
+          targetFile = activeTorrent.files[requestedIdx];
+        }
       }
 
       if (!targetFile) {
@@ -527,7 +551,10 @@ async function startStreaming(magnetOrHash, fileIdx = null, progressCb = null) {
       activeInfoHash = infoHash || torrent.infoHash;
       activeMagnet = magnet;
 
-      // Progress reporting
+      let startDownloaded = 0;
+      let targetBufferBytes = 2 * 1024 * 1024;
+
+      // Progress reporting & broadcasting
       if (_progInterval) clearInterval(_progInterval);
       _progInterval = setInterval(() => {
         if (!activeTorrent || activeTorrent !== torrent) {
@@ -537,12 +564,19 @@ async function startStreaming(magnetOrHash, fileIdx = null, progressCb = null) {
         const totalSize = activeTargetFile ? activeTargetFile.length : (torrent.length || 1);
         const downloaded = torrent.downloaded || 0;
         const pct = Math.min(100, (downloaded / totalSize) * 100);
+        const newlyDownloaded = activeTargetFile ? Math.max(0, downloaded - startDownloaded) : 0;
+        const bufferRatio = activeTargetFile ? Math.min(1, newlyDownloaded / targetBufferBytes) : 0;
         const speedMb = (torrent.downloadSpeed / 1024 / 1024).toFixed(2);
         const stats = {
-          status: activeTargetFile ? 'streaming' : 'fetching_metadata',
-          statusText: activeTargetFile ? 'Streaming torrent pieces...' : 'Connecting to DHT & Swarm Peers...',
+          status: activeTargetFile ? 'buffering' : 'connecting',
+          statusText: activeTargetFile ? 'Buffering torrent pieces...' : 'Connecting to DHT & Swarm Peers...',
           speed: `${speedMb} MB/s`,
+          speedRaw: torrent.downloadSpeed || 0,
           percent: `${pct.toFixed(1)}%`,
+          percentRaw: pct,
+          bufferRatio: bufferRatio,
+          bufferedBytes: newlyDownloaded,
+          targetBufferBytes: targetBufferBytes,
           peers: torrent.numPeers || 0,
           downloaded: `${(downloaded / 1024 / 1024).toFixed(1)} MB`,
           total: activeTargetFile ? `${(activeTargetFile.length / 1024 / 1024).toFixed(1)} MB` : '...',
@@ -550,17 +584,16 @@ async function startStreaming(magnetOrHash, fileIdx = null, progressCb = null) {
         };
         currentProgress = stats;
         if (progressCb) progressCb(stats);
-        if (torrent.numPeers > 0 && Math.random() < 0.25) {
+        broadcastTorrentStatus(stats);
+        if (torrent.numPeers > 0 && Math.random() < 0.1) {
           console.log(`[Streamer/Diag] ⚡ Speed: ${stats.speed} | 👥 Peers: ${stats.peers} | 💾 ${stats.downloaded} / ${stats.total} (${stats.percent}) | 🎬 ${stats.fileName}`);
         }
-      }, 1000);
+      }, 350);
 
       torrent.on('ready', () => {
         if (resolved) return;
-        resolved = true;
-        clearTimeout(timeout);
 
-        console.log(`[Streamer] ✓ WebTorrent ready! Found ${torrent.files.length} files in torrent.`);
+        console.log(`[Streamer] ✓ WebTorrent metadata ready! Found ${torrent.files.length} files in torrent.`);
 
         let file = null;
         const numIdx = fileIdx != null ? parseInt(fileIdx, 10) : null;
@@ -570,6 +603,8 @@ async function startStreaming(magnetOrHash, fileIdx = null, progressCb = null) {
         if (!file) file = findBestVideoFile(torrent.files);
 
         if (!file) {
+          resolved = true;
+          clearTimeout(timeout);
           stopStreaming().catch(() => {});
           return reject(new Error('No video files found in torrent'));
         }
@@ -583,26 +618,76 @@ async function startStreaming(magnetOrHash, fileIdx = null, progressCb = null) {
 
         console.log(`[Streamer] Selected file: "${file.name}" (${(file.length / 1024 / 1024).toFixed(1)} MB)`);
 
+        // ── CRITICAL PIECE PRIORITIZATION (Container Headers & Seek Index) ──
+        const pLen = torrent.pieceLength || (1024 * 1024);
+        const piecesFor4MB = Math.max(3, Math.ceil((4 * 1024 * 1024) / pLen));
+        const headEnd = Math.min(file._endPiece, file._startPiece + piecesFor4MB);
+        for (let p = file._startPiece; p <= headEnd; p++) {
+          try { torrent.critical(p); } catch (_) {}
+        }
+        const tailStart = Math.max(headEnd + 1, file._endPiece - 2);
+        for (let p = tailStart; p <= file._endPiece; p++) {
+          try { torrent.critical(p); } catch (_) {}
+        }
+
         const currentPort = getStreamServerPort();
         const localIp = ip.address();
         const safeName = encodeURIComponent(file.name);
         const isAvi = /\.avi$/i.test(file.name);
 
-        resolve({
-          success: true,
-          url: `http://${localIp}:${currentPort}/${activeFileIndex}/${safeName}`,
-          localUrl: `http://127.0.0.1:${currentPort}/${activeFileIndex}/${safeName}${isAvi ? '?transcode=full' : ''}`,
-          playlistUrl: `http://127.0.0.1:${currentPort}/playlist.m3u`,
-          title: file.name,
-          fileIdx: activeFileIndex,
-          infoHash: activeInfoHash,
-          files: torrent.files.map((f, i) => ({
-            idx: i,
-            name: f.name,
-            size: f.length,
-            isPlayed: i === activeFileIndex
-          })).filter(f => VIDEO_EXTENSIONS.test(f.name))
-        });
+        startDownloaded = torrent.downloaded || 0;
+        targetBufferBytes = Math.min(file.length, 2 * 1024 * 1024); // 2 MB initial buffer
+
+        const finishResolution = () => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeout);
+
+          broadcastTorrentStatus({
+            status: 'ready',
+            statusText: 'Launching MEEM Player...',
+            speed: `${((torrent.downloadSpeed || 0) / 1024 / 1024).toFixed(2)} MB/s`,
+            speedRaw: torrent.downloadSpeed || 0,
+            peers: torrent.numPeers || 0,
+            percent: '100%',
+            percentRaw: 100,
+            bufferRatio: 1.0,
+            bufferedBytes: targetBufferBytes,
+            targetBufferBytes: targetBufferBytes,
+            fileName: file.name
+          });
+
+          resolve({
+            success: true,
+            url: `http://${localIp}:${currentPort}/${activeFileIndex}/${safeName}`,
+            localUrl: `http://127.0.0.1:${currentPort}/${activeFileIndex}/${safeName}${isAvi ? '?transcode=full' : ''}`,
+            playlistUrl: `http://127.0.0.1:${currentPort}/playlist.m3u`,
+            title: file.name,
+            fileIdx: activeFileIndex,
+            infoHash: activeInfoHash,
+            files: torrent.files.map((f, i) => ({
+              idx: i,
+              name: f.name,
+              size: f.length,
+              isPlayed: i === activeFileIndex
+            })).filter(f => VIDEO_EXTENSIONS.test(f.name))
+          });
+        };
+
+        // Smart pre-buffer check: wait until first 2MB is buffered or 3.5s safety timeout
+        const bufferCheckTimer = setInterval(() => {
+          const newlyDownloaded = (torrent.downloaded || 0) - startDownloaded;
+          if (newlyDownloaded >= targetBufferBytes || torrent.progress > 0.01) {
+            clearInterval(bufferCheckTimer);
+            clearTimeout(safetyTimer);
+            finishResolution();
+          }
+        }, 200);
+
+        const safetyTimer = setTimeout(() => {
+          clearInterval(bufferCheckTimer);
+          finishResolution();
+        }, 3500);
       });
 
       torrent.on('error', (err) => {
@@ -669,6 +754,7 @@ async function stopStreaming() {
     console.warn('[Streamer] Cleanup warning:', err.message);
   } finally {
     _stopStreamingInProgress = false;
+    broadcastTorrentStatus({ status: 'stopped' });
   }
   return { success: true };
 }
@@ -799,6 +885,8 @@ function initStreamerIpc(ipcMain) {
   ipcMain.handle('probe-media-url', async (_event, url, timeoutMs) => {
     return await probeUrl(url, timeoutMs);
   });
+
+  // Note: 'stop-torrent-stream' is unified and registered in main.js
 
   console.log('[Streamer] ✓ Turbo WebTorrent Streamer IPC handlers registered');
 }

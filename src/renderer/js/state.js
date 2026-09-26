@@ -1,3 +1,16 @@
+if (typeof window.isAgeAllowed !== 'function') {
+  window.isAgeAllowed = function(item) { return true; };
+}
+
+function getBadgeHTML(item) {
+  if (!item) return '';
+  const isKitsu = item.source === 'kitsu' || item.source === 'anilist' || item.format;
+  const source = isKitsu ? 'KITSU' : (item.source ? String(item.source).toUpperCase() : 'TMDB');
+  const typeLabel = (item.media_type === 'movie' || item.type === 'movie' || (isKitsu && item.format === 'MOVIE')) ? 'MOVIE' : 'SERIES';
+  return `<span class="discover-meta-badge">${(typeof escapeHTML === 'function' ? escapeHTML(source) : source)} • ${(typeof escapeHTML === 'function' ? escapeHTML(typeLabel) : typeLabel)}</span>`;
+}
+window.getBadgeHTML = getBadgeHTML;
+
 // Renderer console log interceptor
 (function() {
   const originalLog = console.log;
@@ -223,6 +236,25 @@ async function requestNativePlayback(item, show, extra = {}) {
     pathUrl = `https://www.youtube.com/watch?v=${item.videoId || item.id}`;
   }
 
+  let extraAudioUrl = extra.audio || extra.audioUrl || item.audio || item.audioUrl || null;
+
+  if (item.isYoutube || item.type === 'youtube' || (pathUrl && (pathUrl.includes('youtube.com') || pathUrl.includes('youtu.be')))) {
+    const vId = item.videoId || (item.id && String(item.id).replace(/^yt:/, '')) || (pathUrl ? (pathUrl.match(/(?:v=|\/embed\/|\/1.1\/|v\/|https:\/\/youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)?.[1]) : null);
+    if (vId && window.api?.invoke) {
+      try {
+        const ytInfo = await window.api.invoke('youtube-get-video-info', { videoId: vId, quality: '1080' });
+        if (ytInfo?.success && ytInfo.details?.streamUrl) {
+          pathUrl = ytInfo.details.streamUrl;
+          if (ytInfo.details.audioStreamUrl) {
+            extraAudioUrl = ytInfo.details.audioStreamUrl;
+          }
+        }
+      } catch (e) {
+        console.warn('[requestNativePlayback] Could not resolve YouTube stream URL in renderer:', e);
+      }
+    }
+  }
+
   if (!pathUrl) {
     console.warn('[requestNativePlayback] Aborting: No valid stream URL or local path for item:', item);
     return { success: false, error: 'No valid stream URL or file path found' };
@@ -306,8 +338,7 @@ async function requestNativePlayback(item, show, extra = {}) {
       }
 
       const epTitle = ep.title || ep.name || tE?.name || `Episode ${epNum}`;
-      const targetShowId = showObj?.tmdbId || showObj?.tmdb_id || showObj?.imdbId || showObj?.imdb_id || showObj?.id || item?.tmdbId || item?.imdbId;
-      const epPath = ep.path || ep.url || ep.sourceUrl || (targetShowId ? `https://vidsrc.sbs/embed/tv/${String(targetShowId).replace(/^tmdb:/, '')}/${snNum}/${epNum}` : '');
+      const epPath = ep.path || ep.url || ep.sourceUrl || '';
 
       return {
         path: epPath,
@@ -346,6 +377,8 @@ async function requestNativePlayback(item, show, extra = {}) {
   return window.api.playMedia({
     path: pathUrl,
     url: pathUrl,
+    audio: extraAudioUrl,
+    audioUrl: extraAudioUrl,
     title: item.displayTitle || item.title || item.epTitle || item.name || 'Playback',
     startTime,
     pbKey,
@@ -360,12 +393,12 @@ async function requestNativePlayback(item, show, extra = {}) {
 
 getMusicMeta = function(item) {
   if (!item) return { title: 'Unknown', artist: 'Unknown Artist', cover: null };
-  const custom = appData.banners[item.id];
-  const override = appData.musicMetadata[item.id] || {};
+  const custom = appData.banners ? (appData.banners[item.id] || appData.banners[item.path]) : null;
+  const override = (appData.musicMetadata && (appData.musicMetadata[item.id] || appData.musicMetadata[item.path])) || {};
   return {
-    title: override.title || item.title || item.filename?.replace(/\.[^/.]+$/, '') || 'Unknown Title',
+    title: override.title || item.title || item.name || item.filename?.replace(/\.[^/.]+$/, '') || 'Unknown Title',
     artist: override.artist || item.artist || 'Unknown Artist',
-    cover: custom || override.cover || item.cover
+    cover: custom || override.cover || item.cover || item.thumbnail || item.poster || item.image || null
   };
 }
 

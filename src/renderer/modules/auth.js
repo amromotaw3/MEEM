@@ -16,7 +16,11 @@
 
   // Detect if running inside Capacitor native Android container
   const isCapacitorNative = () => {
-    return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+    return !!(
+      (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) ||
+      (window.Capacitor && window.Capacitor.platform && window.Capacitor.platform !== 'web') ||
+      (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile() && window.Capacitor)
+    );
   };
 
   // Resilient Multi-Environment Storage Adapter:
@@ -26,106 +30,135 @@
   const supabaseStorage = {
     getItem: async (key) => {
       try {
-        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+        if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
           const { value } = await window.Capacitor.Plugins.Preferences.get({ key });
-          return value ?? null;
+          if (value != null) return value;
         }
         if (window.api && typeof window.api.storageGet === 'function') {
-          return await window.api.storageGet(key);
+          const val = await window.api.storageGet(key);
+          if (val != null) return val;
         }
       } catch (e) {
         console.warn('[SupabaseStorage] getItem error:', e);
       }
-      return window.localStorage.getItem(key);
+      try {
+        return window.localStorage.getItem(key);
+      } catch (_) {
+        return null;
+      }
     },
     setItem: async (key, value) => {
       try {
-        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+        window.localStorage.setItem(key, String(value));
+      } catch (_) {}
+      try {
+        if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
           await window.Capacitor.Plugins.Preferences.set({ key, value: String(value) });
-          return;
         }
         if (window.api && typeof window.api.storageSet === 'function') {
-          await window.api.storageSet(key, value);
-          return;
+          await window.api.storageSet(key, String(value));
         }
       } catch (e) {
         console.warn('[SupabaseStorage] setItem error:', e);
       }
-      window.localStorage.setItem(key, value);
     },
     removeItem: async (key) => {
       try {
-        if (isCapacitorNative() && window.Capacitor.Plugins?.Preferences) {
+        window.localStorage.removeItem(key);
+      } catch (_) {}
+      try {
+        if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
           await window.Capacitor.Plugins.Preferences.remove({ key });
-          return;
         }
         if (window.api && typeof window.api.storageRemove === 'function') {
           await window.api.storageRemove(key);
-          return;
         }
       } catch (e) {
         console.warn('[SupabaseStorage] removeItem error:', e);
       }
-      window.localStorage.removeItem(key);
     }
   };
+
+  function withTimeout(promise, ms = 20000, timeoutMsg = 'Operation timed out') {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMsg)), ms))
+    ]);
+  }
 
   function getSupabaseRendererClient() {
     if (window._supabaseRendererClientShared) {
       return window._supabaseRendererClientShared;
     }
-    if (typeof window.getSupabaseRendererClient === 'function') {
-      return window.getSupabaseRendererClient();
+    if (_supabaseRendererClientLocal) {
+      return _supabaseRendererClientLocal;
+    }
+    if (typeof window.getSupabaseRendererClient === 'function' && window.getSupabaseRendererClient !== getSupabaseRendererClient) {
+      try {
+        const client = window.getSupabaseRendererClient();
+        if (client) {
+          _supabaseRendererClientLocal = client;
+          window._supabaseRendererClientShared = client;
+          return client;
+        }
+      } catch (_) {}
     }
     if (!window.supabase) throw new Error('Supabase not available');
 
     const nativePlatform = isCapacitorNative();
 
-    if (!_supabaseRendererClientLocal) {
-      _supabaseRendererClientLocal = window.supabase.createClient(
-        window.MEDIAVAULT_SUPABASE_URL || window.SUPABASE_URL,
-        window.MEDIAVAULT_SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY,
-        {
-          auth: {
-            persistSession: true,
-            autoRefreshToken: true,
-            flowType: 'pkce',
-            storage: supabaseStorage,
-            // Disable detectSessionInUrl on native Android because intent URLs are captured by appUrlOpen
-            detectSessionInUrl: !nativePlatform,
-            // CRITICAL FIX FOR ANDROID WEBVIEW HANG:
-            // Bypass navigator.locks on native Android to eliminate the deadlocks that freeze auth calls
-            lock: nativePlatform
-              ? async (_name, _acquireTimeout, fn) => await fn()
-              : undefined
-          }
+    _supabaseRendererClientLocal = window.supabase.createClient(
+      window.MEEM_SUPABASE_URL || window.MEDIAVAULT_SUPABASE_URL || window.SUPABASE_URL,
+      window.MEEM_SUPABASE_ANON_KEY || window.MEDIAVAULT_SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY,
+      {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          flowType: 'pkce',
+          storage: supabaseStorage,
+          // Disable detectSessionInUrl on native Android because intent URLs are captured by appUrlOpen
+          detectSessionInUrl: !nativePlatform,
+          // CRITICAL FIX FOR ANDROID WEBVIEW HANG:
+          // Bypass navigator.locks on native Android to eliminate the deadlocks that freeze auth calls
+          lock: nativePlatform
+            ? async (_name, _acquireTimeout, fn) => await fn()
+            : undefined
         }
-      );
-      window._supabaseRendererClientShared = _supabaseRendererClientLocal;
-      window.getSupabaseRendererClient = getSupabaseRendererClient;
+      }
+    );
+    window._supabaseRendererClientShared = _supabaseRendererClientLocal;
 
-      // Auto-sync refreshed session to main process
+    // Auto-sync refreshed session to main process (deduplicated)
+    if (!window.__supabaseAuthStateChangeRegistered) {
+      window.__supabaseAuthStateChangeRegistered = true;
       _supabaseRendererClientLocal.auth.onAuthStateChange(async (event, session) => {
         if (session) {
           console.log('[AUTH] onAuthStateChange event in modules/auth.js:', event);
-          await window.api.invoke('cloud-sync-user-session', {
-            userId: session.user.id,
-            email: session.user.email,
-            username: session.user.user_metadata?.username || session.user.user_metadata?.name || '',
-            session: {
-              access_token: session.access_token,
-              refresh_token: session.refresh_token
-            }
-          }).catch(err => console.error('[AUTH] Failed to sync session on auth state change:', err));
+          if (window.api && typeof window.api.invoke === 'function') {
+            await window.api.invoke('cloud-sync-user-session', {
+              userId: session.user.id,
+              email: session.user.email || session.user.user_metadata?.email || `${session.user.id}@oauth.local`,
+              username: session.user.user_metadata?.username || session.user.user_metadata?.name || '',
+              session: {
+                access_token: session.access_token,
+                refresh_token: session.refresh_token
+              }
+            }).catch(err => console.error('[AUTH] Failed to sync session on auth state change:', err));
+          }
         }
       });
     }
+
     return _supabaseRendererClientLocal;
   }
 
   async function finalizeLogout() {
     try {
       console.log('[LOGOUT] Starting final logout cleanup...');
+      if (window.periodicSessionCheckInterval) {
+        clearInterval(window.periodicSessionCheckInterval);
+        window.periodicSessionCheckInterval = null;
+      }
       if (window.supabase) {
         try {
           const client = getSupabaseRendererClient();
@@ -145,14 +178,41 @@
         console.warn('[LOGOUT] Local session clear error:', e.message);
       }
       
-      localStorage.clear();
-      appData.user = null;
-      appData.authenticated = false;
-      // Do not call persist() here to avoid overwriting the clean logout state with cached renderer data.
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch (e) {}
+
+      if (typeof appData !== 'undefined') {
+        appData.user = null;
+        appData.authenticated = false;
+        appData.profiles = [];
+        appData.activeProfileId = null;
+      }
+      window.currentProfile = null;
       
-      console.log('[LOGOUT] Clearing app data and reloading...');
-      await new Promise(r => setTimeout(r, 500));
-      window.location.href = window.location.pathname;
+      // Close all modals / overlays and reset UI to clean unauthenticated state
+      const logoutModal = document.getElementById('modal-account-logout');
+      if (logoutModal) logoutModal.style.display = 'none';
+
+      const picker = document.getElementById('profile-picker');
+      if (picker) {
+        picker.style.display = 'none';
+        picker.classList.remove('modal-active');
+      }
+      try { document.body.classList.remove('modal-open'); } catch (e) {}
+
+      const mainApp = document.getElementById('main-app');
+      if (mainApp) mainApp.style.display = 'none';
+
+      const appLayout = document.getElementById('app-layout');
+      if (appLayout) appLayout.style.display = 'none';
+
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar) sidebar.style.display = 'none';
+
+      console.log('[LOGOUT] Showing auth screen...');
+      showAuthOverlay();
     } catch (err) {
       console.error('[LOGOUT] Error during final logout:', err);
       showToast('Error during logout: ' + err.message);
@@ -184,24 +244,22 @@
   async function getHardwareIdForClient() {
     if (hardwareIdCacheLocal) return hardwareIdCacheLocal;
     try {
-      if (window.api) {
-        if (typeof window.api.getHardwareId === 'function') {
-          const id = await window.api.getHardwareId();
-          if (id && String(id).trim() && id !== 'web-unknown') {
-            hardwareIdCacheLocal = String(id).trim();
-            return hardwareIdCacheLocal;
-          }
-        }
-        if (typeof window.api.invoke === 'function') {
-          const id = await window.api.invoke('get-hardware-id');
-          if (id && String(id).trim()) {
-            hardwareIdCacheLocal = String(id).trim();
-            return hardwareIdCacheLocal;
-          }
+      let stored = window.localStorage?.getItem('meem_device_id') || window.localStorage?.getItem('mediavault_device_id');
+      if (stored && String(stored).trim() && stored !== 'web-unknown') {
+        hardwareIdCacheLocal = String(stored).trim();
+        return hardwareIdCacheLocal;
+      }
+      if (window.api && typeof window.api.getHardwareId === 'function') {
+        const id = await window.api.getHardwareId();
+        if (id && String(id).trim() && id !== 'web-unknown') {
+          hardwareIdCacheLocal = String(id).trim();
+          return hardwareIdCacheLocal;
         }
       }
     } catch (e) { console.warn('[AUTH] getHardwareId failed', e); }
-    hardwareIdCacheLocal = 'unknown-device';
+    const uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).substring(2, 10));
+    hardwareIdCacheLocal = (isMobileClient() ? 'android-' : 'client-') + uuid;
+    try { window.localStorage?.setItem('meem_device_id', hardwareIdCacheLocal); } catch (_) {}
     return hardwareIdCacheLocal;
   }
 
@@ -214,10 +272,13 @@
   }
 
   function getOAuthRedirectUrl(relayId = null) {
+    if (isCapacitorNative()) {
+      return 'meem://auth/callback';
+    }
     const currentOrigin = (window.location.origin && window.location.origin !== 'null') ? window.location.origin : '';
     const baseUrl = 'https://meem-watch.vercel.app/auth/callback';
     const params = new URLSearchParams();
-    params.set('source', isMobileClient() ? 'mobile' : 'app');
+    params.set('source', isMobileClient() ? 'meem_app' : 'app');
     if (relayId) {
       params.set('relay_id', relayId);
     }
@@ -318,6 +379,7 @@
 
     const cleanupListeners = () => {
       window.removeEventListener('focus', onWindowFocus);
+      window.removeEventListener('meem-oauth-browser-closed', onBrowserClosed);
       window.removeEventListener('mediavault-oauth-browser-closed', onBrowserClosed);
       if (pollInterval) {
         clearInterval(pollInterval);
@@ -366,12 +428,35 @@
                   return;
                 }
               } else if (statusObj.access_token) {
-                const { data: setRes, error: setErr } = await client.auth.setSession({
-                  access_token: statusObj.access_token,
-                  refresh_token: statusObj.refresh_token || ''
-                });
-                if (!setErr && setRes?.session) {
-                  await completeOAuthLogin(setRes.session.user, setRes.session);
+                let sessionUser = null;
+                let validSession = null;
+                try {
+                  const { data: setRes, error: setErr } = await client.auth.setSession({
+                    access_token: statusObj.access_token,
+                    refresh_token: statusObj.refresh_token || ''
+                  });
+                  if (!setErr && setRes?.user) {
+                    sessionUser = setRes.user;
+                    validSession = setRes.session || { access_token: statusObj.access_token, refresh_token: statusObj.refresh_token || '' };
+                  }
+                } catch (e) {
+                  console.warn('[AUTH] Relay setSession error:', e);
+                }
+
+                if (!sessionUser) {
+                  try {
+                    const { data: uData, error: uErr } = await client.auth.getUser(statusObj.access_token);
+                    if (!uErr && uData?.user) {
+                      sessionUser = uData.user;
+                      validSession = { access_token: statusObj.access_token, refresh_token: statusObj.refresh_token || '' };
+                    }
+                  } catch (e2) {
+                    console.warn('[AUTH] Relay getUser fallback error:', e2);
+                  }
+                }
+
+                if (sessionUser) {
+                  await completeOAuthLogin(sessionUser, validSession);
                   return;
                 }
               }
@@ -391,7 +476,8 @@
         const { data: sessData } = await client.auth.getSession();
         const user = sessData?.session?.user;
         const accessToken = sessData?.session?.access_token;
-        if (user && user.id && user.email && accessToken) {
+        if (user && user.id && accessToken) {
+          user.email = user.email || user.user_metadata?.email || `${user.id}@oauth.local`;
           console.log('[AUTH] Verified active authenticated session from client:', user.email);
           cleanupListeners();
           await completeOAuthLogin(user, sessData.session);
@@ -405,9 +491,11 @@
             const launchData = await App.getLaunchUrl();
             if (launchData && launchData.url && isAuthCallbackUrl(launchData.url)) {
               console.log('[AUTH] Detected callback in App.getLaunchUrl:', launchData.url);
-              cleanupListeners();
               const handled = await handleOAuthDeepLink(launchData.url);
-              if (handled) return;
+              if (handled) {
+                cleanupListeners();
+                return;
+              }
             }
           } catch (e) {
             console.warn('[AUTH] App.getLaunchUrl check error:', e);
@@ -430,9 +518,11 @@
           if (typeof showToast === 'function') {
             showToast('✓ Login token detected, logging in...');
           }
-          cleanupListeners();
           const handled = await handleOAuthDeepLink(clipText);
-          if (handled) return;
+          if (handled) {
+            cleanupListeners();
+            return;
+          }
         }
       } catch (e) {
         console.warn('[AUTH] Active session check skipped/failed:', e.message || e);
@@ -450,13 +540,14 @@
 
     // Fires when Capacitor Browser plugin closes (Android — from bridge.js browserFinished)
     const onBrowserClosed = () => {
-      console.log('[AUTH] Received mediavault-oauth-browser-closed — checking session & clipboard...');
+      console.log('[AUTH] Received oauth-browser-closed — checking session & clipboard...');
       setTimeout(checkActiveSession, 200);
       setTimeout(checkActiveSession, 800);
       setTimeout(checkActiveSession, 2000);
     };
 
     window.addEventListener('focus', onWindowFocus);
+    window.addEventListener('meem-oauth-browser-closed', onBrowserClosed);
     window.addEventListener('mediavault-oauth-browser-closed', onBrowserClosed);
 
     // Capacitor App resume listener
@@ -533,12 +624,12 @@
           cleanupListeners();
           const handled = await handleOAuthDeepLink(rawVal);
           if (!handled) {
-            showToast('âŒ Invalid link or token.');
+            showToast('❌ Invalid link or token.');
             submitBtn.disabled = false;
             submitBtn.textContent = 'Confirm';
           }
         } catch (err) {
-          showToast('âŒ Verification failed: ' + err.message);
+          showToast('❌ Verification failed: ' + err.message);
           submitBtn.disabled = false;
           submitBtn.textContent = 'Confirm';
         }
@@ -627,6 +718,7 @@
   }
 
   async function proceedAfterAuthenticatedLogin() {
+    authFlowCompletedLocal = true;
     appData.authenticated = true;
     ensureDefaultAddons();
     persist();
@@ -644,53 +736,72 @@
     }
     try { document.body.classList.add('modal-open'); } catch (e) { }
     renderProfilePicker();
+    if (window.hideSplash) window.hideSplash();
     if (appData.profiles.length === 0 && typeof window.openProfileModal === 'function') {
       window.openProfileModal();
     }
   }
 
   async function completeOAuthLogin(user, session) {
-    if (!user || !user.id || !user.email) {
-      console.warn('[AUTH] completeOAuthLogin called without valid user/email');
+    if (!user || !user.id) {
+      console.warn('[AUTH] completeOAuthLogin called without valid user');
       return;
     }
+    authFlowCompletedLocal = true;
+    user.email = user.email || user.user_metadata?.email || `${user.id}@oauth.local`;
     if (oauthCompletionLocked) return;
     oauthCompletionLocked = true;
 
     try {
-      const syncResult = await window.api.invoke('cloud-sync-user-session', {
-        userId: user.id,
-        email: user.email,
-        username: user.user_metadata?.name || user.user_metadata?.full_name || user.user_metadata?.username || '',
-        session: session?.access_token ? {
-          access_token: session.access_token,
-          refresh_token: session.refresh_token
-        } : null
-      });
-
-      if (syncResult && syncResult.success) {
-        appData.authenticated = true;
-        appData.user = syncResult.user || user;
-        if (syncResult.profiles && syncResult.profiles.length > 0) {
-          appData.profiles = normalizeProfiles(syncResult.profiles);
-        }
-        persist();
-
-        // Immediately transition to profile picker so UI doesn't hang
-        await proceedAfterAuthenticatedLogin();
-
-        // Background loadData sync to populate extended profile data without blocking UI
-        window.api.loadData().then(onlineData => {
-          if (onlineData && onlineData.authenticated && onlineData.profiles && onlineData.profiles.length > 0) {
-            appData = { ...appData, ...onlineData, profiles: normalizeProfiles(onlineData.profiles) };
-            renderProfilePicker();
-          }
-        }).catch(err => console.warn('[AUTH] Background loadData error in OAuth:', err));
-      } else {
-        console.warn('[AUTH] OAuth sync session failed:', syncResult?.error);
-        oauthCompletionLocked = false;
-        throw new Error(syncResult?.error || 'Failed to sync user session');
+      let syncResult = null;
+      try {
+        syncResult = await window.api.invoke('cloud-sync-user-session', {
+          userId: user.id,
+          email: user.email,
+          username: user.user_metadata?.name || user.user_metadata?.full_name || user.user_metadata?.username || '',
+          session: session?.access_token ? {
+            access_token: session.access_token,
+            refresh_token: session.refresh_token
+          } : null
+        });
+      } catch (invokeErr) {
+        console.warn('[AUTH] cloud-sync-user-session invoke error (non-fatal):', invokeErr);
       }
+
+      if (syncResult && (syncResult.error === 'HARDWARE_BANNED' || syncResult.error === 'ACCOUNT_BANNED')) {
+        showBannedOverlay(syncResult.message || 'Account or device suspended', hardwareIdCacheLocal);
+        return;
+      }
+
+      if (syncResult && syncResult.error === 'DEVICE_LIMIT_REACHED') {
+        oauthCompletionLocked = false;
+        throw new Error(syncResult.message || 'Maximum device limit reached for this account.');
+      }
+
+      appData.authenticated = true;
+      appData.user = syncResult?.user || user;
+      if (syncResult?.profiles && syncResult.profiles.length > 0) {
+        appData.profiles = normalizeProfiles(syncResult.profiles);
+      } else if (!appData.profiles || appData.profiles.length === 0) {
+        const username = appData.user.username || appData.user.email?.split('@')[0] || 'User';
+        appData.profiles = [{
+          id: 'default',
+          name: username,
+          avatar: (typeof AVATARS !== 'undefined' && AVATARS[0]) ? AVATARS[0] : ''
+        }];
+      }
+      persist();
+
+      // Immediately transition to profile picker so UI doesn't hang
+      await proceedAfterAuthenticatedLogin();
+
+      // Background loadData sync to populate extended profile data without blocking UI
+      window.api.loadData().then(onlineData => {
+        if (onlineData && onlineData.authenticated && onlineData.profiles && onlineData.profiles.length > 0) {
+          appData = { ...appData, ...onlineData, profiles: normalizeProfiles(onlineData.profiles) };
+          renderProfilePicker();
+        }
+      }).catch(err => console.warn('[AUTH] Background loadData error in OAuth:', err));
     } catch (err) {
       oauthCompletionLocked = false;
       throw err;
@@ -771,6 +882,16 @@
         }
       }
 
+      if (!user) {
+        try {
+          const { data: sessData } = await client.auth.getSession();
+          if (sessData?.session?.user) {
+            user = sessData.session.user;
+            session = sessData.session;
+          }
+        } catch (_) {}
+      }
+
       if (type === 'recovery') {
         const modal = document.getElementById('modal-password-recovery');
         if (modal) modal.style.display = 'flex';
@@ -820,6 +941,15 @@
       });
     }
 
+    window.addEventListener('meem-deep-link', async (e) => {
+      const url = e?.detail?.url;
+      if (!url) return;
+      const oauthHandled = await handleOAuthDeepLink(url);
+      if (!oauthHandled && typeof window.handleAppDeepLink === 'function') {
+        window.handleAppDeepLink(url);
+      }
+    });
+
     window.addEventListener('mediavault-deep-link', async (e) => {
       const url = e?.detail?.url;
       if (!url) return;
@@ -860,7 +990,7 @@
           </svg>
         </div>
         <h1 style="font-size:28px;font-weight:800;letter-spacing:-0.5px;margin-bottom:12px;color:#ef4444;text-shadow:0 0 10px rgba(239,68,68,0.3);">Access Restricted</h1>
-        <p style="font-size:15px;color:rgba(255,255,255,0.8);line-height:1.6;margin-bottom:24px;">This device is permanently blocked from the MediaVault network due to a hardware restriction or security violation.</p>
+        <p style="font-size:15px;color:rgba(255,255,255,0.8);line-height:1.6;margin-bottom:24px;">This device is permanently blocked from the MEEM network due to a hardware restriction or security violation.</p>
         
         <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:16px;margin-bottom:20px;text-align:left;">
           <div style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Ban Reason</div>
@@ -916,10 +1046,11 @@
             showBannedOverlay(resp.banReason || 'Your account has been suspended.', hardwareIdCacheLocal || 'Unknown');
             return;
           }
-          if (resp.authenticated === false) {
-            console.warn('[AUTH] Session expired or unauthenticated during periodic check.');
+          if (resp.authenticated === false || !resp.user) {
+            console.warn('[AUTH] Session expired or unauthenticated during periodic check. Forcing logout...');
             clearInterval(window.periodicSessionCheckInterval);
             window.periodicSessionCheckInterval = null;
+            await finalizeLogout();
             return;
           }
           if (resp.user) {
@@ -965,7 +1096,7 @@
           </svg>
         </div>
         <h1 style="font-size:28px;font-weight:800;letter-spacing:-0.5px;margin-bottom:12px;color:#a855f7;text-shadow:0 0 10px rgba(139,92,246,0.3);">Subscription Expired</h1>
-        <p style="font-size:15px;color:rgba(255,255,255,0.8);line-height:1.6;margin-bottom:24px;">Your subscription has ended. Please renew to continue using MediaVault.</p>
+        <p style="font-size:15px;color:rgba(255,255,255,0.8);line-height:1.6;margin-bottom:24px;">Your subscription has ended. Please renew to continue using MEEM.</p>
         
         <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:16px;margin-bottom:20px;text-align:left;">
           <div style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Expiration Date</div>
@@ -1218,8 +1349,13 @@
   }
 
   function showEmailVerificationScreen(email) {
-    const overlay = document.getElementById('auth-overlay');
+    let overlay = document.getElementById('auth-overlay');
+    if (!overlay) {
+      showAuthOverlay();
+      overlay = document.getElementById('auth-overlay');
+    }
     if (!overlay) return;
+    overlay.style.display = 'flex';
     const card = overlay.querySelector('.auth-card');
     if (!card) return;
 
@@ -1261,24 +1397,16 @@
     const otpMsg = card.querySelector('#auth-otp-msg');
     const resendBtn = card.querySelector('#auth-otp-resend');
     const backBtn = card.querySelector('#auth-otp-back');
-    const checkLinkBtn = card.querySelector('#auth-otp-check-link');
-    if (checkLinkBtn) {
-      checkLinkBtn.onclick = async () => {
-        setAuthMessage(otpMsg, 'Checking link verification...', true);
-        checkLinkBtn.disabled = true;
-        await handleAuthLogin();
-        checkLinkBtn.disabled = false;
+
+    if (otpInput) {
+      setTimeout(() => otpInput.focus(), 100);
+      otpInput.oninput = () => {
+        otpInput.value = otpInput.value.replace(/[^0-9]/g, '');
+        if (otpInput.value.length === 6) {
+          otpForm.requestSubmit();
+        }
       };
     }
-
-    if (otpInput) otpInput.focus();
-
-    otpInput.oninput = () => {
-      otpInput.value = otpInput.value.replace(/[^0-9]/g, '');
-      if (otpInput.value.length === 6) {
-        otpForm.requestSubmit();
-      }
-    };
 
     otpForm.onsubmit = async (e) => {
       e.preventDefault();
@@ -1291,11 +1419,42 @@
       otpSubmit.disabled = true;
       otpSubmit.innerHTML = '<span class="auth-spinner"></span> Verifying...';
       try {
-        let res;
-        if (window.api && typeof window.api.cloudVerifyOtp === 'function') {
-          res = await window.api.cloudVerifyOtp(email, token);
-        } else {
-          res = await window.api.invoke('cloud-verify-otp', { email, token });
+        let res = null;
+
+        // Try direct renderer Supabase client verification first (Native Mobile / Web)
+        const client = getSupabaseRendererClient();
+        if (client) {
+          console.log('[AUTH] Verifying OTP directly via client.auth.verifyOtp...');
+          let verifyRes = await client.auth.verifyOtp({ email, token, type: 'signup' });
+          if (verifyRes.error) {
+            console.log('[AUTH] signup type failed, trying type email...', verifyRes.error.message);
+            verifyRes = await client.auth.verifyOtp({ email, token, type: 'email' });
+          }
+          if (verifyRes.error) {
+            console.log('[AUTH] email type failed, trying type magiclink...', verifyRes.error.message);
+            verifyRes = await client.auth.verifyOtp({ email, token, type: 'magiclink' });
+          }
+          if (verifyRes.error) {
+            console.log('[AUTH] magiclink type failed, trying type recovery...', verifyRes.error.message);
+            verifyRes = await client.auth.verifyOtp({ email, token, type: 'recovery' });
+          }
+
+          if (!verifyRes.error && verifyRes.data && verifyRes.data.user) {
+            res = {
+              success: true,
+              user: verifyRes.data.user,
+              session: verifyRes.data.session
+            };
+          }
+        }
+
+        // Fallback to bridge / invoke cloud-verify-otp
+        if (!res || !res.success) {
+          if (window.api && typeof window.api.cloudVerifyOtp === 'function') {
+            res = await window.api.cloudVerifyOtp(email, token);
+          } else if (window.api && typeof window.api.invoke === 'function') {
+            res = await window.api.invoke('cloud-verify-otp', { email, token });
+          }
         }
 
         if (!res || res.error) {
@@ -1303,9 +1462,31 @@
         }
 
         console.log('[AUTH] OTP verified successfully!', res);
+
+        // Sync session with backend/storage
+        const syncResult = await window.api.invoke('cloud-sync-user-session', {
+          userId: res.user.id,
+          email: res.user.email || email,
+          username: res.user.user_metadata?.username || res.user.username || '',
+          session: res.session ? {
+            access_token: res.session.access_token,
+            refresh_token: res.session.refresh_token
+          } : null
+        });
+
         appData.authenticated = true;
-        appData.user = res.user;
-        appData.profiles = normalizeProfiles(res.profiles || []);
+        appData.user = syncResult?.user || res.user;
+        const validProfiles = (syncResult?.profiles && syncResult.profiles.length > 0) ? syncResult.profiles : (res.profiles || []);
+        appData.profiles = normalizeProfiles(validProfiles);
+        if (!appData.profiles || appData.profiles.length === 0) {
+          const username = appData.user.username || appData.user.email?.split('@')[0] || 'User';
+          appData.profiles = [{
+            id: 'default',
+            name: username,
+            avatar: (typeof AVATARS !== 'undefined' && AVATARS[0]) ? AVATARS[0] : ''
+          }];
+        }
+        ensureDefaultAddons();
         persist();
 
         await proceedAfterAuthenticatedLogin();
@@ -1327,11 +1508,29 @@
       try {
         clearAuthMessage(otpMsg);
         const client = getSupabaseRendererClient();
-        const { error } = await client.auth.resend({
+        if (!client) throw new Error('Auth client unavailable');
+        
+        // Try resend signup token first
+        let { error } = await client.auth.resend({
           type: 'signup',
           email: email
         });
-        if (error) throw error;
+
+        if (error) {
+          console.warn('[AUTH] Resend signup failed, trying signInWithOtp...', error.message);
+          const otpRes = await client.auth.signInWithOtp({
+            email: email,
+            options: { shouldCreateUser: false }
+          });
+          if (otpRes.error) {
+            const otpCreateRes = await client.auth.signInWithOtp({
+              email: email,
+              options: { shouldCreateUser: true }
+            });
+            if (otpCreateRes.error) throw error;
+          }
+        }
+
         setAuthMessage(otpMsg, 'Verification code resent successfully!', true);
         resendCooldown = 60;
         resendBtn.disabled = true;
@@ -1375,15 +1574,61 @@
       const hwId = await getHardwareIdForClient();
       console.log('[AUTH] Attempting sign in with email, hardware ID:', hwId);
 
-      let result;
-      if (window.api && typeof window.api.cloudLogin === 'function') {
-        result = await window.api.cloudLogin(email, password);
-      } else {
-        result = await window.api.invoke('cloud-login', { email, password });
+      let result = null;
+      if (isMobileClient() || !window.api || !window.api.isElectron) {
+        // Direct renderer Supabase authentication (Native Mobile / Web)
+        try {
+          const client = getSupabaseRendererClient();
+          if (client) {
+            console.log('[AUTH] Mobile/Web direct signInWithPassword...');
+            const { data, error } = await withTimeout(
+              client.auth.signInWithPassword({ email, password }),
+              15000,
+              'Sign in request timed out'
+            );
+            if (error) {
+              const errMsg = (error.message || '').toLowerCase();
+              if (errMsg.includes('email not confirmed') || errMsg.includes('email_not_confirmed') || errMsg.includes('not confirmed') || (error.status === 400 && errMsg.includes('confirm'))) {
+                showEmailVerificationScreen(email);
+                return;
+              }
+              result = { error: error.message };
+            } else if (data && data.user) {
+              result = {
+                success: true,
+                user: data.user,
+                session: data.session
+              };
+            }
+          }
+        } catch (dirErr) {
+          console.warn('[AUTH] Direct Supabase login attempt threw:', dirErr);
+        }
+      }
+
+      if (!result || (result.error && !String(result.error).toLowerCase().includes('email not confirmed') && !String(result.error).toLowerCase().includes('not confirmed'))) {
+        if (window.api && typeof window.api.cloudLogin === 'function') {
+          console.log('[AUTH] Falling back to bridge cloudLogin...');
+          const bridgeRes = await window.api.cloudLogin(email, password);
+          if (bridgeRes && (bridgeRes.success || bridgeRes.user)) {
+            result = bridgeRes;
+          } else if (!result) {
+            result = bridgeRes;
+          }
+        } else if (window.api && typeof window.api.invoke === 'function') {
+          console.log('[AUTH] Falling back to invoke cloud-login...');
+          const bridgeRes = await window.api.invoke('cloud-login', { email, password });
+          if (bridgeRes && (bridgeRes.success || bridgeRes.user)) {
+            result = bridgeRes;
+          } else if (!result) {
+            result = bridgeRes;
+          }
+        }
       }
 
       if (!result || result.error) {
-        if (result?.error === 'EMAIL_NOT_CONFIRMED') {
+        const errStr = String(result?.error || result?.message || '').toLowerCase();
+        if (errStr === 'email_not_confirmed' || errStr.includes('email not confirmed') || errStr.includes('not confirmed') || errStr.includes('confirm email')) {
           showEmailVerificationScreen(email);
           return;
         }
@@ -1430,6 +1675,14 @@
         appData.user = result.user;
         appData.profiles = normalizeProfiles(result.profiles || []);
       }
+      if (!appData.profiles || appData.profiles.length === 0) {
+        const username = appData.user.username || appData.user.email?.split('@')[0] || 'User';
+        appData.profiles = [{
+          id: 'default',
+          name: username,
+          avatar: (typeof AVATARS !== 'undefined' && AVATARS[0]) ? AVATARS[0] : ''
+        }];
+      }
       ensureDefaultAddons();
       persist();
 
@@ -1474,26 +1727,104 @@
     try {
       console.log('[AUTH] Attempting registration via cloudRegister...');
 
-      let result;
-      if (window.api && typeof window.api.cloudRegister === 'function') {
-        result = await window.api.cloudRegister(email, password, username);
-      } else {
-        result = await window.api.invoke('cloud-register', { email, password, username });
+      let result = null;
+      if (isMobileClient() || !window.api || !window.api.isElectron) {
+        try {
+          const client = getSupabaseRendererClient();
+          if (client) {
+            console.log('[AUTH] Mobile/Web direct signUp...');
+            const { data, error } = await withTimeout(
+              client.auth.signUp({
+                email,
+                password,
+                options: { data: { username: username || email.split('@')[0] } }
+              }),
+              15000,
+              'Sign up request timed out'
+            );
+            if (error) {
+              const errMsg = (error.message || '').toLowerCase();
+              if (errMsg.includes('email not confirmed') || errMsg.includes('confirm')) {
+                showEmailVerificationScreen(email);
+                return;
+              }
+              result = { error: error.message };
+            } else if (data && data.user) {
+              if (data.user.identities && data.user.identities.length === 0) {
+                result = { error: 'An account already exists with this email address. Please sign in instead.' };
+              } else {
+                const needsConfirmation = !data.session && !data.user.confirmed_at && !data.user.email_confirmed_at;
+                result = {
+                  success: true,
+                  needsConfirmation: needsConfirmation,
+                  user: data.user,
+                  session: data.session
+                };
+              }
+            }
+          }
+        } catch (dirRegErr) {
+          console.warn('[AUTH] Direct Supabase register attempt threw:', dirRegErr);
+        }
+      }
+
+      if (!result) {
+        if (window.api && typeof window.api.cloudRegister === 'function') {
+          result = await window.api.cloudRegister(email, password, username);
+        } else if (window.api && typeof window.api.invoke === 'function') {
+          result = await window.api.invoke('cloud-register', { email, password, username });
+        }
       }
 
       if (result && result.error) {
-        console.error('[AUTH] Registration failed:', result.error, result.details ? '| details: ' + result.details : '');
-        let errMsg = result.error;
-        if (errMsg.includes('already exists') || errMsg.includes('already registered')) {
-          errMsg = 'An account already exists with this email address';
+        const errStr = String(result.error).toLowerCase();
+        if (errStr.includes('email not confirmed') || errStr.includes('confirm')) {
+          showEmailVerificationScreen(email);
+          return;
         }
-        const regErr = new Error(errMsg);
+        if (errStr.includes('already exists') || errStr.includes('already registered') || errStr.includes('different email') || errStr.includes('user already registered')) {
+          setAuthMessage(msgEl, 'This account is already registered! Switched to "Sign in" — enter your password to log in.');
+          const loginTab = overlay.querySelector('.auth-tab[data-mode="login"]');
+          if (loginTab) loginTab.click();
+          return;
+        }
+        console.error('[AUTH] Registration failed:', result.error, result.details ? '| details: ' + result.details : '');
+        const regErr = new Error(result.error);
         if (result.details) regErr.details = result.details;
         throw regErr;
       }
 
-      if (result && result.needsConfirmation) {
+      if (result && (result.needsConfirmation || (!result.session && result.user && !result.user.confirmed_at && !result.user.email_confirmed_at))) {
         showEmailVerificationScreen(email);
+        return;
+      }
+
+      // If active session and user are returned immediately, sync and proceed directly
+      if (result && result.session && result.user) {
+        console.log('[AUTH] Registration with active session. Syncing session directly...');
+        setAuthMessage(msgEl, 'Account created — setting up your session...', true);
+        const syncResult = await window.api.invoke('cloud-sync-user-session', { 
+          userId: result.user.id, 
+          email: email, 
+          username: username || result.user.user_metadata?.username || '',
+          session: {
+            access_token: result.session.access_token,
+            refresh_token: result.session.refresh_token
+          }
+        });
+        
+        appData.authenticated = true;
+        if (syncResult && syncResult.success) {
+          appData.user = syncResult.user || result.user;
+          const validProfiles = (syncResult.profiles && syncResult.profiles.length > 0) ? syncResult.profiles : (result.profiles || []);
+          appData.profiles = normalizeProfiles(validProfiles);
+        } else {
+          appData.user = result.user;
+          appData.profiles = normalizeProfiles(result.profiles || []);
+        }
+        ensureDefaultAddons();
+        persist();
+        await proceedAfterAuthenticatedLogin();
         return;
       }
 
@@ -1543,6 +1874,7 @@
           if (
             localData._supabaseSession &&
             localData._supabaseSession.access_token &&
+            localData._supabaseSession.refresh_token &&
             window.supabase &&
             typeof window.supabase.createClient === 'function'
           ) {
@@ -1551,21 +1883,22 @@
               const { data: existingSession } = await client.auth.getSession();
               if (!existingSession?.session?.access_token) {
                 console.log('[AUTH] Fast-path: restoring JWT into renderer Supabase client...');
-                const { error: setErr } = await client.auth.setSession(localData._supabaseSession);
+                const { error: setErr } = await client.auth.setSession({
+                  access_token: localData._supabaseSession.access_token,
+                  refresh_token: localData._supabaseSession.refresh_token
+                });
                 if (setErr) {
-                  console.warn('[AUTH] Fast-path setSession failed:', setErr.message);
+                  console.warn('[AUTH] Fast-path setSession failed (invalid or expired session):', setErr.message);
                   localData._supabaseSession = null;
                   try {
                     await client.auth.signOut().catch(() => {});
-                    const current = await window.api.loadData();
-                    if (current) {
-                      current._supabaseSession = null;
-                      await window.api.saveData(current);
-                      console.log('[AUTH] Invalid session cleared from local storage.');
-                    }
+                    await window.api.invoke('clear-session');
                   } catch (clearErr) {
                     console.warn('[AUTH] Failed to clear invalid session:', clearErr);
                   }
+                  authFlowCompletedLocal = true;
+                  showAuthOverlay();
+                  return;
                 } else {
                   console.log('[AUTH] Fast-path: renderer JWT restored successfully.');
                 }
@@ -1586,9 +1919,12 @@
             const { data: sessionData } = await client.auth.getSession();
             if (sessionData && sessionData.session) {
               session = sessionData.session;
-            } else if (localData && localData._supabaseSession && localData._supabaseSession.access_token) {
+            } else if (localData && localData._supabaseSession && localData._supabaseSession.access_token && localData._supabaseSession.refresh_token) {
               console.log('[AUTH] No active renderer session, attempting to restore from localData._supabaseSession');
-              const { data: setSessionData, error: setSessionError } = await client.auth.setSession(localData._supabaseSession);
+              const { data: setSessionData, error: setSessionError } = await client.auth.setSession({
+                access_token: localData._supabaseSession.access_token,
+                refresh_token: localData._supabaseSession.refresh_token
+              });
               if (!setSessionError && setSessionData && setSessionData.session) {
                 console.log('[AUTH] Successfully restored Supabase session from disk.');
                 session = setSessionData.session;
@@ -1645,7 +1981,7 @@
         }
 
         if (!resp || !resp.authenticated) {
-          if (appData.authenticated) {
+          if (appData.authenticated && appData.user) {
             console.log('[AUTH] User authenticated via concurrent flow. Using appData.');
             resp = {
               user: appData.user,
@@ -1653,19 +1989,13 @@
               activeProfileId: appData.activeProfileId,
               authenticated: true
             };
-          } else if (localData && localData.profiles && localData.profiles.length > 0) {
-            console.log('[AUTH] Offline Mode active. Loading local profiles.');
-            resp = {
-              ...localData,
-              authenticated: true
-            };
           } else {
-            resp = localData;
+            resp = null;
           }
         }
 
         if (resp?.authenticated) {
-          appData.user = resp.user || { email: 'offline@mediavault.local' };
+          appData.user = resp.user || { email: 'offline@meem.local' };
           appData.profiles = normalizeProfiles(resp.profiles || []);
           appData.activeProfileId = resp.activeProfileId || (resp.profiles?.[0]?.id || null);
           appData.authenticated = true;
@@ -1691,6 +2021,7 @@
             document.getElementById('profile-picker').classList.add('modal-active');
             try { document.body.classList.add('modal-open'); } catch (e) {}
             renderProfilePicker();
+            if (window.hideSplash) window.hideSplash();
             if (appData.profiles.length === 0) {
               window.openProfileModal();
             }
@@ -2094,13 +2425,13 @@
 
     overlay.innerHTML = `
       <div style="max-width:400px; background: rgba(30,30,45,0.95); padding: 30px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px rgba(0,0,0,0.5);">
-        <div style="font-size:60px;margin-bottom:20px;">ðŸš€</div>
-        <h2 style="font-size:24px;margin-bottom:15px;font-weight:800;">Welcome to MediaVault</h2>
+        <div style="font-size:60px;margin-bottom:20px;">🚀</div>
+        <h2 style="font-size:24px;margin-bottom:15px;font-weight:800;">Welcome to MEEM</h2>
         <p style="opacity:0.7;line-height:1.6;margin-bottom:25px;">Ready to build your cinematic library? Let's name your mobile storage folder.</p>
         
         <div style="text-align:left; margin-bottom: 25px;">
            <label style="font-size:12px; opacity:0.5; margin-bottom:8px; display:block;">Library Name</label>
-           <input id="mobile-root-input" type="text" value="MediaVault" style="width:100%; height:50px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:15px; color:#fff; padding:0 15px; font-weight:600;">
+           <input id="mobile-root-input" type="text" value="MEEM" style="width:100%; height:50px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:15px; color:#fff; padding:0 15px; font-weight:600;">
            <p style="font-size:11px; opacity:0.4; margin-top:8px;">Note: On mobile, files are saved to your system Downloads under this folder name.</p>
         </div>
 
@@ -2117,7 +2448,7 @@
       try {
         const hasPerms = await window.api.invoke('request-filesystem-permissions');
         if (!hasPerms) {
-          showToast('Storage permission is required for MediaVault to work.');
+          showToast('Storage permission is required for MEEM to work.');
           btn.textContent = 'Retry Permissions';
           btn.disabled = false;
           return;
@@ -2283,7 +2614,11 @@
   function openProfileModal(id = null) {
     if (!id && appData.profiles && appData.profiles.length >= 1) {
       if (typeof window.isAccountVIP === 'function' && !window.isAccountVIP()) {
-        showToast('ðŸ‘‘ Creating multiple profiles is available exclusively for MEEM VIP members!');
+        const msg = '👑 Creating multiple profiles is available exclusively for MEEM VIP members!';
+        showToast(msg);
+        if (typeof window.addNotification === 'function') {
+          window.addNotification('MEEM VIP Required', msg, 'vip');
+        }
         if (typeof window.openSubscriptionModal === 'function') window.openSubscriptionModal('Multiple Profiles');
         return;
       }
@@ -2807,12 +3142,12 @@
         <div class="search-container" style="width: 1000px; max-width: 90vw; text-align: center;">
           <h2 style="font-size: 3rem; font-weight: 800; color: #fff; margin-bottom: 40px; letter-spacing: -1.5px;">Choose Asset</h2>
           
-          <div class="search-box" style="width: 100%; max-width: none; margin-bottom: 40px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.15); border-radius: 30px; height: 90px; padding: 0 15px 0 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); display: flex; align-items: center; gap: 15px;">
+          <div class="search-box" id="fav-search-box-wrap" style="width: 100%; max-width: none; margin-bottom: 40px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.15); border-radius: 30px; height: 90px; padding: 0 15px 0 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); display: flex; align-items: center; gap: 15px;">
             <i class="fas fa-search" style="font-size: 30px; color: var(--accent); margin-right: 10px;"></i>
             <input type="text" id="fav-search-input" placeholder="Search movies, shows or anime..." style="font-size: 24px; font-weight: 700; flex: 1; background: transparent; border: none; outline: none; color: #fff;">
             
             <button id="btn-upload-custom-banner" style="display: none; align-items: center; gap: 8px; background: var(--accent); color: #000; border: none; border-radius: 20px; padding: 10px 20px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: all 0.3s; margin-right: 15px;">
-              <i class="fas fa-upload"></i> Upload custom banner
+              <i class="fas fa-upload"></i> <span class="banner-upload-text">Upload custom banner</span>
             </button>
 
             <div id="fav-search-source" style="display: none;"></div>
@@ -3004,12 +3339,6 @@
   }
 
   function openFavoritesAvatarModal(mode = 'avatar') {
-    if (mode === 'banner' && window.AppCapabilities && !window.AppCapabilities.can('banner-search')) {
-      if (typeof showToast === 'function') {
-        showToast('âš ï¸ Banner search requires Cinemeta or TMDB add-on to be installed');
-      }
-      return;
-    }
     window.currentFavModalMode = mode;
     createFavModal();
     const title = document.querySelector('#fav-avatar-modal h2');
@@ -3277,9 +3606,10 @@
           }
         } else if (window.currentFavModalMode === 'banner') {
           if (window.AppCapabilities && !window.AppCapabilities.can('banner-search')) {
-            list.innerHTML = `<div style="grid-column: 1 / -1; padding:40px; text-align:center; color:rgba(255,255,255,0.6);">
-              <i class="fas fa-plug-circle-xmark" style="font-size:2.5rem; color:var(--accent); margin-bottom:15px; display:block;"></i>
-              Banner search requires Cinemeta or TMDB add-on to be installed.
+            list.innerHTML = `<div style="grid-column: 1 / -1; padding:40px; text-align:center; color:rgba(255,255,255,0.7);">
+              <i class="fas fa-image" style="font-size:2.5rem; color:var(--accent); margin-bottom:14px; display:block;"></i>
+              <h3 style="font-size: 1.2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Add-on Required</h3>
+              <p style="font-size: 0.9rem; max-width: 440px; margin: 0 auto 16px; opacity: 0.75; line-height: 1.5;">To browse and search banners online, please install the required add-on from the Add-ons Store. You can also upload a custom banner directly using the button above.</p>
             </div>`;
             return;
           }
@@ -4092,7 +4422,8 @@
     const globalBannerBtn = document.getElementById('btn-fav-banner');
     if (globalBannerBtn) {
       const canBanner = window.AppCapabilities ? window.AppCapabilities.can('banner-search') : true;
-      globalBannerBtn.style.display = canBanner ? 'flex' : 'none';
+      globalBannerBtn.classList.toggle('btn-disabled-addon', !canBanner);
+      globalBannerBtn.style.display = 'flex';
       globalBannerBtn.onclick = () => openFavoritesAvatarModal('banner');
     }
 
@@ -4109,13 +4440,19 @@
           else btnToggleEdit.textContent = 'Done Editing';
           if (icon) icon.className = 'fas fa-check';
           btnToggleEdit.classList.add('editing-active');
-          if (bannerBtn) bannerBtn.style.display = canBanner ? 'flex' : 'none';
+          if (bannerBtn) {
+            bannerBtn.classList.toggle('btn-disabled-addon', !canBanner);
+            bannerBtn.style.display = 'flex';
+          }
         } else {
           if (label) label.textContent = 'Edit Profiles';
           else btnToggleEdit.textContent = 'Edit Profiles';
           if (icon) icon.className = 'fas fa-user-edit';
           btnToggleEdit.classList.remove('editing-active');
-          if (bannerBtn) bannerBtn.style.display = canBanner ? 'flex' : 'none';
+          if (bannerBtn) {
+            bannerBtn.classList.toggle('btn-disabled-addon', !canBanner);
+            bannerBtn.style.display = 'flex';
+          }
         }
         renderProfilePicker();
       };
@@ -4177,11 +4514,28 @@
             if (profile) {
               const oldName = profile.name;
               if (oldName !== name) {
-                await window.api.invoke('rename-profile-folders', oldName, name);
+                try {
+                  await window.api.invoke('rename-profile-folders', oldName, name);
+                } catch (e) {
+                  console.warn('[PROFILES] rename-profile-folders error (ignored):', e);
+                }
               }
               profile.name = name;
               profile.avatar = selectedAvatar;
               if (!profile.banner && appData.globalBanner) profile.banner = appData.globalBanner;
+
+              try {
+                if (window.api && typeof window.api.invoke === 'function') {
+                  await window.api.invoke('cloud-update-profile', {
+                    id: profile.id,
+                    name: profile.name,
+                    avatar: profile.avatar
+                  });
+                }
+              } catch (cloudErr) {
+                console.warn('[PROFILES] cloud-update-profile sync warning:', cloudErr);
+              }
+
               if (profile.id === appData.activeProfileId) {
                 currentProfile = profile;
                 renderProfileWidget();
@@ -4201,8 +4555,25 @@
               lockedItems: []
             };
 
-            await window.api.invoke('ensure-profile-folders', name);
+            try {
+              await window.api.invoke('ensure-profile-folders', name);
+            } catch (e) {
+              console.warn('[PROFILES] ensure-profile-folders failed (non-fatal):', e);
+            }
             appData.profiles.push(newProfile);
+
+            try {
+              if (window.api && typeof window.api.invoke === 'function') {
+                await window.api.invoke('cloud-create-profile', {
+                  id: newId,
+                  name: name,
+                  avatar: selectedAvatar,
+                  max_age_rating: 18
+                });
+              }
+            } catch (cloudErr) {
+              console.warn('[PROFILES] cloud-create-profile sync warning:', cloudErr);
+            }
 
             if (appData.profiles.length === 1) {
               appData.activeProfileId = newId;

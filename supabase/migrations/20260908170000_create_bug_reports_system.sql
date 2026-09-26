@@ -27,6 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_bug_reports_user_id ON public.bug_reports(user_id
 ALTER TABLE public.bug_reports ENABLE ROW LEVEL SECURITY;
 
 -- Helper function to check if user is admin
+-- Helper function to check if user is admin
 CREATE OR REPLACE FUNCTION public.is_admin_user(p_email TEXT DEFAULT NULL, p_user_id UUID DEFAULT NULL)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -35,15 +36,44 @@ AS $$
 DECLARE
     v_email TEXT;
 BEGIN
+    -- 1. Direct check of passed email parameter
     v_email := lower(trim(coalesce(p_email, '')));
     IF v_email IN ('amro.motawa@icloud.com', 'amromotaw3@gmail.com', 'amro.motawa@gmail.com') THEN
         RETURN TRUE;
     END IF;
 
+    -- 2. Direct check of Supabase JWT auth claims
+    IF auth.jwt() ->> 'email' IS NOT NULL THEN
+        IF lower(trim(auth.jwt() ->> 'email')) IN ('amro.motawa@icloud.com', 'amromotaw3@gmail.com', 'amro.motawa@gmail.com') THEN
+            RETURN TRUE;
+        END IF;
+    END IF;
+
+    -- 3. Check public.users_accounts by email
+    IF v_email != '' THEN
+        IF EXISTS (
+            SELECT 1 FROM public.users_accounts 
+            WHERE lower(trim(email)) = v_email AND (role = 'admin' OR lower(trim(email)) IN ('amro.motawa@icloud.com', 'amromotaw3@gmail.com', 'amro.motawa@gmail.com'))
+        ) THEN
+            RETURN TRUE;
+        END IF;
+    END IF;
+
+    -- 4. Check public.users_accounts by user_id
     IF p_user_id IS NOT NULL THEN
         IF EXISTS (
             SELECT 1 FROM public.users_accounts 
-            WHERE id = p_user_id AND (role = 'admin' OR lower(email) IN ('amro.motawa@icloud.com', 'amromotaw3@gmail.com', 'amro.motawa@gmail.com'))
+            WHERE id = p_user_id AND (role = 'admin' OR lower(trim(email)) IN ('amro.motawa@icloud.com', 'amromotaw3@gmail.com', 'amro.motawa@gmail.com'))
+        ) THEN
+            RETURN TRUE;
+        END IF;
+    END IF;
+
+    -- 5. Check public.users_accounts by auth.uid()
+    IF auth.uid() IS NOT NULL THEN
+        IF EXISTS (
+            SELECT 1 FROM public.users_accounts 
+            WHERE id = auth.uid() AND (role = 'admin' OR lower(trim(email)) IN ('amro.motawa@icloud.com', 'amromotaw3@gmail.com', 'amro.motawa@gmail.com'))
         ) THEN
             RETURN TRUE;
         END IF;
@@ -177,7 +207,7 @@ BEGIN
         FROM (
             SELECT * FROM public.bug_reports
             WHERE (p_user_id IS NOT NULL AND user_id = p_user_id)
-               OR (p_user_email IS NOT NULL AND lower(user_email) = lower(p_user_email))
+               OR (p_user_email IS NOT NULL AND length(trim(p_user_email)) > 0 AND lower(trim(user_email)) = lower(trim(p_user_email)))
             ORDER BY created_at DESC
             LIMIT p_limit OFFSET p_offset
         ) r;

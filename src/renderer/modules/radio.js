@@ -1,13 +1,15 @@
 // ─── Live Radio View Module ───
-// Enhanced with AAC+ (HE-AAC v1/v2) & HLS Stream Fallback Decoder Engine
+// Premium Audio Streaming Engine with Native HTML5 + HLS Fallback
 (function () {
   let activeFilter = 'arabic';
   let searchQuery = '';
   let currentStation = null;
   let isPlaying = false;
+  let isBuffering = false;
   let searchDebounceTimeout = null;
   let audioElement = null;
   let radioHlsInstance = null;
+  let currentLoadedStations = [];
 
   const MIRRORS = [
     'https://de1.api.radio-browser.info',
@@ -22,7 +24,7 @@
     loadRadioStations(activeFilter, searchQuery);
   }
 
-  // Set up persistent audio element for radio streaming with AAC+ fallback decoder
+  // Set up persistent audio element for radio streaming
   function setupAudioElement() {
     if (!audioElement) {
       audioElement = document.getElementById('radio-audio-element');
@@ -34,14 +36,31 @@
       }
 
       // Audio Event Listeners
+      audioElement.addEventListener('loadstart', () => {
+        isBuffering = true;
+        updatePlayerBarUI();
+      });
+
+      audioElement.addEventListener('waiting', () => {
+        isBuffering = true;
+        updatePlayerBarUI();
+      });
+
+      audioElement.addEventListener('canplay', () => {
+        isBuffering = false;
+        updatePlayerBarUI();
+      });
+
       audioElement.addEventListener('playing', () => {
         isPlaying = true;
+        isBuffering = false;
         updatePlayerBarUI();
         updateGridPlayingStates();
       });
 
       audioElement.addEventListener('pause', () => {
         isPlaying = false;
+        isBuffering = false;
         updatePlayerBarUI();
         updateGridPlayingStates();
       });
@@ -52,13 +71,14 @@
           attemptRadioFallback(currentStation);
         } else {
           isPlaying = false;
+          isBuffering = false;
           updatePlayerBarUI();
           updateGridPlayingStates();
         }
       });
 
       audioElement.addEventListener('stalled', () => {
-        console.warn('[Radio Player] Stream stalled');
+        console.warn('[Radio Player] Stream stalled, waiting for buffer...');
       });
     }
   }
@@ -100,11 +120,48 @@
     }
 
     const volumeSlider = document.getElementById('radio-bar-volume');
+    const volIcon = document.getElementById('radio-bar-vol-icon');
+    const savedVol = parseFloat(localStorage.getItem('meem_global_volume'));
+    const initialVol = (!isNaN(savedVol) && savedVol >= 0 && savedVol <= 1) ? savedVol : 0.8;
+    if (audioElement) audioElement.volume = initialVol;
     if (volumeSlider) {
+      volumeSlider.value = initialVol;
       volumeSlider.oninput = (e) => {
         const val = parseFloat(e.target.value);
         if (audioElement) audioElement.volume = val;
+        updateVolIcon(val);
+        try {
+          localStorage.setItem('meem_global_volume', val.toFixed(2));
+          if (window.appData) window.appData.volume = Math.round(val * 100);
+        } catch (_) {}
       };
+    }
+
+    if (volIcon) {
+      volIcon.onclick = () => {
+        if (!audioElement) return;
+        if (audioElement.volume > 0) {
+          audioElement.volume = 0;
+          if (volumeSlider) volumeSlider.value = 0;
+          updateVolIcon(0);
+        } else {
+          audioElement.volume = 0.8;
+          if (volumeSlider) volumeSlider.value = 0.8;
+          updateVolIcon(0.8);
+        }
+      };
+    }
+  }
+
+  function updateVolIcon(vol) {
+    const volIcon = document.getElementById('radio-bar-vol-icon');
+    if (!volIcon) return;
+    if (vol === 0) {
+      volIcon.className = 'fas fa-volume-xmark';
+    } else if (vol < 0.5) {
+      volIcon.className = 'fas fa-volume-low';
+    } else {
+      volIcon.className = 'fas fa-volume-high';
     }
   }
 
@@ -145,12 +202,14 @@
         stations = await fetchRadioDirect(filter, query);
       }
 
-      renderRadioCards(stations);
+      currentLoadedStations = stations || [];
+      renderRadioCards(currentLoadedStations);
     } catch (err) {
       console.warn('[Radio View] Primary IPC failed, trying direct browser fetch:', err.message);
       try {
         const stations = await fetchRadioDirect(filter, query);
-        renderRadioCards(stations);
+        currentLoadedStations = stations || [];
+        renderRadioCards(currentLoadedStations);
       } catch (fallbackErr) {
         console.error('[Radio View] Direct fallback failed:', fallbackErr);
         grid.innerHTML = '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);"><i class="fas fa-exclamation-triangle fa-2x" style="margin-bottom:10px; display:block; color:#f59e0b;"></i>Failed to load radio stations. Please check network connection.</div>';
@@ -236,7 +295,6 @@
         } else if (!faviconUrl.startsWith('http://') && !faviconUrl.startsWith('https://') && !faviconUrl.startsWith('data:')) {
           faviconUrl = 'https://' + faviconUrl;
         }
-        // Block known broken or unreachable domains
         if (
           window._deadFaviconUrls.has(faviconUrl) ||
           faviconUrl.includes('phantomsw.com') ||
@@ -251,11 +309,9 @@
         faviconUrl = '';
       }
 
-      const countryLabel = station.countryCode || station.country || 'Global';
       const bitrateLabel = station.bitrate ? `${station.bitrate} kbps` : 'HD';
       const cleanName = (station.name || 'Radio Station').trim();
-
-      const isFav = currentProfile?.watchlist?.some(item => item.id === station.id || item.radioUrl === station.url);
+      const isFav = window.currentProfile?.watchlist?.some(item => item.id === station.id || item.radioUrl === station.url);
 
       card.innerHTML = `
         <div class="radio-card-top">
@@ -302,9 +358,9 @@
             country: station.country,
             bitrate: station.bitrate
           };
-          if (typeof toggleWatchlist === 'function') {
-            toggleWatchlist(radioMediaItem);
-            renderRadioCards(stations);
+          if (typeof window.toggleWatchlist === 'function') {
+            window.toggleWatchlist(radioMediaItem);
+            renderRadioCards(currentLoadedStations);
           }
         };
       }
@@ -314,10 +370,14 @@
     });
   }
 
-  // Play specified station with AAC+ / HE-AAC & HLS decoder fallback
+  // Play specified station
   async function playRadioStation(station) {
     setupAudioElement();
 
+    // Mutual exclusivity: stop Music Player and IPTV
+    if (window.MeemAudioPlayer && typeof window.MeemAudioPlayer.stopAndClose === 'function') {
+      try { window.MeemAudioPlayer.stopAndClose(); } catch (e) {}
+    }
     if (typeof window.stopIptvStream === 'function') {
       try { window.stopIptvStream(); } catch (e) {}
     }
@@ -337,24 +397,30 @@
       return;
     }
 
+    isBuffering = true;
+    updatePlayerBarUI();
+    updateGridPlayingStates();
+
+    if (typeof window.showToast === 'function') {
+      window.showToast(`Connecting to "${station.name}"...`, 2000);
+    }
+
     playStreamWithFallback(streamUrl, station);
   }
 
-  // Stream Player with HLS / AAC+ Fallback Mechanism
+  // Stream Player with HLS / Native HTML5 Audio
   function playStreamWithFallback(url, station) {
-    // Destroy previous HLS instance
     if (radioHlsInstance) {
       try { radioHlsInstance.destroy(); } catch (e) {}
       radioHlsInstance = null;
     }
 
     const codecUpper = (station?.codec || '').toUpperCase();
-    const isAacPlus = url.includes('.aac') || url.includes('.aacp') || codecUpper.includes('AAC');
-    const isHls = url.includes('.m3u8');
+    const isHls = url.includes('.m3u8') || codecUpper.includes('HLS');
 
-    if ((isHls || isAacPlus) && typeof window.Hls !== 'undefined' && window.Hls.isSupported()) {
+    if (isHls && typeof window.Hls !== 'undefined' && window.Hls.isSupported()) {
       try {
-        console.log('[Radio AAC+] Attaching Hls.js decoder fallback for stream:', url);
+        console.log('[Radio HLS] Attaching Hls.js decoder for stream:', url);
         radioHlsInstance = new window.Hls({
           enableWorker: true,
           lowLatencyMode: true
@@ -364,6 +430,7 @@
         radioHlsInstance.on(window.Hls.Events.MANIFEST_PARSED, () => {
           audioElement.play().then(() => {
             isPlaying = true;
+            isBuffering = false;
             updatePlayerBarUI();
             updateGridPlayingStates();
           }).catch(err => {
@@ -388,11 +455,12 @@
     playDirectAudio(url, station);
   }
 
-  // Direct HTML5 audio element playback
+  // Direct HTML5 audio element playback (standard for MP3, AAC, OGG streams)
   function playDirectAudio(url, station) {
     audioElement.src = url;
     audioElement.play().then(() => {
       isPlaying = true;
+      isBuffering = false;
       updatePlayerBarUI();
       updateGridPlayingStates();
     }).catch(err => {
@@ -405,16 +473,18 @@
 
   // Attempt alternative stream mirror URL on error
   function attemptRadioFallback(station) {
-    const fallbackUrl = station?.url;
+    const fallbackUrl = (station?.url && station?.url !== audioElement.src) ? station.url : station?.urlResolved;
     if (fallbackUrl && fallbackUrl !== audioElement.src) {
       console.log('[Radio Player] Trying secondary stream URL:', fallbackUrl);
       audioElement.src = fallbackUrl;
       audioElement.play().then(() => {
         isPlaying = true;
+        isBuffering = false;
         updatePlayerBarUI();
         updateGridPlayingStates();
-      }).catch(e => {
+      }).catch(() => {
         isPlaying = false;
+        isBuffering = false;
         updatePlayerBarUI();
         updateGridPlayingStates();
         if (typeof window.showToast === 'function') {
@@ -423,6 +493,7 @@
       });
     } else {
       isPlaying = false;
+      isBuffering = false;
       updatePlayerBarUI();
       updateGridPlayingStates();
       if (typeof window.showToast === 'function') {
@@ -467,22 +538,25 @@
       } catch (e) {}
     }
     isPlaying = false;
+    isBuffering = false;
     currentStation = null;
     updatePlayerBarUI();
     updateGridPlayingStates();
     hidePlayerBar();
   }
 
-  // Update Player Bar UI at right of screen
+  // Update Player Bar UI
   function updatePlayerBarUI() {
     const bar = document.getElementById('radio-player-bar');
     if (!bar) return;
 
     if (!currentStation) {
       bar.classList.remove('active');
+      bar.style.display = 'none';
       return;
     }
 
+    bar.style.display = 'flex';
     bar.classList.add('active');
 
     const titleEl = document.getElementById('radio-bar-title');
@@ -509,9 +583,10 @@
     }
 
     if (toggleBtn) {
-      const icon = toggleBtn.querySelector('i');
-      if (icon) {
-        icon.className = `fas ${isPlaying ? 'fa-pause' : 'fa-play'}`;
+      if (isBuffering) {
+        toggleBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+      } else {
+        toggleBtn.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}" ${isPlaying ? '' : 'style="margin-left:2px;"'}></i>`;
       }
     }
 
@@ -538,7 +613,7 @@
         if (typeof window.toggleWatchlist === 'function') {
           window.toggleWatchlist(radioMediaItem);
           updateRadioBarFavorite();
-          renderRadioCards(lastStations);
+          renderRadioCards(currentLoadedStations);
         }
       };
     }
@@ -549,17 +624,16 @@
     if (!favBarBtn || !currentStation) return;
     const isFav = window.currentProfile?.watchlist?.some(w => w.id === currentStation.id || w.radioUrl === currentStation.url);
     favBarBtn.classList.toggle('active', isFav);
-    const icon = favBarBtn.querySelector('i');
-    if (icon) {
-      icon.className = isFav ? 'fas fa-heart' : 'far fa-heart';
-      if (isFav) icon.style.color = '#ef4444';
-      else icon.style.color = '';
-    }
+    favBarBtn.innerHTML = `<i class="${isFav ? 'fas' : 'far'} fa-heart" ${isFav ? 'style="color:#ef4444;"' : ''}></i>`;
+    favBarBtn.title = isFav ? 'Remove from Favorites' : 'Add to Favorites';
   }
 
   function hidePlayerBar() {
     const bar = document.getElementById('radio-player-bar');
-    if (bar) bar.classList.remove('active');
+    if (bar) {
+      bar.classList.remove('active');
+      bar.style.display = 'none';
+    }
   }
 
   // Update playing state styling on grid cards
@@ -601,3 +675,4 @@
   window.stopRadioPlayback = stopRadioPlayback;
   window.stopRadioStream = stopRadioPlayback;
 })();
+

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 // import { Zeroconf } from '@capacitor-community/zeroconf';
 
 /**
- * Hook to discover MediaVault PC servers on the local network
+ * Hook to discover MEEM PC servers on the local network
  */
 export const usePCDiscovery = () => {
     const [discoveredPC, setDiscoveredPC] = useState(null);
@@ -16,11 +16,11 @@ export const usePCDiscovery = () => {
         const startDiscovery = async () => {
             setIsScanning(true);
             try {
-                // 1. Listen for the MediaVault service
-                // await Zeroconf.watch('_mediavault._tcp', 'local.', (result) => {
+                // 1. Listen for the MEEM service
+                // await Zeroconf.watch('_meem._tcp', 'local.', (result) => {
                 //     const { action, service } = result;
                 //     if (action === 'resolved') {
-                //         console.log('Found MediaVault PC:', service);
+                //         console.log('Found MEEM PC:', service);
                 //         const ip = service.ipv4Addresses[0];
                 //         const port = service.port;
                 //         setDiscoveredPC({ ip, port, name: service.name });

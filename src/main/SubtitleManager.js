@@ -59,6 +59,10 @@ class LocalSubtitleProvider extends SubtitleProvider {
  * SubDL Direct API Provider — calls https://api.subdl.com/api/v1/subtitles directly
  * using the user's API key + IMDb ID. No Stremio addon protocol wrapper.
  */
+// In-memory cache for SubDL API responses to protect user quotas and rate limits
+const subdlQueryCache = new Map();
+const SUBDL_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
 class SubDLDirectProvider extends SubtitleProvider {
   constructor(getAppData) {
     super('SubDL', 20);
@@ -108,6 +112,12 @@ class SubDLDirectProvider extends SubtitleProvider {
 
     const querySubDL = async (qParams) => {
       if (isKeyInvalid) return null;
+      const cacheKey = JSON.stringify(qParams);
+      const cached = subdlQueryCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < SUBDL_CACHE_TTL)) {
+        console.log('[SubDL Direct] Returning cached SubDL search result (quota preserved)');
+        return cached.data;
+      }
       try {
         const resp = await axios.get(SUBDL_API_BASE, {
           params: qParams,
@@ -117,6 +127,9 @@ class SubDLDirectProvider extends SubtitleProvider {
             'Accept': 'application/json'
           }
         });
+        if (resp.data) {
+          subdlQueryCache.set(cacheKey, { data: resp.data, timestamp: Date.now() });
+        }
         return resp.data;
       } catch (err) {
         console.warn('[SubDL Direct] API Query failed:', err.message);
@@ -308,17 +321,34 @@ class StremioSubtitleProvider extends SubtitleProvider {
 
       if (!imdbId && !kitsuId && !title) return [];
 
-      const sc = appData.scraperConfig || {};
-      sc.installedAddons = [...(appData.installedAddons || [])].filter(a => {
+      const sc = { ...(appData.scraperConfig || {}) };
+      const userAddons = [...(appData.installedAddons || [])].filter(a => {
+        if (a.enabled === false) return false;
         const url = String(a.url || a.manifestUrl || '').toLowerCase();
         const id = String(a.id || '').toLowerCase();
         const name = String(a.name || '').toLowerCase();
-        return a.enabled !== false && (url.includes('subdl') || id.includes('subdl') || name.includes('subdl'));
+        const hasSubResource = Array.isArray(a.resources) && a.resources.some(r => (typeof r === 'string' ? r : r?.name) === 'subtitles');
+        const hasSubType = Array.isArray(a.types) && a.types.includes('subtitles');
+        return hasSubResource || hasSubType || url.includes('subtitle') || id.includes('subtitle') || name.includes('subtitle') || url.includes('opensubtitle') || id.includes('opensubtitle');
       });
 
-      if (!sc.installedAddons.length) {
-        return [];
+      // Guarantee OpenSubtitles v3 is available as a zero-config official fallback
+      const hasOpenSubs = userAddons.some(a => {
+        const u = String(a.url || a.manifestUrl || '').toLowerCase();
+        return u.includes('opensubtitles-v3');
+      });
+      if (!hasOpenSubs) {
+        userAddons.push({
+          id: 'org.stremio.opensubtitlesv3',
+          name: 'OpenSubtitles v3',
+          url: 'https://opensubtitles-v3.strem.io',
+          manifestUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
+          types: ['subtitles'],
+          resources: ['subtitles'],
+          enabled: true
+        });
       }
+      sc.installedAddons = userAddons;
 
       const { StremioAddonService } = require('./StremioAddonService');
       const service = new StremioAddonService(sc);
@@ -388,6 +418,7 @@ module.exports = {
   SubtitleProvider,
   LocalSubtitleProvider,
   SubDLDirectProvider,
+  StremioSubtitleProvider,
   SubtitleManager,
   initSubtitleManagerIpc
 };

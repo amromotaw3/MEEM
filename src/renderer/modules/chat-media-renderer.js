@@ -183,6 +183,30 @@
         color: rgba(255, 255, 255, 0.4);
         margin-left: auto;
       }
+
+      /* ── Movie / Series Media Share Card ── */
+      .media-share-card {
+        display: flex !important;
+        gap: 12px !important;
+        background: #0d0d12 !important;
+        border: 1px solid #1c1c24 !important;
+        padding: 8px 12px 8px 8px !important;
+        border-radius: 12px !important;
+        cursor: pointer !important;
+        transition: all 0.22s ease !important;
+        align-items: center !important;
+        max-width: 320px !important;
+        min-width: 240px !important;
+        margin-top: 4px !important;
+        user-select: none !important;
+        text-align: left !important;
+      }
+      .media-share-card:hover {
+        background: #13131a !important;
+        border-color: #282834 !important;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4) !important;
+        transform: translateY(-2px);
+      }
     `;
     document.head.appendChild(style);
   }
@@ -195,8 +219,15 @@
     el.className = 'chat-message';
     if (message.id) el.dataset.messageId = message.id;
 
-    if (message.type === 'media_share' || (message.content && typeof message.content === 'object' && message.content.type === 'media_share') || message.mediaType === 'music' || (message.content && message.content.mediaType === 'music')) {
-      const data = message.type === 'media_share' ? message : (message.content && typeof message.content === 'object' ? message.content : message);
+    const isMedia = message.type === 'media_share' || 
+                    Boolean(message.mediaId || message.mediaType) ||
+                    (message.content && typeof message.content === 'object' && message.content.type === 'media_share') || 
+                    message.mediaType === 'music' || 
+                    (message.content && message.content.mediaType === 'music') ||
+                    Boolean(message.title && (message.posterUrl || message.poster || message.poster_path || message.thumbnail));
+
+    if (isMedia) {
+      const data = (message.content && typeof message.content === 'object') ? message.content : message;
       const isMusic = data.mediaType === 'music' || data.type === 'music' || Boolean(data.artist);
       
       const posterSrc = data.posterUrl || data.poster_path || data.thumbnail || data.poster || '';
@@ -291,7 +322,7 @@
       }
     } else {
       // Normal text bubble fallback
-      const text = typeof message.content === 'string' ? message.content : (message.content !== undefined ? JSON.stringify(message.content) : (message.message_text || ''));
+      const text = typeof message.content === 'string' ? message.content : (message.content !== undefined ? JSON.stringify(message.content) : (message.message_text || message.title || message.name || ''));
       el.innerHTML = `<div class="message-text-bubble">${escapeHtml(text)}</div>`;
     }
 

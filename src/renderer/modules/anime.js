@@ -141,6 +141,7 @@
   });
 
   async function loadDiscoverByGenre(id, name) {
+    window._activeDiscoverGenre = { id, name };
     const content = $('#discover-content');
     const results = $('#discover-results');
     const genreView = $('#discover-genre-view');
@@ -185,6 +186,7 @@
         const tmdbData = await window.api.tmdbDiscoverByGenre(id);
         finalItems = (tmdbData.results || []).filter(item => item.adult !== true);
       }
+      finalItems = finalItems.filter(item => item.isLocal || !!(item.poster || item.poster_path || item.cover || item.thumbnail || item.banner || item.backdrop_path));
       renderDiscoverGrid('#genre-grid', finalItems);
     } catch {
       if (grid) grid.innerHTML = '<div style="padding:20px;color:var(--text-muted)">Failed to load genre content.</div>';
@@ -200,7 +202,35 @@
     row.innerHTML = '';
 
     const items = Object.entries(currentProfile.playback).map(([key, pb]) => {
-      if (!pb.meta) {
+      const isYtKey = Boolean(
+        (typeof key === 'string' && (/^[a-zA-Z0-9_-]{11}$/.test(key) || key.startsWith('yt:') || key.startsWith('yt_'))) ||
+        pb.isYoutube || pb.type === 'youtube' ||
+        pb.meta?.isYoutube || pb.meta?.type === 'youtube' ||
+        (typeof pb.meta?.id === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(pb.meta.id))
+      );
+      if (isYtKey) {
+        const vId = (key.startsWith('yt:') || key.startsWith('yt_')) ? key.replace(/^yt[:_]/, '') : (pb.meta?.videoId || pb.meta?.id || key);
+        const ytCached = (window.appData?.ytCache && window.appData.ytCache[vId]) || {};
+        const ytThumb = ytCached.thumbnail || pb.meta?.thumbnail || pb.meta?.poster || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+        const rawTitle = pb.meta?.title || pb.title;
+        const cleanTitle = (rawTitle && rawTitle !== vId && rawTitle !== 'Media' && rawTitle !== 'Playback') ? rawTitle : (ytCached.title || 'YouTube Video');
+        pb.meta = {
+          ...(pb.meta || {}),
+          id: vId,
+          videoId: vId,
+          path: `https://www.youtube.com/watch?v=${vId}`,
+          url: `https://www.youtube.com/watch?v=${vId}`,
+          type: 'youtube',
+          isYoutube: true,
+          title: cleanTitle,
+          author: ytCached.author || pb.meta?.author || 'YouTube',
+          duration: ytCached.duration || pb.meta?.duration || pb.duration || 0,
+          poster: ytThumb,
+          thumbnail: ytThumb,
+          backdrop_path: ytThumb,
+          backdrop: ytThumb
+        };
+      } else if (!pb.meta) {
         const tmdbCache = appData.tmdbCache || {};
         let libItem = null;
         if (typeof allItems === 'function') {
@@ -272,6 +302,24 @@
         }
       }
       if (pb.meta) {
+        const isYtItem = pb.meta.isYoutube || pb.meta.type === 'youtube' ||
+                         (typeof pb.meta.id === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(pb.meta.id)) ||
+                         (typeof key === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(key));
+        if (isYtItem) {
+          const vId = pb.meta.videoId || pb.meta.id || key;
+          pb.meta.type = 'youtube';
+          pb.meta.isYoutube = true;
+          pb.meta.videoId = vId;
+          const ytCached = (window.appData?.ytCache && window.appData.ytCache[vId]) || {};
+          const ytThumb = ytCached.thumbnail || pb.meta.thumbnail || pb.meta.poster || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+          pb.meta.thumbnail = ytThumb;
+          pb.meta.poster = ytThumb;
+          pb.meta.backdrop_path = ytThumb;
+          pb.meta.backdrop = ytThumb;
+          if (!pb.meta.title || pb.meta.title === vId || pb.meta.title === 'Media' || pb.meta.title === 'Playback') {
+            pb.meta.title = ytCached.title || 'YouTube Video';
+          }
+        }
         if (pb.torrentMagnet) {
           pb.meta.torrentMagnet = pb.torrentMagnet;
         }
@@ -363,6 +411,20 @@
         const isEpisode = item.season !== undefined && item.episode !== undefined;
         let displayTitle = item.title || item.name;
 
+        const isYtItem = Boolean(
+          item.isYoutube || item.type === 'youtube' ||
+          (typeof item.id === 'string' && (/^[a-zA-Z0-9_-]{11}$/.test(item.id) || item.id.startsWith('yt:'))) ||
+          (typeof pb.key === 'string' && (/^[a-zA-Z0-9_-]{11}$/.test(pb.key) || pb.key.startsWith('yt:')))
+        );
+
+        if (isYtItem) {
+          const vId = (item.videoId || item.id || pb.key || '').replace(/^yt[:_]/, '');
+          const cachedYt = (window.appData?.ytCache && window.appData.ytCache[vId]) || {};
+          if (!displayTitle || displayTitle === vId || displayTitle === 'Media' || displayTitle === 'Playback') {
+            displayTitle = cachedYt.title || 'YouTube Video';
+          }
+        }
+
         // 1. Locate showObj reliably
         let showObj = item.show;
         if (isEpisode && !showObj) {
@@ -376,7 +438,9 @@
           });
         }
 
-        let subtitle = isEpisode ? (item.showName || item.showTitle || (showObj && (showObj.title || showObj.cleanTitle)) || 'TV Show') : '';
+        let subtitle = isYtItem
+          ? (((window.appData?.ytCache && window.appData.ytCache[(item.videoId || item.id || pb.key || '').replace(/^yt[:_]/, '')]?.author) || item.author || 'YouTube'))
+          : (isEpisode ? (item.showName || item.showTitle || (showObj && (showObj.title || showObj.cleanTitle)) || 'TV Show') : '');
 
         // 2. Comprehensive metadata lookup across TMDB, Cinemeta, and showObj keys
         let metaCache = null;
@@ -485,7 +549,11 @@
         const pPath = item.poster_path || item.posterPath || metaCache.posterPath || metaCache.poster_path;
 
         let backdropUrl = 'imgs/no-backdrop.png';
-        if (episodeStill) {
+        if (isYtItem) {
+          const vId = (item.videoId || item.id || pb.key || '').replace(/^yt[:_]/, '');
+          const cachedYt = (window.appData?.ytCache && window.appData.ytCache[vId]) || {};
+          backdropUrl = cachedYt.thumbnail || item.thumbnail || item.poster || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+        } else if (episodeStill) {
           backdropUrl = episodeStill;
         } else {
           const sId = showObj?.id || item.showId;
@@ -507,8 +575,9 @@
           }
         }
 
+        const ytIdForImg = isYtItem ? (item.videoId || item.id || pb.key || '').replace(/^yt[:_]/, '') : '';
         card.innerHTML = `
-          <img class="continue-card-img" src="${backdropUrl}" onerror="this.src='imgs/no-backdrop.png'; this.onerror=null;">
+          <img class="continue-card-img" src="${backdropUrl}" onerror="${isYtItem ? `if(!this.src.includes('mqdefault')){this.src='https://i.ytimg.com/vi/${ytIdForImg}/mqdefault.jpg';}else{this.src='imgs/no-backdrop.png';}` : `this.src='imgs/no-backdrop.png';`} this.onerror=null;">
           <div class="continue-card-play"><i class="fas fa-play"></i></div>
           <div class="continue-card-info">
             <div class="continue-card-title">${displayTitle}</div>
@@ -519,10 +588,63 @@
           </div>
         `;
 
+        if (isYtItem && ytIdForImg) {
+          const cachedYt = window.appData?.ytCache?.[ytIdForImg];
+          if (!cachedYt || !cachedYt.title || displayTitle === 'YouTube Video') {
+            fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${ytIdForImg}&format=json`)
+              .then(res => res.ok ? res.json() : null)
+              .then(data => {
+                if (data && data.title) {
+                  window.appData = window.appData || {};
+                  window.appData.ytCache = window.appData.ytCache || {};
+                  window.appData.ytCache[ytIdForImg] = {
+                    id: ytIdForImg,
+                    title: data.title,
+                    author: data.author_name,
+                    thumbnail: `https://i.ytimg.com/vi/${ytIdForImg}/hqdefault.jpg`
+                  };
+                  if (pb.meta) {
+                    pb.meta.title = data.title;
+                    if (data.author_name) pb.meta.author = data.author_name;
+                  }
+                  const tEl = card.querySelector('.continue-card-title');
+                  if (tEl) tEl.textContent = data.title;
+                  const sEl = card.querySelector('.continue-card-subtitle');
+                  if (sEl && data.author_name) sEl.textContent = data.author_name;
+                }
+              })
+              .catch(() => {});
+          }
+        }
+
         card.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
           const resumeTime = (pb && pb.time > 2 && !pb.watched) ? pb.time : 0;
+
+          if (isYtItem) {
+            const vId = (item.videoId || item.id || pb.key || '').replace(/^yt[:_]/, '');
+            const currentYtMeta = (window.appData?.ytCache && window.appData.ytCache[vId]) || {};
+            const effectiveTitle = currentYtMeta.title || (item.title && item.title !== vId ? item.title : 'YouTube Video');
+            const effectiveAuthor = currentYtMeta.author || item.author || 'YouTube';
+            const effectiveThumb = currentYtMeta.thumbnail || item.thumbnail || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+
+            if (typeof window.playVideo === 'function') {
+              window.playVideo({
+                type: 'youtube',
+                isYoutube: true,
+                id: vId,
+                videoId: vId,
+                title: effectiveTitle,
+                author: effectiveAuthor,
+                poster: effectiveThumb,
+                thumbnail: effectiveThumb,
+                backdrop_path: effectiveThumb,
+                startTime: resumeTime
+              }, null, { startTime: resumeTime });
+            }
+            return;
+          }
           const magnet = item.torrentMagnet || pb?.torrentMagnet || pb?.meta?.torrentMagnet;
           const fIdx = item.fileIdx ?? pb?.fileIdx ?? pb?.meta?.fileIdx ?? null;
           let rawPath = item.path || pb?.path || pb?.meta?.path || item.url || pb?.meta?.url;
@@ -559,7 +681,21 @@
             }
           }
 
-          const isValidLocal = rawPath && (rawPath.startsWith('http://') || rawPath.startsWith('https://') || rawPath.includes(':\\') || rawPath.includes(':/') || rawPath.startsWith('\\\\'));
+          // If rawPath is a series directory, find the target episode inside showObj
+          const VIDEO_EXTS = ['.mkv', '.mp4', '.avi', '.mov', '.webm', '.ts', '.m4v', '.flv'];
+          let isDirectVideoFile = rawPath && (rawPath.startsWith('http://') || rawPath.startsWith('https://') || VIDEO_EXTS.some(ext => rawPath.toLowerCase().endsWith(ext)));
+
+          if (!isDirectVideoFile && showObj && Array.isArray(showObj.episodes) && showObj.episodes.length > 0) {
+            const targetEp = (item.season != null && item.episode != null)
+              ? showObj.episodes.find(e => e.season == item.season && e.episode == item.episode)
+              : (showObj.episodes.find(e => e.path === pb?.key) || showObj.episodes[0]);
+            if (targetEp && targetEp.path) {
+              rawPath = targetEp.path;
+              isDirectVideoFile = true;
+            }
+          }
+
+          const isValidLocal = isDirectVideoFile && (rawPath.startsWith('http://') || rawPath.startsWith('https://') || rawPath.includes(':\\') || rawPath.includes(':/') || rawPath.startsWith('\\\\'));
 
           if (magnet) {
             if (typeof playVideo === 'function') {
@@ -585,10 +721,35 @@
                 startTime: resumeTime
               }, item.showName ? { title: item.showName, id: item.showId } : null, { startTime: resumeTime });
             }
+          } else if (isEpisode && item.season != null && item.episode != null && typeof window.selectUnifiedEpisode === 'function') {
+            // MATCH EPISODES PAGE EXACTLY: Stream & auto-play episode with resume time
+            const epThumb = episodeStill || backdropUrl || '';
+            const epTitle = displayTitle || `Episode ${item.episode}`;
+            window.selectUnifiedEpisode(item.season, item.episode, epTitle, epThumb, rawPath || '');
+          } else if (typeof window.loadStreams === 'function') {
+            // Load streams for movie/show with auto-play
+            const resolvedImdb = item.imdb_id || item.imdbId || (showObj && (showObj.imdb_id || showObj.imdbId)) || (String(item.id).startsWith('tt') ? item.id : null);
+            const streamType = (item.source === 'jikan' || item.source === 'mal' || item.source === 'kitsu' || item.kitsuId) ? 'anime' : (isEpisode ? 'tv' : (item.type === 'show' ? 'tv' : 'movie'));
+            const payload = {
+              ...item,
+              imdb_id: resolvedImdb,
+              imdbId: resolvedImdb,
+              season: item.season,
+              episode: item.episode,
+              epTitle: displayTitle,
+              media_type: isEpisode ? 'tv' : (item.type === 'show' ? 'tv' : 'movie'),
+              startTime: resumeTime
+            };
+            window.loadStreams(payload, streamType);
           } else {
-            // Online item without a direct path: open unified detail to pick stream
-            if (typeof openUnifiedDetail === 'function') {
-              openUnifiedDetail(showObj || item);
+            // Online item without a direct path: open detail page
+            const targetObj = showObj || item;
+            if (typeof openDiscoverDetail === 'function') {
+              openDiscoverDetail(targetObj);
+            } else if (typeof window.openDiscoverDetail === 'function') {
+              window.openDiscoverDetail(targetObj);
+            } else if (typeof window.renderUnifiedDetail === 'function') {
+              window.renderUnifiedDetail(targetObj);
             } else if (typeof openShowDetail === 'function' && showObj) {
               openShowDetail(showObj);
             } else if (typeof playVideo === 'function') {
@@ -611,12 +772,12 @@
       section.style.display = 'block';
     } else {
       row.innerHTML = `
-        <div style="flex: 1; width: 100%; height: 100%; min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 20px; background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px dashed rgba(255,255,255,0.15); box-sizing: border-box; text-align: center;">
-          <div style="width: 52px; height: 52px; background: rgba(255,255,255,0.06); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; border: 1px solid rgba(255,255,255,0.1);">
-             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" style="opacity: 0.85;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <div style="flex: 1; width: 100%; height: 100%; min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; background: transparent; border: none; box-sizing: border-box; text-align: center;">
+          <div style="width: 64px; height: 64px; background: rgba(255,255,255,0.06); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.1);">
+             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.2" style="opacity: 0.9; margin-left: 2px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           </div>
-          <h3 style="font-size: 17px; margin: 0; opacity: 0.95; font-weight: 800; color: #fff; letter-spacing: 0.5px;">Start Watching Now!</h3>
-          <p style="font-size: 12px; margin: 6px 0 0; opacity: 0.5; max-width: 260px; line-height: 1.4;">Your in-progress movies and episodes will appear here automatically.</p>
+          <h3 style="font-size: 19px; margin: 0; opacity: 0.95; font-weight: 800; color: #fff; letter-spacing: 0.5px;">Start Watching Now!</h3>
+          <p style="font-size: 13px; margin: 8px 0 0; opacity: 0.45; max-width: 320px; line-height: 1.45;">Your in-progress movies and episodes will appear here automatically.</p>
         </div>
       `;
       section.style.display = 'block';
@@ -629,41 +790,84 @@
 
     const menu = document.createElement('div');
     menu.id = 'continue-watching-menu';
+    
+    // Boundary check so menu doesn't spawn off-screen
+    const posX = Math.min(e.clientX, window.innerWidth - 200);
+    const posY = Math.min(e.clientY, window.innerHeight - 180);
+
     menu.style.cssText = `
       position: fixed;
-      top: ${e.clientY}px;
-      left: ${e.clientX}px;
-      background: #1a1a1e;
-      border: 1px solid rgba(255,255,255,0.1);
+      top: ${posY}px;
+      left: ${posX}px;
+      background: rgba(18, 18, 22, 0.95);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 12px;
-      padding: 8px;
+      padding: 5px;
       z-index: 1000000;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      min-width: 200px;
-      animation: fadeIn 0.2s ease-out;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      min-width: 175px;
+      max-width: 220px;
+      animation: menuPopIn 0.15s ease-out;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     `;
+
+    // Title / Header Preview
+    const itemTitle = item.title || item.name || showObj?.title || showObj?.name || 'Media';
+    const subTitle = (item.season != null && item.episode != null) ? `Season ${item.season} · Ep ${item.episode}` : (item.showTitle || item.showName || '');
+    
+    const header = document.createElement('div');
+    header.style.cssText = `
+      padding: 5px 8px 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      margin-bottom: 3px;
+    `;
+    header.innerHTML = `
+      <div style="font-size: 0.8rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(itemTitle)}</div>
+      ${subTitle ? `<div style="font-size: 0.7rem; font-weight: 500; color: rgba(255, 255, 255, 0.5); margin-top: 1px;">${escapeHTML(subTitle)}</div>` : ''}
+    `;
+    menu.appendChild(header);
 
     const createBtn = (icon, text, onClick) => {
       const btn = document.createElement('button');
       btn.style.cssText = `
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 9px;
         width: 100%;
-        padding: 10px 15px;
+        padding: 6px 9px;
         background: transparent;
         border: none;
-        color: #fff;
-        font-size: 14px;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 12.5px;
         font-weight: 600;
         cursor: pointer;
         border-radius: 8px;
-        transition: background 0.2s;
+        transition: all 0.15s ease;
         text-align: left;
       `;
-      btn.innerHTML = `<i class="fas ${icon}" style="width: 16px; opacity: 0.7;"></i> ${text}`;
-      btn.onmouseenter = () => btn.style.background = 'rgba(255,255,255,0.05)';
-      btn.onmouseleave = () => btn.style.background = 'transparent';
+
+      btn.innerHTML = `
+        <i class="fas ${icon}" style="font-size: 11px; width: 14px; text-align: center; color: #fff; opacity: 0.8;"></i>
+        <span style="flex: 1;">${text}</span>
+      `;
+
+      btn.onmouseenter = () => {
+        btn.style.background = 'rgba(255, 255, 255, 0.1)';
+        btn.style.color = '#fff';
+        const iconEl = btn.querySelector('i');
+        if (iconEl) iconEl.style.opacity = '1';
+      };
+      btn.onmouseleave = () => {
+        btn.style.background = 'transparent';
+        btn.style.color = 'rgba(255, 255, 255, 0.85)';
+        const iconEl = btn.querySelector('i');
+        if (iconEl) iconEl.style.opacity = '0.8';
+      };
+
       btn.onclick = () => {
         menu.remove();
         onClick();
@@ -673,10 +877,11 @@
 
     // Option 1: Resume Playback
     menu.appendChild(createBtn('fa-play', 'Resume Playback', () => {
+      const resumeTime = (pb && pb.time > 2 && !pb.watched) ? pb.time : 0;
       if (item.isStream) {
-        if (typeof playVideo === 'function') playVideo(item, item.showName ? { title: item.showName, id: item.showId } : null);
+        if (typeof playVideo === 'function') playVideo(item, item.showName ? { title: item.showName, id: item.showId } : null, { startTime: resumeTime });
       } else {
-        if (typeof playVideo === 'function') playVideo(item, showObj);
+        if (typeof playVideo === 'function') playVideo(item, showObj, { startTime: resumeTime });
       }
     }));
 
@@ -696,7 +901,24 @@
       const key = getPlaybackKey(item);
       if (currentProfile?.playback && currentProfile.playback[key]) {
         delete currentProfile.playback[key];
-        persist();
+        if (window.currentProfile?.playback) delete window.currentProfile.playback[key];
+        if (window.appData && Array.isArray(window.appData.profiles)) {
+          const matched = window.appData.profiles.find(p => p.id === currentProfile.id);
+          if (matched && matched.playback) delete matched.playback[key];
+        }
+        if (window.appData && window.appData.playback) delete window.appData.playback[key];
+
+        if (typeof window.persist === 'function') {
+          try { await window.persist(true); } catch (_) {}
+        }
+
+        // Direct renderer Supabase delete
+        try {
+          const rClient = typeof window.getSupabaseRendererClient === 'function' ? window.getSupabaseRendererClient() : null;
+          if (rClient && currentProfile.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(currentProfile.id)) {
+            rClient.from('playback_history').delete().eq('profile_id', currentProfile.id).eq('media_id', key).catch(() => {});
+          }
+        } catch (_) {}
 
         if (window.api && window.api.invoke) {
           try {
@@ -712,13 +934,17 @@
         if (typeof renderContinueWatchingDiscover === 'function') {
           renderContinueWatchingDiscover();
         }
+        if (typeof window.renderLibContinueWatching === 'function') {
+          window.renderLibContinueWatching();
+        } else if (typeof renderLibContinueWatching === 'function') {
+          renderLibContinueWatching();
+        }
         if (typeof renderEmptySearchState === 'function') {
           renderEmptySearchState();
         }
         showToast('Removed from Continue Watching');
       }
     });
-    removeBtn.style.color = '#ff4d4d';
     menu.appendChild(removeBtn);
 
     document.body.appendChild(menu);
@@ -754,6 +980,7 @@
       const card = document.createElement('div');
       card.className = 'discover-card';
       const title = item.title || item.name || 'Unknown';
+      const inLib = localTitles.has((title || '').toLowerCase()) || !!item.isLocal || !!item.path;
 
       // Comprehensive poster resolution matching Movies / Shows views
       const tmdbCached = (window.appData?.tmdbCache && item.id && window.appData.tmdbCache[item.id]) || item.tmdbData;
@@ -783,7 +1010,10 @@
         posterUrl = `https://image.tmdb.org/t/p/w500${posterUrl}`;
       }
 
-      const inLib = localTitles.has(title.toLowerCase());
+      if (!posterUrl && !inLib && !item.isLocal && item.type !== 'iptv' && item.type !== 'channel' && item.type !== 'radio') {
+        return; // Hide items with no poster
+      }
+
       const year = (item.release_date || item.first_air_date || item.year || '').toString().slice(0, 4);
       const rating = parseFloat(item.vote_average || item.rating || tmdbCached?.rating || 0) || 0;
 
@@ -799,7 +1029,7 @@
             <i class="fas ${fallbackIcon}"></i>
             <span class="placeholder-title">${escapeHTML(title)}</span>
           </div>
-          ${posterUrl ? `<img src="${localImg(posterUrl)}" class="${imgClass}" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+          ${posterUrl ? `<img src="${localImg(posterUrl)}" class="${imgClass}" loading="lazy" onerror="this.closest('.discover-card')?.remove();">` : ''}
           ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
         </div>
         <div class="discover-info">
@@ -851,6 +1081,8 @@
     return url;
   }
 
+  let activeHeroLayer = 0;
+
   function updateDiscoverHeroDisplay() {
     const hero = $('#discover-hero');
     if (!hero || discoverHeroItems.length === 0) return;
@@ -864,69 +1096,131 @@
     const isAnime = item.source === 'anilist' || item.source === 'mal' || item.format;
     const type = isAnime ? 'ANIME' : (item.media_type === 'tv' ? 'SERIES' : 'MOVIE');
     const imdbId = item.imdb_id || item.imdbId || (String(item.id || '').startsWith('tt') ? item.id : null);
+    const totalCount = discoverHeroItems.length;
 
-    hero.innerHTML = `
-      <div class="hero-backdrop" id="hero-backdrop-bg" style="background-image: url('${backdrop}')"></div>
-      <div class="hero-overlay">
-        <div class="hero-content">
-          <div class="hero-badge">Featured ${type}</div>
-          ${item.logoUrl ? 
-            `<img id="hero-logo" src="${(typeof window.localImg === 'function') ? window.localImg(item.logoUrl) : item.logoUrl}" onerror="this.style.display='none'; const sibling = this.parentElement?.querySelector('.hero-fallback-title'); if(sibling) sibling.style.display='block';" style="display: block; max-width: 320px; max-height: 80px; object-fit: contain; margin-bottom: 12px; transition: opacity 0.25s ease;">
-             <h1 class="hero-title hero-fallback-title" style="display:none">${escapeHTML(title)}</h1>` : 
-            `<h1 class="hero-title">${escapeHTML(title)}</h1>`
-          }
-          <div class="hero-meta">
-            <span><i class="fas fa-star" style="color:#F59E0B"></i> ${rating}</span>
-            <span>${year}</span>
-            <span>HD 4K</span>
+    // Check if the slider shell already exists inside #discover-hero
+    let stage = hero.querySelector('#hero-slider-stage');
+    if (!stage) {
+      hero.innerHTML = `
+        <div id="hero-slider-stage" style="position:absolute; inset:0; overflow:hidden; border-radius:inherit;">
+          <div id="hero-layer-0" class="hero-slide-layer" style="position:absolute; inset:0; opacity:1; transition:opacity 0.4s ease-in-out; z-index:1;">
+            <div class="hero-backdrop" id="hero-bg-0"></div>
+            <div class="hero-overlay">
+              <div class="hero-content" id="hero-content-0"></div>
+            </div>
           </div>
-          <div style="margin-top: 15px; font-size: 11px; font-weight: 700; opacity: 0.8; letter-spacing: 1px; text-transform: uppercase;">
-             <i class="fas fa-info-circle"></i> Click for Details
+          <div id="hero-layer-1" class="hero-slide-layer" style="position:absolute; inset:0; opacity:0; transition:opacity 0.4s ease-in-out; z-index:2; pointer-events:none;">
+            <div class="hero-backdrop" id="hero-bg-1"></div>
+            <div class="hero-overlay">
+              <div class="hero-content" id="hero-content-1"></div>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="hero-pagination" id="discover-hero-dots"></div>
-    `;
 
-    // Smart Fallback Preloader for Hero Backdrop Image
-    if (backdrop) {
-      const imgTester = new Image();
-      imgTester.src = backdrop;
-      imgTester.onerror = () => {
-        let fallback = '';
-        if (imdbId && !backdrop.includes('metahub.space')) {
-          fallback = `https://images.metahub.space/background/medium/${imdbId}/img`;
-        } else if (item.poster_path) {
-          fallback = `https://image.tmdb.org/t/p/w1280${item.poster_path}`;
-        } else if (imdbId) {
-          fallback = `https://images.metahub.space/poster/medium/${imdbId}/img`;
-        }
-        if (fallback) {
-          if (typeof window.localImg === 'function') fallback = window.localImg(fallback);
-          const bgEl = hero.querySelector('#hero-backdrop-bg');
-          if (bgEl) bgEl.style.backgroundImage = `url('${fallback}')`;
-        }
+        <div class="hero-pagination" id="discover-hero-dots"></div>
+      `;
+
+      hero.onclick = (e) => {
+        if (e.target.closest('.hero-dot') || e.target.closest('.hero-pagination')) return;
+        const currentItem = discoverHeroItems[discoverHeroIndex];
+        if (currentItem) openDiscoverDetail(currentItem);
       };
+
+      hero.onmouseenter = () => {
+        if (discoverHeroInterval) clearInterval(discoverHeroInterval);
+      };
+      hero.onmouseleave = () => {
+        resetDiscoverHeroInterval();
+      };
+
+      activeHeroLayer = 0;
     }
 
-    hero.onclick = (e) => {
-      if (e.target.classList.contains('hero-dot')) return;
-      openDiscoverDetail(item);
-    };
+    // Toggle target layer for seamless cross-fade
+    const nextLayerIdx = activeHeroLayer === 0 ? 1 : 0;
+    const currentLayer = hero.querySelector(`#hero-layer-${activeHeroLayer}`);
+    const nextLayer = hero.querySelector(`#hero-layer-${nextLayerIdx}`);
+    const nextBg = hero.querySelector(`#hero-bg-${nextLayerIdx}`);
+    const nextContent = hero.querySelector(`#hero-content-${nextLayerIdx}`);
 
+    if (nextBg && nextContent && currentLayer && nextLayer) {
+      if (backdrop) nextBg.style.backgroundImage = `url('${backdrop}')`;
+
+      nextContent.innerHTML = `
+        <div class="hero-badge">Featured ${type}</div>
+        ${item.logoUrl ? 
+          `<img id="hero-logo" src="${(typeof window.localImg === 'function') ? window.localImg(item.logoUrl) : item.logoUrl}" onerror="this.style.display='none'; const sibling = this.parentElement?.querySelector('.hero-fallback-title'); if(sibling) sibling.style.display='block';" style="display: block; max-width: 320px; max-height: 80px; object-fit: contain; margin-bottom: 12px; transition: opacity 0.25s ease;">
+           <h1 class="hero-title hero-fallback-title" style="display:none">${escapeHTML(title)}</h1>` : 
+          `<h1 class="hero-title">${escapeHTML(title)}</h1>`
+        }
+        <div class="hero-meta">
+          <span><i class="fas fa-star" style="color:#F59E0B"></i> ${rating}</span>
+          <span>${year}</span>
+          <span>HD 4K</span>
+        </div>
+        <div style="margin-top: 15px; font-size: 11px; font-weight: 700; opacity: 0.8; letter-spacing: 1px; text-transform: uppercase;">
+           <i class="fas fa-info-circle"></i> Click for Details
+        </div>
+      `;
+
+      // Smart Fallback Preloader for Hero Backdrop Image
+      if (backdrop) {
+        const imgTester = new Image();
+        imgTester.src = backdrop;
+        imgTester.onerror = () => {
+          let fallback = '';
+          if (imdbId && !backdrop.includes('metahub.space')) {
+            fallback = `https://images.metahub.space/background/medium/${imdbId}/img`;
+          } else if (item.poster_path) {
+            fallback = `https://image.tmdb.org/t/p/w1280${item.poster_path}`;
+          } else if (imdbId) {
+            fallback = `https://images.metahub.space/poster/medium/${imdbId}/img`;
+          }
+          if (fallback) {
+            if (typeof window.localImg === 'function') fallback = window.localImg(fallback);
+            if (nextBg) nextBg.style.backgroundImage = `url('${fallback}')`;
+          }
+        };
+      }
+
+      // Perform the smooth GPU crossfade transition
+      nextLayer.style.opacity = '1';
+      nextLayer.style.pointerEvents = 'auto';
+      nextLayer.style.zIndex = '2';
+      currentLayer.style.opacity = '0';
+      currentLayer.style.pointerEvents = 'none';
+      currentLayer.style.zIndex = '1';
+      activeHeroLayer = nextLayerIdx;
+    }
+
+    // Update Dots indicator
     const dots = hero.querySelector('#discover-hero-dots');
     if (dots) {
-      discoverHeroItems.forEach((_, i) => {
-        const dot = document.createElement('div');
-        dot.className = 'hero-dot' + (i === discoverHeroIndex ? ' active' : '');
-        dot.onclick = (e) => {
-          e.stopPropagation();
-          discoverHeroIndex = i;
-          updateDiscoverHeroDisplay();
-          resetDiscoverHeroInterval();
-        };
-        dots.appendChild(dot);
-      });
+      if (totalCount <= 1) {
+        dots.style.display = 'none';
+      } else {
+        dots.style.display = 'flex';
+        if (dots.children.length !== discoverHeroItems.length) {
+          dots.innerHTML = '';
+          discoverHeroItems.forEach((_, i) => {
+            const dot = document.createElement('div');
+            dot.className = 'hero-dot' + (i === discoverHeroIndex ? ' active' : '');
+            dot.onclick = (e) => {
+              e.stopPropagation();
+              if (discoverHeroIndex !== i) {
+                discoverHeroIndex = i;
+                updateDiscoverHeroDisplay();
+                resetDiscoverHeroInterval();
+              }
+            };
+            dots.appendChild(dot);
+          });
+        } else {
+          Array.from(dots.children).forEach((dot, i) => {
+            dot.className = 'hero-dot' + (i === discoverHeroIndex ? ' active' : '');
+          });
+        }
+      }
     }
   }
 
@@ -936,17 +1230,33 @@
       discoverHeroInterval = setInterval(() => {
         discoverHeroIndex = (discoverHeroIndex + 1) % discoverHeroItems.length;
         updateDiscoverHeroDisplay();
-      }, 6000);
+      }, 5500);
     }
   }
 
   function addDiscoverHeroItem(item) {
     if (!item) return;
-    if (discoverHeroItems.length >= 6) return;
-    if (!discoverHeroItems.find(i => (i.id === item.id) || (i.imdb_id === item.imdb_id))) {
+    if (discoverHeroItems.length >= 10) return;
+
+    // Robust duplicate detection avoiding undefined === undefined bugs
+    const isDuplicate = discoverHeroItems.some(i => {
+      if (item.id != null && i.id != null && String(i.id) === String(item.id)) return true;
+      if (item.imdb_id && i.imdb_id && String(i.imdb_id) === String(item.imdb_id)) return true;
+      if (item.tmdbId && i.tmdbId && String(i.tmdbId) === String(item.tmdbId)) return true;
+      const titleA = (i.title || i.name || '').trim().toLowerCase();
+      const titleB = (item.title || item.name || '').trim().toLowerCase();
+      if (titleA && titleB && titleA === titleB) return true;
+      return false;
+    });
+
+    if (!isDuplicate) {
       discoverHeroItems.push(item);
       
       const isAnime = item.type === 'anime' || item.source === 'jikan' || item.source === 'kitsu' || item.source === 'mal' || item.source === 'anilist';
+      const heroType = isAnime ? 'tv' : (item.media_type || item.type || (item.title ? 'movie' : 'tv'));
+      const normalizedType = (heroType === 'series' || heroType === 'tv') ? 'tv' : 'movie';
+      const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+
       if (isAnime) {
         const queryTitle = item.title_english || item.title || item.name || '';
         if (queryTitle) {
@@ -1005,20 +1315,33 @@
       }
 
       // Fetch full metadata (including clearlogos) in background for logo display
-      const heroType = isAnime ? 'tv' : (item.media_type || item.type || (item.title ? 'movie' : 'tv'));
-      const normalizedType = (heroType === 'series' || heroType === 'tv') ? 'tv' : 'movie';
-      
-      window.api.invoke('cinemeta-details', { id: item.id, type: normalizedType })
-        .then(res => {
-          if (res) {
-            const logoUrl = res.clearlogos?.[0] || res.meta?.logo || res.meta?.fanart?.hdtvlogo?.[0]?.url || res.meta?.fanart?.clearlogo?.[0]?.url;
-            if (logoUrl) {
-              item.logoUrl = logoUrl;
-              updateDiscoverHeroDisplay();
-            }
-          }
-        })
-        .catch(err => console.warn('[DiscoverHero] Logo fetch failed:', err));
+      if (!item.logoUrl) {
+        if (/^\d+$/.test(String(item.id)) && tmdbKey) {
+          fetch(`https://api.themoviedb.org/3/${normalizedType}/${item.id}/images?api_key=${tmdbKey}`, { signal: AbortSignal.timeout(3500) })
+            .then(r => r.json())
+            .then(res => {
+              const logos = res?.logos || [];
+              const bestLogo = logos.find(l => l.iso_639_1 === 'en') || logos[0];
+              if (bestLogo?.file_path) {
+                item.logoUrl = `https://image.tmdb.org/t/p/original${bestLogo.file_path}`;
+                updateDiscoverHeroDisplay();
+              }
+            })
+            .catch(() => {});
+        } else if (item.id) {
+          window.api.invoke('cinemeta-details', { id: item.id, type: normalizedType })
+            .then(res => {
+              if (res) {
+                const logoUrl = res.clearlogos?.[0] || res.meta?.logo || res.meta?.fanart?.hdtvlogo?.[0]?.url || res.meta?.fanart?.clearlogo?.[0]?.url;
+                if (logoUrl) {
+                  item.logoUrl = logoUrl;
+                  updateDiscoverHeroDisplay();
+                }
+              }
+            })
+            .catch(err => console.warn('[DiscoverHero] Logo fetch failed:', err));
+        }
+      }
 
       updateDiscoverHeroDisplay();
       resetDiscoverHeroInterval();
@@ -1035,55 +1358,184 @@
     }
     localHomeEl.style.display = 'flex';
 
-    const localMovies = appData.movies || [];
-    const localShows = appData.shows || [];
+    const localMovies = (appData.movies || []).map(m => ({ ...m, isLocal: true, type: 'movie' }));
+    const localShows = (appData.shows || []).map(s => ({ ...s, isLocal: true, type: 'show' }));
+    const localAnime = (appData.anime || appData.videos || []).map(a => ({ ...a, isLocal: true }));
     const activeProf = (window.appData?.profiles?.find(p => p.id === window.appData?.activeProfileId) || window.currentProfile);
     const watchlist = (activeProf?.watchlist || appData.watchlist || []);
+
+    // Social Media videos & downloads
+    const profileSocial = (appData.socialVideos || []).map(v => ({ ...v, name: v.filename || v.title || v.name, isLocal: true, social: true, poster: v.poster || v.thumbnail || 'imgs/video-placeholder.png' }));
+    const legacySocial = (appData.youtubeVideos || []).map(v => ({ ...v, name: v.filename || v.title || v.name, isLocal: true, social: true, poster: v.poster || v.thumbnail || 'imgs/video-placeholder.png' }));
+    const dlSocial = (appData.downloadHistory || []).filter(d => d.status === 'complete' && (d.social || d.isYoutube || d.type === 'video') && d.path).map(v => ({ ...v, name: v.title || v.name || v.filename, isLocal: true, social: true, poster: v.poster || v.thumbnail || 'imgs/video-placeholder.png' }));
+
+    // Music & Audio tracks (local / downloaded)
+    const localMusic = (appData.music || []).filter(m => m.path || m.url).map(m => ({
+      ...m,
+      name: m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Music Track'),
+      title: m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Music Track'),
+      isLocal: true,
+      isMusic: true,
+      type: 'music',
+      poster: m.thumbnail || m.cover || m.image || 'imgs/music-placeholder.png'
+    }));
+    const dlMusic = (appData.downloadHistory || []).filter(d => d.status === 'complete' && (d.type === 'music' || d.isMusic || (d.path && /\.(m4a|mp3|flac|wav|ogg)$/i.test(d.path)))).map(m => ({
+      ...m,
+      name: m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Downloaded Track'),
+      title: m.title || m.name || m.filename || (m.path ? m.path.split(/[/\\]/).pop() : 'Downloaded Track'),
+      isLocal: true,
+      isMusic: true,
+      type: 'music',
+      poster: m.thumbnail || m.cover || m.image || 'imgs/music-placeholder.png'
+    }));
+
+    const seenMusic = new Set();
+    const allLocalMusic = [...localMusic, ...dlMusic].filter(m => {
+      const key = m.path || m.id || m.url;
+      if (!key || seenMusic.has(key)) return false;
+      seenMusic.add(key);
+      return true;
+    });
+
+    const seenSocial = new Set();
+    const localSocial = [...profileSocial, ...legacySocial, ...dlSocial, ...allLocalMusic].filter(v => {
+      const key = v.path || v.id || v.url;
+      if (!key || seenSocial.has(key)) return false;
+      seenSocial.add(key);
+      return true;
+    });
+
+    const hasAnyLocalMedia = (localMovies.length > 0 || localShows.length > 0 || localAnime.length > 0 || watchlist.length > 0 || localSocial.length > 0);
 
     localHomeEl.innerHTML = `
       ${window.AppCapabilities?.can('youtube') ? `
       <!-- Section 0: YouTube Trending -->
       <div class="discover-section" id="home-local-youtube-section">
-        <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-          <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
-            <i class="fab fa-youtube" style="color:#ffffff;"></i> YouTube Trending
-          </h3>
+        <div class="discover-section-header">
+          <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
+            <i class="fab fa-youtube" style="font-size: 18px; color: #ffffff !important;"></i>
+          </div>
+          <h2>Trending on YouTube</h2>
+          <div class="header-divider"></div>
+          <div class="discover-header-nav">
+            <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button>
+            <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg></button>
+          </div>
         </div>
-        <div id="home-local-youtube-row" class="discover-row" style="display:flex; gap:18px; overflow-x:auto; padding:6px 4px 18px; scrollbar-width:thin;"></div>
+        <div id="home-local-youtube-row" class="discover-row"></div>
       </div>` : ''}
 
-      <!-- Section 1: Local Movies -->
-      <div class="discover-section">
-        <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-          <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
-            <i class="fas fa-film" style="color:#ffffff;"></i> Local Movies
-          </h3>
-          <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${localMovies.length} movies</span>
+      <!-- Section: Local Social & Downloads -->
+      <div class="discover-section" id="home-local-social-section" style="${localSocial.length ? '' : 'display:none;'}">
+        <div class="discover-section-header">
+          <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
+            <i class="fas fa-video" style="font-size: 15px; color: #ffffff !important;"></i>
+          </div>
+          <h2>Social</h2>
+          <span style="font-size:0.8rem; font-weight:600; color:rgba(255,255,255,0.45); margin-left: 8px;">(${localSocial.length})</span>
+          <div class="header-divider"></div>
+          <div class="discover-header-nav">
+            <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button>
+            <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg></button>
+          </div>
         </div>
-        <div id="home-local-movies-row" class="discover-row" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:20px;"></div>
+        <div id="home-local-social-row" class="discover-row"></div>
+      </div>
+
+      <!-- Section 1: Local Movies -->
+      <div class="discover-section" id="home-local-movies-section" style="${localMovies.length ? '' : 'display:none;'}">
+        <div class="discover-section-header">
+          <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
+            <i class="fas fa-film" style="font-size: 15px; color: #ffffff !important;"></i>
+          </div>
+          <h2>Local Movies</h2>
+          <span style="font-size:0.8rem; font-weight:600; color:rgba(255,255,255,0.45); margin-left: 8px;">(${localMovies.length})</span>
+          <div class="header-divider"></div>
+          <div class="discover-header-nav">
+            <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button>
+            <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg></button>
+          </div>
+        </div>
+        <div id="home-local-movies-row" class="discover-row"></div>
       </div>
 
       <!-- Section 2: Local Shows -->
-      <div class="discover-section">
-        <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-          <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
-            <i class="fas fa-tv" style="color:#ffffff;"></i> Local TV Shows
-          </h3>
-          <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${localShows.length} shows</span>
+      <div class="discover-section" id="home-local-shows-section" style="${localShows.length ? '' : 'display:none;'}">
+        <div class="discover-section-header">
+          <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
+            <i class="fas fa-tv" style="font-size: 15px; color: #ffffff !important;"></i>
+          </div>
+          <h2>Local TV Shows</h2>
+          <span style="font-size:0.8rem; font-weight:600; color:rgba(255,255,255,0.45); margin-left: 8px;">(${localShows.length})</span>
+          <div class="header-divider"></div>
+          <div class="discover-header-nav">
+            <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button>
+            <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg></button>
+          </div>
         </div>
-        <div id="home-local-shows-row" class="discover-row" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:20px;"></div>
+        <div id="home-local-shows-row" class="discover-row"></div>
       </div>
 
-      <!-- Section 3: Recent Watchlist -->
-      <div class="discover-section">
-        <div class="discover-section-header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-          <h3 style="font-size:1.4rem; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
-            <i class="fas fa-bookmark" style="color:#ffffff;"></i> Recent Watchlist
-          </h3>
-          <span style="font-size:0.85rem; color:rgba(255,255,255,0.5);">${watchlist.length} items</span>
+      <!-- Section 3: Local Anime / Videos -->
+      <div class="discover-section" id="home-local-anime-section" style="${localAnime.length ? '' : 'display:none;'}">
+        <div class="discover-section-header">
+          <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
+            <i class="fas fa-play" style="font-size: 15px; color: #ffffff !important;"></i>
+          </div>
+          <h2>Local Anime & Videos</h2>
+          <span style="font-size:0.8rem; font-weight:600; color:rgba(255,255,255,0.45); margin-left: 8px;">(${localAnime.length})</span>
+          <div class="header-divider"></div>
+          <div class="discover-header-nav">
+            <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button>
+            <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg></button>
+          </div>
         </div>
-        <div id="home-watchlist-row" class="discover-row" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:20px;"></div>
+        <div id="home-local-anime-row" class="discover-row"></div>
       </div>
+
+      <!-- Section 4: Recent Watchlist -->
+      <div class="discover-section" id="home-local-watchlist-section" style="${watchlist.length ? '' : 'display:none;'}">
+        <div class="discover-section-header">
+          <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
+            <i class="fas fa-bookmark" style="font-size: 15px; color: #ffffff !important;"></i>
+          </div>
+          <h2>Saved to Watchlist</h2>
+          <span style="font-size:0.8rem; font-weight:600; color:rgba(255,255,255,0.45); margin-left: 8px;">(${watchlist.length})</span>
+          <div class="header-divider"></div>
+          <div class="discover-header-nav">
+            <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button>
+            <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg></button>
+          </div>
+        </div>
+        <div id="home-local-watchlist-row" class="discover-row"></div>
+      </div>
+
+      ${!hasAnyLocalMedia ? `
+      <!-- Empty State Banner -->
+      <div class="local-home-empty-banner" style="margin: 15px 0 35px; padding: 36px 24px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.12); border-radius: 16px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+        <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; font-size: 20px; color: rgba(255,255,255,0.7);">
+          <i class="fas fa-folder-plus"></i>
+        </div>
+        <div>
+          <div style="font-size: 16px; font-weight: 800; color: #fff; margin-bottom: 6px;">No Media or Add-ons Available</div>
+          <div style="font-size: 12px; color: rgba(255,255,255,0.5); max-width: 460px; line-height: 1.6; margin: 0 auto;">
+            Add your social downloads or local media to play offline files, or install streaming add-ons from the Add-on Store to explore online catalogs.
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; justify-content: center;">
+          <button class="btn btn-primary" onclick="if(typeof switchView==='function') switchView('social');" style="padding: 8px 18px; font-size: 12px; font-weight: 700; border-radius: 10px; cursor: pointer; background: #ffffff; color: #000; border: none; display: inline-flex; align-items: center; gap: 8px;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="23 7 16 12 23 17 23 7"></polygon>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            </svg>
+            <span>Open Social</span>
+          </button>
+          <button class="btn btn-secondary" onclick="if(typeof switchView==='function') switchView('addons');" style="padding: 8px 18px; font-size: 12px; font-weight: 700; border-radius: 10px; cursor: pointer; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.2); display: inline-flex; align-items: center; gap: 8px;">
+            <i class="fas fa-puzzle-piece"></i>
+            <span>Add-on Store</span>
+          </button>
+        </div>
+      </div>` : ''}
     `;
 
     // Fetch and render YouTube Trending if active
@@ -1100,44 +1552,34 @@
       }
     }
 
+    // Render Section: Local Social & Downloads
+    if (localSocial.length > 0) {
+      renderDiscoverRow('#home-local-social-row', localSocial);
+    }
+
     // Render Section 1: Local Movies
-    const moviesRow = $('#home-local-movies-row');
-    if (moviesRow) {
-      if (!localMovies.length) {
-        moviesRow.innerHTML = `<div style="grid-column:1/-1; padding:30px; text-align:center; background:rgba(255,255,255,0.02); border-radius:16px; color:rgba(255,255,255,0.4);">
-          No local movies added yet. Add media folders in the Library screen.
-        </div>`;
-      } else {
-        renderDiscoverGrid('#home-local-movies-row', localMovies.slice(0, 12));
-      }
+    if (localMovies.length > 0) {
+      renderDiscoverRow('#home-local-movies-row', localMovies);
     }
 
     // Render Section 2: Local Shows
-    const showsRow = $('#home-local-shows-row');
-    if (showsRow) {
-      if (!localShows.length) {
-        showsRow.innerHTML = `<div style="grid-column:1/-1; padding:30px; text-align:center; background:rgba(255,255,255,0.02); border-radius:16px; color:rgba(255,255,255,0.4);">
-          No local TV shows added yet.
-        </div>`;
-      } else {
-        renderDiscoverGrid('#home-local-shows-row', localShows.slice(0, 12));
-      }
+    if (localShows.length > 0) {
+      renderDiscoverRow('#home-local-shows-row', localShows);
     }
 
-    // Render Section 3: Watchlist
-    const watchlistRow = $('#home-watchlist-row');
-    if (watchlistRow) {
-      if (!watchlist.length) {
-        watchlistRow.innerHTML = `<div style="grid-column:1/-1; padding:30px; text-align:center; background:rgba(255,255,255,0.02); border-radius:16px; color:rgba(255,255,255,0.4);">
-          Your Watchlist is empty. Add titles to see them here.
-        </div>`;
-      } else {
-        renderDiscoverGrid('#home-watchlist-row', watchlist.slice(0, 12));
-      }
+    // Render Section 3: Local Anime
+    if (localAnime.length > 0) {
+      renderDiscoverRow('#home-local-anime-row', localAnime);
+    }
+
+    // Render Section 4: Watchlist
+    if (watchlist.length > 0) {
+      renderDiscoverRow('#home-local-watchlist-row', watchlist);
     }
   }
 
   async function loadDiscover(force = false) {
+    window._activeDiscoverGenre = null;
     if ($('#discover-genre-view')) $('#discover-genre-view').style.display = 'none';
     if ($('#discover-results')) $('#discover-results').style.display = 'none';
     if ($('#discover-content')) $('#discover-content').style.display = 'block';
@@ -1168,6 +1610,17 @@
 
       return hasMediaTypes || isKnownAddon;
     });
+
+    // Toggle Category/Genre Pills strip at the top:
+    // When there are no catalog add-ons, hide genre pills (Action, Comedy, Drama, Animation, etc.)
+    const stickyBar = $('#discover-sticky-bar');
+    if (stickyBar) {
+      stickyBar.style.display = hasCatalog ? '' : 'none';
+    }
+    const genrePills = $('#discover-genre-pills');
+    if (genrePills) {
+      genrePills.style.display = hasCatalog ? '' : 'none';
+    }
 
     const content = $('#discover-content');
     if (content) content.style.display = 'block';
@@ -1215,6 +1668,8 @@
           const isPersonalized = sel.includes('recommended') || sel.includes('subscriptions') || sel.includes('history');
           if (isPersonalized) {
             section.style.display = 'none';
+          } else if (sel === '#discover-youtube-section' && appData.hideYouTubeTrending === true) {
+            section.style.display = 'none';
           } else {
             section.style.display = 'block';
           }
@@ -1224,11 +1679,9 @@
 
     if (isDiscoverLoading && !force) return;
     
-    if (force) {
-      discoverHeroItems = [];
-      discoverHeroIndex = 0;
-      if (discoverHeroInterval) clearInterval(discoverHeroInterval);
-    }
+    discoverHeroItems = [];
+    discoverHeroIndex = 0;
+    if (discoverHeroInterval) clearInterval(discoverHeroInterval);
     
     isDiscoverLoading = true;
     const dm = $('.discover-main');
@@ -1238,6 +1691,13 @@
       renderContinueWatchingDiscover();
       if (typeof window.renderBentoWatchlist === 'function') window.renderBentoWatchlist();
     }, 100);
+
+    // If no catalog add-ons installed, render local library home view and finish
+    if (!hasCatalog) {
+      renderLocalHomeDashboard(content);
+      isDiscoverLoading = false;
+      return;
+    }
 
     if (hasCatalog) {
       movieSeriesRows.forEach(sel => {
@@ -1256,6 +1716,55 @@
       });
     }
     
+    const fetchTmdbShelfAndRender = async (selector, endpoint, defaultType = 'movie', isTop10 = false, fallbackCinemetaId = null) => {
+      if (!hasCatalog) return;
+      const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+      try {
+        const url = `https://api.themoviedb.org/3/${endpoint}${endpoint.includes('?') ? '&' : '?'}api_key=${tmdbKey}`;
+        const resp = await fetch(url, { signal: AbortSignal.timeout(6500) });
+        if (!resp.ok) throw new Error(`TMDB HTTP ${resp.status}`);
+        const data = await resp.json();
+        const results = data.results || [];
+        if (!results.length) throw new Error('Empty TMDB results');
+
+        const items = results.map(m => {
+          const isTv = m.media_type === 'tv' || defaultType === 'tv' || (!m.title && m.name);
+          const type = isTv ? 'tv' : 'movie';
+          const releaseDate = m.release_date || m.first_air_date || '';
+          return {
+            id: m.id,
+            tmdbId: m.id,
+            tmdb_id: m.id,
+            title: m.title || m.name || 'Unknown',
+            name: m.name || m.title,
+            overview: m.overview || '',
+            vote_average: parseFloat(m.vote_average || 0),
+            poster_path: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : '',
+            poster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : '',
+            backdrop_path: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : '',
+            background: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : '',
+            media_type: type,
+            type: type,
+            release_date: releaseDate,
+            first_air_date: releaseDate,
+            year: releaseDate ? releaseDate.slice(0, 4) : ''
+          };
+        });
+
+        renderDiscoverRow(selector, items, isTop10);
+        if (selector === '#in-cinemas-row') {
+          items.filter(it => it.backdrop_path || it.background).slice(0, 10).forEach(it => addDiscoverHeroItem(it));
+        } else if (items.length > 0 && discoverHeroItems.length < 10) {
+          items.filter(it => it.backdrop_path || it.background).slice(0, 4).forEach(it => addDiscoverHeroItem(it));
+        }
+      } catch (err) {
+        console.warn(`[Discover] TMDB fetch failed for ${selector} (${endpoint}):`, err.message, 'Falling back to Cinemeta...');
+        if (fallbackCinemetaId) {
+          await fetchCinemetaAndRender(selector, defaultType, fallbackCinemetaId, isTop10);
+        }
+      }
+    };
+
     const fetchCinemetaAndRender = async (selector, type, catalogId, isTop10 = false) => {
       if (!hasCatalog) return;
       const row = $(selector);
@@ -1276,7 +1785,7 @@
         }));
         renderDiscoverRow(selector, items, isTop10);
         if (items.length > 0) {
-          items.slice(0, 2).forEach(it => addDiscoverHeroItem(it));
+          items.slice(0, 8).forEach(it => addDiscoverHeroItem(it));
         }
       } catch (err) {
         console.error(`Failed to load ${selector}:`, err);
@@ -1304,7 +1813,7 @@
         }));
         renderDiscoverRow(selector, items, false);
         if (items.length > 0) {
-          items.slice(0, 2).forEach(it => addDiscoverHeroItem(it));
+          items.slice(0, 8).forEach(it => addDiscoverHeroItem(it));
         }
       } catch (err) {
         console.error(`Failed to load ${selector}:`, err);
@@ -1404,15 +1913,15 @@
     try {
       const promises = [];
 
-      // If Catalog is installed, load Now in Cinemas, Cinemeta Top 10 TV Shows, Top 10 Movies & Popular Rows
+      // Load authentic, real-time TMDB rows: In Cinemas, Trending TV/Movies, Popular Rows & Animation
       if (hasCatalog) {
         promises.push(
-          fetchCinemetaAndRender('#in-cinemas-row', 'movie', 'top', false),
-          fetchCinemetaAndRender('#top10-tv-row', 'tv', 'top', true),
-          fetchCinemetaAndRender('#top10-movie-row', 'movie', 'top', true),
-          fetchCinemetaAndRender('#popular-movies-row', 'movie', 'imdbRating', false),
-          fetchCinemetaAndRender('#popular-series-row', 'tv', 'imdbRating', false),
-          fetchCinemetaGenreAndRender('#anime-row', 'Animation')
+          fetchTmdbShelfAndRender('#in-cinemas-row', 'movie/now_playing?page=1', 'movie', false, 'top'),
+          fetchTmdbShelfAndRender('#top10-tv-row', 'trending/tv/week', 'tv', true, 'top'),
+          fetchTmdbShelfAndRender('#top10-movie-row', 'trending/movie/week', 'movie', true, 'top'),
+          fetchTmdbShelfAndRender('#popular-movies-row', 'movie/popular?page=1', 'movie', false, 'imdbRating'),
+          fetchTmdbShelfAndRender('#popular-series-row', 'tv/popular?page=1', 'tv', false, 'imdbRating'),
+          fetchTmdbShelfAndRender('#anime-row', 'discover/tv?with_genres=16&sort_by=popularity.desc&page=1', 'tv', false, null).catch(() => fetchCinemetaGenreAndRender('#anime-row', 'Animation'))
         );
       }
 
@@ -1420,7 +1929,9 @@
       if (hasYoutube) {
         promises.push(
           fetchYouTubeRecommendedAndRender(),
-          fetchYouTubeCategoryAndRender('#youtube-trending-row', '#discover-youtube-section', 'Trending on YouTube', 'fab fa-youtube', null),
+          appData.hideYouTubeTrending !== true
+            ? fetchYouTubeCategoryAndRender('#youtube-trending-row', '#discover-youtube-section', 'Trending on YouTube', 'fab fa-youtube', null)
+            : Promise.resolve(),
           fetchYouTubeSubscriptionsAndRender(),
           fetchYouTubeHistoryAndRender()
         );
@@ -1472,6 +1983,9 @@
         <div style="position: relative; width: 100%; aspect-ratio: 16 / 9; background: #111; overflow: hidden;">
           <img src="${thumb}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease;" loading="lazy" onerror="this.src='imgs/no-backdrop.png'">
           ${duration ? `<div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; z-index: 2;">${escapeHTML(String(duration))}</div>` : ''}
+          <button class="yt-copy-link-btn" title="Copy YouTube Link" style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 8px; background: rgba(0,0,0,0.75); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.2); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 10; transition: all 0.2s ease;">
+            <i class="fas fa-link" style="font-size: 12px;"></i>
+          </button>
           <div class="yt-play-hover" style="position: absolute; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s;">
             <div style="width: 44px; height: 44px; border-radius: 50%; background: #ff0000; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(255,0,0,0.5);">
               <i class="fas fa-play" style="color: #fff; font-size: 16px; margin-left: 2px;"></i>
@@ -1496,6 +2010,37 @@
         </div>
       `;
 
+      const copyBtn = card.querySelector('.yt-copy-link-btn');
+      if (copyBtn) {
+        copyBtn.onmouseenter = (e) => {
+          e.stopPropagation();
+          copyBtn.style.transform = 'scale(1.1)';
+          copyBtn.style.background = 'rgba(0,0,0,0.9)';
+          copyBtn.style.borderColor = 'rgba(255,255,255,0.4)';
+        };
+        copyBtn.onmouseleave = (e) => {
+          e.stopPropagation();
+          copyBtn.style.transform = 'scale(1)';
+          copyBtn.style.background = 'rgba(0,0,0,0.75)';
+          copyBtn.style.borderColor = 'rgba(255,255,255,0.2)';
+        };
+        copyBtn.onclick = (e) => {
+          e.stopPropagation();
+          const ytUrl = `https://www.youtube.com/watch?v=${item.id}`;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(ytUrl);
+          }
+          if (typeof showToast === 'function') {
+            showToast('YouTube link copied!');
+          }
+          const icon = copyBtn.querySelector('i');
+          if (icon) {
+            icon.className = 'fas fa-check';
+            setTimeout(() => { icon.className = 'fas fa-link'; }, 2000);
+          }
+        };
+      }
+
       card.onmouseenter = () => {
         card.style.transform = 'translateY(-4px)';
         card.style.background = 'rgba(255,255,255,0.06)';
@@ -1518,6 +2063,15 @@
       };
 
       card.onclick = () => {
+        window.appData = window.appData || {};
+        window.appData.ytCache = window.appData.ytCache || {};
+        window.appData.ytCache[item.id] = {
+          id: item.id,
+          title: item.title,
+          author: item.author,
+          thumbnail: thumb || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+          duration: item.duration
+        };
         if (typeof window.playVideo === 'function') {
           window.playVideo({
             type: 'youtube',
@@ -1554,15 +2108,28 @@
       ...(appData.shows || []).map(s => (s.title || '').toLowerCase())
     ]);
 
-    const limit = isTop10 ? 10 : 20;
+    const isSpecialTenRow = isTop10 || sel === '#popular-movies-row' || sel === '#popular-series-row' || sel === '#anime-row';
+    const limit = isSpecialTenRow ? 10 : 20;
 
-    allowedItems.slice(0, limit).forEach((item, index) => {
+    // Pre-filter items that have valid posters so that rows always have exactly `limit` items
+    const validItems = allowedItems.filter(item => {
+      const isYT = item.type === 'youtube' || item.isYoutube;
+      const raw = item.poster || item.thumbnail || item.poster_path || '';
+      return Boolean(raw || item.isLocal || isYT || localTitles.has((item.title || item.name || '').toLowerCase()));
+    });
+    const itemsToRender = (validItems.length >= limit ? validItems : allowedItems).slice(0, limit);
+
+    itemsToRender.forEach((item, index) => {
       const card = document.createElement('div');
       card.className = 'discover-card';
 
       const isYT = item.type === 'youtube' || item.isYoutube;
       const title = item.title || item.name || 'Unknown';
-      let rawPoster = item.poster || item.thumbnail || item.poster_path || '';
+      let rawPoster = item.poster || item.thumbnail || item.cover || item.image || item.poster_path || '';
+      if (!rawPoster && (item.isMusic || item.type === 'music')) {
+        const meta = typeof getMusicMeta === 'function' ? getMusicMeta(item) : {};
+        rawPoster = meta?.cover || (appData.banners && (appData.banners[item.path] || appData.banners[item.id])) || '';
+      }
       
       // Auto-heal relative paths or dead cinemeta image CDN domains
       if (rawPoster && typeof rawPoster === 'string') {
@@ -1588,30 +2155,50 @@
         posterUrl = '';
       }
 
+      const inLib = localTitles.has(title.toLowerCase());
+      if (!posterUrl && !inLib && !item.isLocal && !isYT && !isSpecialTenRow && !item.isMusic) {
+        return; // Hide items with no poster for non-special shelves
+      }
+
       const rating = parseFloat(item.vote_average || item.score) || 0;
       const year = (item.release_date || item.first_air_date || item.seasonYear || item.published || '').toString().slice(0, 4);
-      const inLib = localTitles.has(title.toLowerCase());
 
       card.innerHTML = `
         <div class="discover-poster-wrap">
-          <div class="discover-poster-placeholder" style="width:100%; height:100%; display:${posterUrl ? 'none' : 'flex'}; align-items:center; justify-content:center; background:var(--bg-surface-2);"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
-          ${posterUrl ? `<img src="${posterUrl}" class="discover-poster" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+          <div class="discover-poster-placeholder" style="width:100%; height:100%; display:${posterUrl ? 'none' : 'flex'}; align-items:center; justify-content:center; background:var(--bg-surface-2);"><i class="fas ${item.isMusic ? 'fa-music' : 'fa-image'} fa-2x" style="opacity: 0.3; color:${item.isMusic ? '#10b981' : 'inherit'};"></i></div>
+          ${posterUrl ? `<img src="${posterUrl}" class="discover-poster" loading="lazy" onerror="this.style.display='none'; this.previousElementSibling.style.display='flex';">` : ''}
           ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
-          ${isYT ? `<div style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.85); color:#fff; font-size:10px; font-weight:700; padding:2px 6px; border-radius:6px; z-index:2;">${item.duration || 'VIDEO'}</div>` : ''}
+          ${item.isMusic ? `<div style="position:absolute; bottom:8px; right:8px; background:rgba(16,185,129,0.9); color:#fff; font-size:10px; font-weight:700; padding:2px 6px; border-radius:6px; z-index:2;">AUDIO</div>` : (isYT ? `<div style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.85); color:#fff; font-size:10px; font-weight:700; padding:2px 6px; border-radius:6px; z-index:2;">${item.duration || 'VIDEO'}</div>` : '')}
         </div>
         <div class="discover-info">
           <div class="discover-title" title="${escapeHTML(title)}">${escapeHTML(title)}</div>
           <div class="discover-meta">
-            ${isYT ? `<span style="color:#ffffff; font-weight:700;"><i class="fab fa-youtube"></i> ${escapeHTML(item.author || 'YouTube')}</span>` : getBadgeHTML(item)}
+            ${item.isMusic ? `<span style="color:#10b981; font-weight:700;"><i class="fas fa-music"></i> ${escapeHTML(item.artist || 'Music')}</span>` : (isYT ? `<span style="color:#ffffff; font-weight:700;"><i class="fab fa-youtube"></i> ${escapeHTML(item.author || 'YouTube')}</span>` : getBadgeHTML(item))}
             <span>${year}</span>
             ${rating ? `<span class="discover-rating-stars"><i class="fas fa-star" style="font-size:8px"></i> ${rating.toFixed(1)}</span>` : ''}
-            ${!isYT ? `<span class="discover-age-badge-container">${getAgeBadgeHTML(getItemCertification(item))}</span>` : ''}
+            ${(!isYT && !item.isMusic) ? `<span class="discover-age-badge-container">${getAgeBadgeHTML(getItemCertification(item))}</span>` : ''}
           </div>
         </div>
       `;
 
-      if (isYT) {
+      if (item.isMusic || item.type === 'music') {
         card.onclick = () => {
+          if (typeof window.playMusic === 'function') {
+            window.playMusic(item);
+          }
+        };
+      } else if (isYT) {
+        card.onclick = () => {
+          const ytThumb = item.thumbnail || item.poster || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
+          window.appData = window.appData || {};
+          window.appData.ytCache = window.appData.ytCache || {};
+          window.appData.ytCache[item.id] = {
+            id: item.id,
+            title: item.title,
+            author: item.author,
+            thumbnail: ytThumb,
+            duration: item.duration
+          };
           if (typeof window.playVideo === 'function') {
             window.playVideo({
               type: 'youtube',
@@ -1619,10 +2206,19 @@
               id: item.id,
               videoId: item.id,
               title: item.title,
-              poster: item.thumbnail || item.poster,
+              poster: ytThumb,
+              thumbnail: ytThumb,
               author: item.author,
               duration: item.duration
             });
+          }
+        };
+      } else if (item.social || (item.isLocal && item.path && !item.tmdb_id && !item.imdb_id && !item.episodes)) {
+        card.onclick = () => {
+          if (typeof window.playVideo === 'function') {
+            window.playVideo(item);
+          } else if (typeof window.playLocalFile === 'function') {
+            window.playLocalFile(item.path);
           }
         };
       } else {
@@ -1631,6 +2227,20 @@
           getTraktOrImdbPoster(item, null, card);
         }
       }
+
+      card.oncontextmenu = e => {
+        if (typeof window.openContextMenuForItem === 'function') {
+          window.openContextMenuForItem({
+            ...item,
+            id: item.path || item.id,
+            title: item.title || item.name,
+            path: item.path,
+            type: item.isMusic ? 'music' : (item.social ? 'social' : (item.type || 'movie')),
+            isLocal: true,
+            isMusic: !!item.isMusic
+          }, e);
+        }
+      };
 
       if (typeof enableHoverPreview === 'function') enableHoverPreview(card, item, '.discover-poster-wrap');
 
@@ -1736,23 +2346,24 @@
           items.slice(0, 20).forEach(item => {
             const card = document.createElement('div');
             card.className = 'discover-card';
-            const itemTitle = item.title || item.name || 'Unknown';
-            let posterUrl = '';
-
             if (item.poster) {
               posterUrl = localImg(item.poster);
             } else if (item.poster_path) {
               posterUrl = localImg(item.poster_path);
             }
 
+            const inLib = localTitles.has(itemTitle.toLowerCase());
+            if (!posterUrl && !inLib && !item.isLocal) {
+              return; // Hide items with no poster
+            }
+
             const year = (item.release_date || item.first_air_date || item.seasonYear || item.releaseYear || item.year || '').toString().slice(0, 4);
             const rating = parseFloat(item.vote_average || item.score || item.rating) || 0;
-            const inLib = localTitles.has(itemTitle.toLowerCase());
             
             card.innerHTML = `
               <div class="discover-poster-wrap">
                 <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
-                ${posterUrl ? `<img src="${posterUrl}" class="discover-poster" loading="lazy" onerror="this.style.display='none'; const ph=this.parentElement?.querySelector('.discover-poster-placeholder'); if(ph) ph.style.display='flex';">` : ''}
+                ${posterUrl ? `<img src="${posterUrl}" class="discover-poster" loading="lazy" onerror="this.closest('.discover-card')?.remove();">` : ''}
                 ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
               </div>
               <div class="discover-info">
@@ -1782,28 +2393,71 @@
     }
   }
 
-  function clearContinueWatching() {
+  async function clearContinueWatching() {
     if (!currentProfile) return;
-    if (confirm('Are you sure you want to clear your playback history?')) {
+    if (confirm('Are you sure you want to clear your continue watching history?')) {
       const profileId = currentProfile.id;
-      // Clear local state immediately for responsive UI
-      currentProfile.playback = {};
-      persist();
-      renderContinueWatchingDiscover();
-      showToast('Playback history cleared');
 
-      // Also delete from Supabase (this profile only, not other profiles)
+      // 1. Wipe local in-memory profile state immediately
+      currentProfile.playback = {};
+      if (window.currentProfile) window.currentProfile.playback = {};
+
+      if (window.appData && Array.isArray(window.appData.profiles)) {
+        const matched = window.appData.profiles.find(p => p.id === profileId);
+        if (matched) matched.playback = {};
+      }
+      if (window.appData && window.appData.playback) {
+        delete window.appData.playback;
+      }
+
+      // 2. Immediate persist to disk and backend session
+      if (typeof window.persist === 'function') {
+        try {
+          await window.persist(true);
+        } catch (_) {}
+      }
+
+      // 3. Dual-Layer Supabase Deletion
+      // Layer A: Direct Renderer Client
+      try {
+        const rClient = typeof window.getSupabaseRendererClient === 'function' ? window.getSupabaseRendererClient() : null;
+        if (rClient && profileId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profileId)) {
+          rClient.from('playback_history').delete().eq('profile_id', profileId).then(res => {
+            if (res?.error) console.warn('[ContinueWatching] Renderer Supabase clear failed:', res.error.message);
+            else console.log('[ContinueWatching] Renderer Supabase playback_history cleared for profile:', profileId);
+          }).catch(err => console.warn('[ContinueWatching] Renderer Supabase clear error:', err));
+        }
+      } catch (clientErr) {
+        console.warn('[ContinueWatching] Renderer direct Supabase client error:', clientErr);
+      }
+
+      // Layer B: Main Process IPC
       if (profileId && window.api && typeof window.api.clearProfilePlayback === 'function') {
         window.api.clearProfilePlayback(profileId).then(res => {
           if (res && res.error) {
-            console.warn('[ContinueWatching] Supabase clear failed (local already cleared):', res.error);
+            console.warn('[ContinueWatching] Main IPC clear failed:', res.error);
           } else {
-            console.log('[ContinueWatching] Supabase playback_history cleared for profile:', profileId);
+            console.log('[ContinueWatching] Main IPC playback_history cleared for profile:', profileId);
           }
         }).catch(err => {
           console.warn('[ContinueWatching] clearProfilePlayback error:', err);
         });
       }
+
+      // 4. Immediate Re-render across both Discover and Library shelves
+      if (typeof renderContinueWatchingDiscover === 'function') {
+        renderContinueWatchingDiscover();
+      }
+      if (typeof window.renderLibContinueWatching === 'function') {
+        window.renderLibContinueWatching();
+      } else if (typeof renderLibContinueWatching === 'function') {
+        renderLibContinueWatching();
+      }
+      if (typeof renderEmptySearchState === 'function') {
+        renderEmptySearchState();
+      }
+
+      showToast('Continue watching history cleared');
     }
   }
 
@@ -2052,8 +2706,7 @@
               }
 
               meta.innerHTML = `
-                <span class="dd-tag" style="background:#F7523922;color:#F75239">★ ${rating ? rating.toFixed(1) : 'N/A'} <span style="opacity:0.6;font-size:10.5px;margin-left:5px">MAL ID: ${malId}</span></span>
-                ${imdbIdForCinemeta ? `<span class="dd-tag" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);font-weight:700;">IMDb: ${imdbIdForCinemeta}</span>` : ''}
+                <span class="dd-rating-badge dd-rating-mal"><span class="dd-rating-source">MAL</span><span class="dd-rating-val">★ ${rating ? rating.toFixed(1) : 'N/A'}</span></span>
                 ${year ? `<span class="dd-tag">${year}</span>` : ''}
                 <span class="dd-tag">${(data.type || item.format || 'ANIME').toUpperCase()}</span>
                 ${data.episodes ? `<span class="dd-tag">${data.episodes} Episodes</span>` : ''}
@@ -2068,7 +2721,19 @@
               if (data.trailer && data.trailer.youtube_id) {
                 const btn = document.createElement('button'); btn.className = 'btn-outline';
                 btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Watch Trailer';
-                btn.onclick = () => window.api.openExternal(`https://www.youtube.com/watch?v=${data.trailer.youtube_id}`);
+                btn.onclick = () => {
+                  if (typeof window.playVideo === 'function') {
+                    window.playVideo({
+                      type: 'youtube',
+                      isYoutube: true,
+                      id: data.trailer.youtube_id,
+                      videoId: data.trailer.youtube_id,
+                      title: `${data.title || (item && item.title) || 'Anime'} (Trailer)`
+                    });
+                  } else {
+                    window.api.openExternal(`https://www.youtube.com/watch?v=${data.trailer.youtube_id}`);
+                  }
+                };
                 actions.appendChild(btn);
               }
             }
@@ -2298,7 +2963,8 @@
         let imdbId = item.imdb_id || item.id;
         item.imdb_id = imdbId;
 
-        const cinemetaDetail = await window.api.invoke('cinemeta-details', { id: imdbId, type });
+        const isShowType = type === 'tv' || type === 'series' || type === 'anime' || (item.episodes > 0);
+        const cinemetaDetail = await window.api.invoke('cinemeta-details', { id: imdbId, type: isShowType ? 'series' : 'movie' });
         const meta = cinemetaDetail.meta || {};
 
         if (meta.name) $('#dd-title').textContent = meta.name;
@@ -2322,7 +2988,19 @@
           if (trailer) {
             const btn = document.createElement('button'); btn.className = 'btn-outline';
             btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Watch Trailer';
-            btn.onclick = () => window.api.openExternal(`https://www.youtube.com/watch?v=${trailer.id}`);
+            btn.onclick = () => {
+              if (typeof window.playVideo === 'function') {
+                window.playVideo({
+                  type: 'youtube',
+                  isYoutube: true,
+                  id: trailer.id,
+                  videoId: trailer.id,
+                  title: `${meta.name || meta.title || (item && item.title) || 'Anime'} (Trailer)`
+                });
+              } else {
+                window.api.openExternal(`https://www.youtube.com/watch?v=${trailer.id}`);
+              }
+            };
             actions.appendChild(btn);
           }
         }
@@ -2348,28 +3026,46 @@
           vote_average: meta.imdbRating || item.vote_average || 0
         });
 
-        if (type === 'tv' && meta.videos && meta.videos.length > 0) {
-          const wrap = $('#dd-seasons');
-          wrap.innerHTML = '<h3 style="margin-bottom:12px">Seasons</h3><div class="season-tabs" style="margin-bottom:15px"></div><div class="episode-list"></div>';
-          const tabs = wrap.querySelector('.season-tabs');
-          const epList = wrap.querySelector('.episode-list');
+        if (isShowType) {
+          let videos = meta.videos || [];
+          if (!videos || videos.length === 0) {
+            const seasonRes = await window.api.invoke('tmdb-season-details', imdbId, 1).catch(() => null);
+            if (seasonRes && seasonRes.episodes && seasonRes.episodes.length > 0) {
+              videos = seasonRes.episodes.map(e => ({
+                season: e.season_number || 1,
+                episode: e.episode_number,
+                name: e.name,
+                thumbnail: e.still_path,
+                released: e.air_date
+              }));
+            }
+          }
 
-          const uniqueSeasons = [...new Set(meta.videos.map(v => v.season))].filter(s => s !== undefined && s !== null && s >= 0).sort((a, b) => a - b);
-          
-          uniqueSeasons.forEach((seasonNum, idx) => {
-            const btn = document.createElement('button');
-            btn.className = `season-tab ${idx === 0 ? 'active' : ''}`;
-            btn.textContent = seasonNum === 0 ? 'Specials' : `Season ${seasonNum}`;
-            btn.onclick = () => {
-              tabs.querySelectorAll('.season-tab').forEach(t => t.classList.remove('active'));
-              btn.classList.add('active');
-              renderCinemetaEpisodes(meta.videos, seasonNum, epList, item);
-            };
-            tabs.appendChild(btn);
-          });
-          
-          if (uniqueSeasons.length > 0) renderCinemetaEpisodes(meta.videos, uniqueSeasons[0], epList, item);
-        } else if (type === 'movie') {
+          if (videos.length > 0) {
+            const wrap = $('#dd-seasons');
+            wrap.innerHTML = '<h3 style="margin-bottom:12px">Seasons</h3><div class="season-tabs" style="margin-bottom:15px"></div><div class="episode-list"></div>';
+            const tabs = wrap.querySelector('.season-tabs');
+            const epList = wrap.querySelector('.episode-list');
+
+            const uniqueSeasons = [...new Set(videos.map(v => v.season))].filter(s => s !== undefined && s !== null && s >= 0).sort((a, b) => a - b);
+            
+            uniqueSeasons.forEach((seasonNum, idx) => {
+              const btn = document.createElement('button');
+              btn.className = `season-tab ${idx === 0 ? 'active' : ''}`;
+              btn.textContent = seasonNum === 0 ? 'Specials' : `Season ${seasonNum}`;
+              btn.onclick = () => {
+                tabs.querySelectorAll('.season-tab').forEach(t => t.classList.remove('active'));
+                btn.classList.add('active');
+                renderCinemetaEpisodes(videos, seasonNum, epList, item);
+              };
+              tabs.appendChild(btn);
+            });
+            
+            if (uniqueSeasons.length > 0) renderCinemetaEpisodes(videos, uniqueSeasons[0], epList, item);
+          } else {
+            loadStreams(item, 'series');
+          }
+        } else {
           loadStreams(item, 'movie');
         }
       } catch (e) { 
@@ -2487,17 +3183,27 @@
         else if (is4K) score += 200;
       }
 
+      const isTorrent = s.type === 'torrent' || !s.url?.startsWith('http');
       const statsLine = (s.title || '').split('\n').slice(1).join(' ');
-      const seedsMatch = statsLine.match(/≡ƒæñ\s*(\d+)/) || statsLine.match(/(\d+)\s*seeds/i) || statsLine.match(/👥\s*(\d+)/);
+      const seedsMatch = statsLine.match(/≡ƒæñ\s*(\d+)/) || statsLine.match(/(\d+)\s*seeds/i) || statsLine.match(/👥\s*(\d+)/) || statsLine.match(/👤\s*(\d+)/);
       const seeds = seedsMatch ? parseInt(seedsMatch[1], 10) : 0;
-      score += Math.min(seeds * 4, 400);
+
+      if (isTorrent) {
+        if (seeds <= 0) {
+          score -= 600; // Heavily penalize dead / 0-seed torrents
+        } else {
+          score += Math.min(seeds * 8, 600); // Prioritize torrents with healthy active swarm
+        }
+      } else {
+        score += 350; // Direct HTTP streams are reliable and instant
+      }
 
       if (title.includes('hevc') || title.includes('x265')) score += 40;
       if (title.includes('multi') || title.includes('dual') || title.includes('eng')) score += 25;
 
       const sizeMatch = statsLine.match(/([\d\.]+\s*GB)/i);
-      if (sizeMatch && parseFloat(sizeMatch[1]) > 18 && preferredMaxRes !== '4K') {
-        score -= 100;
+      if (sizeMatch && parseFloat(sizeMatch[1]) > 15 && preferredMaxRes !== '4K') {
+        score -= 150;
       }
 
       return score;
@@ -2518,28 +3224,27 @@
   }
 
   async function loadStreams(item, type) {
-    const container = $('#dd-streams-list');
-    if (!container) return;
-
+    let container = $('#dd-streams-list');
     const autoChoose = window.appData && window.appData.autoChooseBestStream;
 
-    // Show inline spinner immediately — especially useful with Auto-Choose enabled
-    if (autoChoose) {
-      container.innerHTML = `
-        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center;
-                    padding:32px 20px; gap:14px; grid-column: 1/-1;">
-          <div style="width:40px; height:40px; border-radius:50%;
-                      border: 3px solid rgba(255,255,255,0.08);
-                      border-top-color: #ffffff;
-                      animation: ddLoaderSpin 0.8s linear infinite;"></div>
-          <div style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.55); letter-spacing:0.3px;">
-            Finding best stream...
-          </div>
-        </div>`;
-    } else {
-      container.innerHTML = '<div style="padding:20px; color:var(--text-muted); text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">Searching for best links...</div>';
+    // Show inline spinner if container is present in DOM
+    if (container) {
+      if (autoChoose) {
+        container.innerHTML = `
+          <div style="display:flex; flex-direction:column; align-items:center; justify-content:center;
+                      padding:32px 20px; gap:14px; grid-column: 1/-1;">
+            <div style="width:40px; height:40px; border-radius:50%;
+                        border: 3px solid rgba(255,255,255,0.08);
+                        border-top-color: #ffffff;
+                        animation: ddLoaderSpin 0.8s linear infinite;"></div>
+            <div style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.55); letter-spacing:0.3px;">
+              Finding best stream...
+            </div>
+          </div>`;
+      } else {
+        container.innerHTML = '<div style="padding:20px; color:var(--text-muted); text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">Searching for best links...</div>';
+      }
     }
-
 
     try {
       if (!item.imdb_id || item.imdb_id === 'null' || !String(item.imdb_id).startsWith('tt')) {
@@ -2595,14 +3300,35 @@
         streams = await window.api.searchAddons(query);
       } catch (err) {
         console.error('[Streams] searchAddons failed:', err);
-        container.innerHTML = `<div style="padding:20px; color:#EF4444; text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">Error fetching streams: ${err.message}</div>`;
+        if (typeof window._restorePlayBtn === 'function') {
+          window._restorePlayBtn();
+          window._restorePlayBtn = null;
+        }
+        if (container) {
+          container.innerHTML = `<div style="padding:20px; color:#EF4444; text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">Error fetching streams: ${err.message}</div>`;
+        }
+        showToast('Error searching streams: ' + err.message);
         return;
       }
 
-      container.innerHTML = '';
+      if (container) container.innerHTML = '';
       if (!streams || !streams.length) {
-        container.innerHTML = `<div style="padding:20px; color:var(--text-muted); text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">No links found for ${item.title || 'this item'} (IMDB: ${item.imdb_id || 'Missing'}). Please try again later.</div>`;
+        if (typeof window._restorePlayBtn === 'function') {
+          window._restorePlayBtn();
+          window._restorePlayBtn = null;
+        }
+        if (container) {
+          container.innerHTML = `<div style="padding:20px; color:var(--text-muted); text-align:center; background:var(--bg-surface-2); border-radius:12px; grid-column: 1/-1">No links found for ${item.title || 'this item'} (IMDB: ${item.imdb_id || 'Missing'}). Please try again later.</div>`;
+        } else {
+          showToast(`No links found for ${item.title || 'this item'}.`);
+        }
         return;
+      }
+
+      // Re-query container in case panel was opened during search
+      container = $('#dd-streams-list');
+      if (container) {
+        container.innerHTML = '';
       }
 
       // 1. Render ALL streams to container so all links appear
@@ -2640,14 +3366,29 @@
           streamIconSvg = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>';
         }
 
-        const downloadHtml = isBrowser ? '' : `<div class="stream-btn-download" title="Copy Torrent Link"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></div>`;
+        const downloadHtml = isBrowser ? '' : `<div class="stream-btn-download" title="Copy Torrent Link"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></div>`;
         
         const playTitle = isBrowser ? 'Open Link' : 'Play';
         const playIcon = isBrowser 
-          ? `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>` 
-          : `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+          ? `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>` 
+          : `<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
 
-        card.innerHTML = `<div class="stream-top"><div class="stream-icon-box">${streamIconSvg}</div><div class="stream-main-info"><div class="stream-title" title="${escapeHTML(mainTitle)}">${escapeHTML(mainTitle)}</div><div class="stream-badges">${isBrowser ? '' : `<span class="quality-badge">${s.quality}</span>`}<span class="source-badge">${s.addon}</span></div></div></div><div class="stream-footer"><div class="stream-stats">${seeds ? `<div class="stream-stat-badge seeds">${seedsIcon}${seeds}</div>` : ''}${size ? `<div class="stream-stat-badge size">${sizeIcon}${size}</div>` : ''}</div><div class="stream-actions-group">${downloadHtml}<div class="stream-btn-play" title="${playTitle}">${playIcon}</div></div></div>`;
+        card.innerHTML = `
+          <div class="stream-icon-box">${streamIconSvg}</div>
+          <div class="stream-main-info">
+            <div class="stream-title" title="${escapeHTML(mainTitle)}">${escapeHTML(mainTitle)}</div>
+            <div class="stream-meta-row">
+              ${isBrowser ? '' : `<span class="quality-badge">${s.quality || 'HD'}</span>`}
+              <span class="source-badge">${escapeHTML(s.addon || 'Stream')}</span>
+              ${size ? `<span class="stream-stat-badge size">${size}</span>` : ''}
+              ${seeds ? `<span class="stream-stat-badge seeds">${seeds} seeds</span>` : ''}
+            </div>
+          </div>
+          <div class="stream-actions-group">
+            ${downloadHtml}
+            <div class="stream-btn-play" title="${playTitle}">${playIcon}</div>
+          </div>
+        `;
 
         card.querySelector('.stream-btn-play').onclick = (e) => { e.stopPropagation(); playStream(s, item, e.currentTarget); };
         card.onclick = (e) => playStream(s, item, e.currentTarget.querySelector('.stream-btn-play'));
@@ -2668,26 +3409,38 @@
             }
           };
         }
-        container.appendChild(card);
+        if (container) container.appendChild(card);
       });
 
-      // 2. Smart Auto-Play Best Stream if enabled
-      if (window.appData && window.appData.autoChooseBestStream) {
-        const bestStream = selectBestStream(streams, window.appData.autoChooseMaxRes || '1080p');
+      // 2. Smart Auto-Play Best Stream if enabled or if called outside detail panel
+      const bestStream = selectBestStream(streams, (window.appData && window.appData.autoChooseMaxRes) || '1080p');
+      if ((window.appData && window.appData.autoChooseBestStream) || !container) {
         if (bestStream) {
           if (typeof window._restorePlayBtn === 'function') {
             window._restorePlayBtn();
             window._restorePlayBtn = null;
           }
-          showToast(`Auto-playing best stream (${bestStream.quality || '1080p'})...`);
-          setTimeout(() => {
-            playStream(bestStream, item, null);
-          }, 500);
+          // Close side panels so stream links UI doesn't remain behind player
+          const sidePanel = document.getElementById('dd-side-panel');
+          const mobilePanel = document.getElementById('dd-mobile-panel');
+          if (sidePanel) sidePanel.classList.remove('active');
+          if (mobilePanel) mobilePanel.classList.remove('active');
+
+          showToast(`⚡ Auto-playing best stream (${bestStream.quality || '1080p'})...`);
+          playStream(bestStream, item, null);
+          return;
         } else {
           if (typeof window._restorePlayBtn === 'function') {
             window._restorePlayBtn();
             window._restorePlayBtn = null;
           }
+          const isMobile = window.innerWidth <= 768;
+          const panel = document.getElementById(isMobile ? 'dd-mobile-panel' : 'dd-side-panel');
+          if (panel) panel.classList.add('active');
+          const list = document.getElementById('dd-unified-ep-list');
+          const streamContainer = document.getElementById('dd-streams-container-unified');
+          if (list) list.style.display = 'none';
+          if (streamContainer) streamContainer.style.display = 'block';
         }
       }
     } catch (err) { container.innerHTML = 'Error searching streams.'; }
@@ -2875,6 +3628,14 @@
     } catch (err) {
       console.error('[playStream] Error:', err);
       showToast('Streaming failed: ' + err.message);
+      // Re-open stream selection panel so user can choose another working stream
+      const isMobile = window.innerWidth <= 768;
+      const panel = document.getElementById(isMobile ? 'dd-mobile-panel' : 'dd-side-panel');
+      if (panel) panel.classList.add('active');
+      const list = document.getElementById('dd-unified-ep-list');
+      const streamContainer = document.getElementById('dd-streams-container-unified');
+      if (list) list.style.display = 'none';
+      if (streamContainer) streamContainer.style.display = 'block';
     } finally {
       clearCardLoading(cardEl);
     }
@@ -3343,38 +4104,34 @@
             <i class="fas fa-bell"></i> Episode Notifications Active
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;">
+        <div class="anime-schedule-day-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px;">
           ${list.map(anime => {
             const safeTitle = (anime.title || anime.title_english || 'Anime').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const safeTitleAttr = safeTitle.replace(/'/g, "\\'");
             const nextEpText = anime.nextEpisode ? `Ep ${anime.nextEpisode}` : 'Ongoing';
             const countdown = anime.countdown || anime.airTime || 'Airing Weekly';
             const epTitleStr = anime.lastEpisodeTitle ? (anime.lastEpisodeTitle.replace(/</g, '&lt;').replace(/>/g, '&gt;')) : '';
+            const animeId = anime.mal_id || anime.id;
             return `
-              <div class="anime-card anime-favorite-card" style="background: rgba(255,255,255,0.04); border-radius: 12px; overflow: hidden; border: 1px solid rgba(251, 191, 36, 0.35); cursor: default; user-select: none; position: relative;">
-                <div style="position: relative; aspect-ratio: 2/3; overflow: hidden;">
-                  <img src="${anime.poster}" style="width:100%; height:100%; object-fit:cover; pointer-events: none;" loading="lazy">
-                  
-                  <!-- Remove button -->
-                  <button class="btn-anime-unfavorite" onclick="window.toggleFollowAnime({ id: '${anime.id}', mal_id: '${anime.mal_id}', title: '${safeTitleAttr}' }, event)" style="position: absolute; top: 8px; right: 8px; z-index: 5; background: rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.3); color: #ef4444; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; transition: all 0.2s;" title="Remove from Favorites">
-                    <i class="fas fa-trash-alt" style="font-size: 11px;"></i>
-                  </button>
-
-                  <!-- Episode badge -->
-                  <span style="position: absolute; top: 8px; left: 8px; background: rgba(16, 185, 129, 0.95); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; backdrop-filter: blur(4px);">
-                    <i class="fas fa-tv"></i> ${nextEpText}
-                  </span>
-
-                  <!-- Air time / Countdown badge -->
-                  <span style="position: absolute; bottom: 8px; left: 8px; right: 8px; background: rgba(99, 102, 241, 0.95); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;">
-                    <i class="fas fa-clock"></i> ${countdown}
-                  </span>
+              <div class="media-card anime-card anime-favorite-card">
+                <div class="anime-card-poster">
+                  <img src="${anime.poster}" loading="lazy" onerror="this.src='imgs/poster-placeholder.png'">
                 </div>
-                <div style="padding: 10px; pointer-events: none;">
-                  <div style="font-weight: 700; font-size: 0.85rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${safeTitle}">${safeTitle}</div>
-                  ${epTitleStr ? `<div style="font-size: 0.72rem; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px;" title="${epTitleStr}">${epTitleStr}</div>` : ''}
-                  <div style="font-size: 0.72rem; color: #fbbf24; margin-top: 4px; font-weight: 600; display: flex; align-items: center; gap: 5px;">
-                    <i class="fas fa-star" style="font-size: 10px;"></i> Favorited
+                
+                <!-- Remove button -->
+                <button class="btn-anime-unfavorite" onclick="event.stopPropagation(); window.toggleFollowAnime({ id: '${anime.id}', mal_id: '${anime.mal_id}', title: '${safeTitleAttr}' }, event)" title="Remove from Favorites">
+                  <i class="fas fa-trash-alt" style="font-size: 11px;"></i>
+                </button>
+
+                <!-- Info Overlay: Appears ONLY on Hover -->
+                <div class="card-info">
+                  <div class="card-title" title="${safeTitle}">${safeTitle}</div>
+                  <div class="card-meta">
+                    <span class="card-badge-air"><i class="fas fa-tv" style="font-size: 10px;"></i> ${nextEpText}</span>
+                    <span class="card-badge-score"><i class="fas fa-star" style="font-size: 10px;"></i> Favorited</span>
+                  </div>
+                  <div style="font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;">
+                    <i class="fas fa-clock" style="font-size: 9px; margin-right: 3px;"></i>${countdown}
                   </div>
                 </div>
               </div>
@@ -3411,9 +4168,11 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ query, variables: { ids } })
-      });
+      }).catch(() => null);
 
-      const json = await resp.json();
+      if (!resp || !resp.ok) return;
+
+      const json = await resp.json().catch(() => null);
       const mediaList = json?.data?.Page?.media || [];
       const now = Math.floor(Date.now() / 1000);
       let updated = false;
@@ -3492,7 +4251,101 @@
   // Also check shortly after boot
   setTimeout(checkFollowedAnimeEpisodes, 10000);
 
-  async function loadAnimeSchedule(filterDay = '') {
+  window._animeWeeklyScheduleCache = window._animeWeeklyScheduleCache || { timestamp: 0, items: [] };
+
+  async function fetchAniListWeeklySchedule() {
+    try {
+      const d = new Date();
+      const dayOfWeek = d.getDay(); // 0 = Sunday
+      const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate() - dayOfWeek, 0, 0, 0);
+      const startOfWeek = Math.floor(startOfDay.getTime() / 1000);
+      const endOfWeek = startOfWeek + (7 * 86400);
+
+      const query = `query ($start: Int, $end: Int, $page: Int) {
+        Page(page: $page, perPage: 50) {
+          pageInfo { hasNextPage }
+          airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) {
+            id
+            airingAt
+            episode
+            media {
+              id
+              idMal
+              title { romaji english native }
+              coverImage { extraLarge large medium }
+              bannerImage
+              format
+              status
+              genres
+              averageScore
+              isAdult
+            }
+          }
+        }
+      }`;
+
+      let allSchedules = [];
+      for (let page = 1; page <= 4; page++) {
+        const res = await fetch('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            query,
+            variables: { start: startOfWeek, end: endOfWeek, page }
+          })
+        });
+        if (!res.ok) break;
+        const json = await res.json();
+        const list = json.data?.Page?.airingSchedules || [];
+        allSchedules.push(...list);
+        if (!json.data?.Page?.pageInfo?.hasNextPage) break;
+      }
+
+      const mapped = [];
+      const seenMediaIds = new Set();
+      for (const s of allSchedules) {
+        if (!s.media || s.media.isAdult) continue;
+        const mediaId = s.media.idMal || s.media.id;
+        if (seenMediaIds.has(String(mediaId))) continue;
+        seenMediaIds.add(String(mediaId));
+
+        const airDate = new Date(s.airingAt * 1000);
+        const dayName = airDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+        const timeString = airDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const title = s.media.title?.english || s.media.title?.romaji || 'Anime';
+        const poster = s.media.coverImage?.extraLarge || s.media.coverImage?.large || s.media.coverImage?.medium || '';
+        const score = s.media.averageScore ? (s.media.averageScore / 10).toFixed(1) : null;
+
+        mapped.push({
+          id: mediaId,
+          mal_id: mediaId,
+          anilist_id: s.media.id,
+          title: title,
+          title_english: s.media.title?.english || title,
+          images: {
+            jpg: {
+              large_image_url: poster,
+              image_url: poster
+            }
+          },
+          broadcast: {
+            day: dayName,
+            time: timeString,
+            string: `Ep ${s.episode} · ${dayName.toUpperCase()} ${timeString}`
+          },
+          score: score,
+          status: 'Ongoing'
+        });
+      }
+
+      return mapped;
+    } catch (err) {
+      console.warn('[AnimeSchedule] AniList schedule fetch failed:', err.message);
+      return [];
+    }
+  }
+
+  async function loadAnimeSchedule(filterDay = '', forceRefresh = false) {
     const filterBtns = document.querySelectorAll('.anime-schedule-filter-btn');
     filterBtns.forEach(btn => {
       if (btn.dataset.day === filterDay) {
@@ -3510,192 +4363,63 @@
 
     const grid = document.querySelector('#anime-schedule-grid') || document.querySelector('#anime-grid') || document.querySelector('#discover-genre-view');
     if (!grid) return;
-    grid.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted); font-size:1.1rem;"><i class="fas fa-spinner fa-spin"></i> Loading Anime Release Schedule...</div>';
 
     try {
-      let jikanItems = [];
-      try {
-        if (window.api && typeof window.api.jikanSchedule === 'function') {
-          const res = await window.api.jikanSchedule(filterDay);
-          jikanItems = res?.data || [];
-        } else if (window.api && typeof window.api.invoke === 'function') {
-          const res = await window.api.invoke('jikan-schedule', filterDay);
-          jikanItems = res?.data || [];
-        } else {
-          const res = await fetch(`https://api.jikan.moe/v4/schedules${filterDay ? '?filter=' + filterDay : ''}`);
-          const json = await res.json();
-          jikanItems = json?.data || [];
+      const hasCached = !forceRefresh &&
+        window._animeWeeklyScheduleCache &&
+        Array.isArray(window._animeWeeklyScheduleCache.items) &&
+        window._animeWeeklyScheduleCache.items.length > 0 &&
+        (Date.now() - window._animeWeeklyScheduleCache.timestamp < 30 * 60 * 1000);
+
+      let items = [];
+
+      if (hasCached) {
+        items = window._animeWeeklyScheduleCache.items;
+      } else {
+        grid.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted); font-size:1.1rem;"><i class="fas fa-spinner fa-spin"></i> Loading Anime Release Schedule...</div>';
+
+        // 1. Primary: Official AniList GraphQL API (Ultra fast & 100% reliable)
+        const anilistItems = await fetchAniListWeeklySchedule();
+
+        // 2. Secondary: Main process IPC or Jikan API
+        let jikanItems = [];
+        try {
+          if (window.api && typeof window.api.jikanSchedule === 'function') {
+            const res = await window.api.jikanSchedule('');
+            jikanItems = res?.data || [];
+          } else if (window.api && typeof window.api.invoke === 'function') {
+            const res = await window.api.invoke('jikan-schedule', '');
+            jikanItems = res?.data || [];
+          }
+        } catch (jikanErr) {
+          console.warn('[AnimeSchedule] Jikan schedule warning:', jikanErr.message);
         }
-      } catch (jikanErr) {
-        console.warn('[AnimeSchedule] Jikan schedule warning:', jikanErr.message);
-      }
 
-      // 2. AniList Airing Schedule fetch (Complete weekly coverage)
-      let anilistItems = [];
-      try {
-        const now = Math.floor(Date.now() / 1000);
-        const daySeconds = 86400;
-        const daysNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-        
-        const gql = `query ($greater: Int, $lesser: Int) {
-          Page(page: 1, perPage: 50) {
-            airingSchedules(airingAt_greater: $greater, airingAt_lesser: $lesser, sort: TIME) {
-              id
-              airingAt
-              timeUntilAiring
-              episode
-              media {
-                id
-                idMal
-                title { english romaji native }
-                coverImage { extraLarge large medium }
-                status
-                genres
-                episodes
-                averageScore
-                description
-              }
-            }
+        // Merge and deduplicate items
+        const seenIds = new Set();
+        items = [];
+        for (const item of [...anilistItems, ...jikanItems]) {
+          const key = item.mal_id || item.id || item.title;
+          if (!seenIds.has(String(key))) {
+            seenIds.add(String(key));
+            items.push(item);
           }
-        }`;
-
-        const resp = await fetch('https://graphql.anilist.co', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({
-            query: gql,
-            variables: { greater: now - daySeconds, lesser: now + (7 * daySeconds) }
-          })
-        });
-        const json = await resp.json();
-        const rawAiring = json?.data?.Page?.airingSchedules || [];
-
-        rawAiring.forEach(entry => {
-          const media = entry.media;
-          if (!media) return;
-          const date = new Date(entry.airingAt * 1000);
-          const dayName = daysNames[date.getDay()];
-          
-          if (filterDay && !dayName.startsWith(filterDay.toLowerCase()) && !filterDay.toLowerCase().startsWith(dayName)) return;
-
-          const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const diff = entry.airingAt - now;
-          let countdown = '';
-          if (diff > 0) {
-            const days = Math.floor(diff / 86400);
-            const hours = Math.floor((diff % 86400) / 3600);
-            const mins = Math.floor((diff % 3600) / 60);
-            countdown = ` (in ${days > 0 ? `${days}d ` : ''}${hours}h ${mins}m)`;
-          }
-
-          const displayTitle = media.title?.english || media.title?.romaji || media.title?.native || 'Unknown Anime';
-
-          anilistItems.push({
-            mal_id: media.idMal || media.id,
-            id: media.idMal || media.id,
-            title: displayTitle,
-            title_english: media.title?.english || displayTitle,
-            images: {
-              jpg: {
-                large_image_url: media.coverImage?.extraLarge || media.coverImage?.large,
-                image_url: media.coverImage?.large || media.coverImage?.medium
-              }
-            },
-            broadcast: {
-              day: dayName,
-              string: `Ep ${entry.episode} on ${dayName.toUpperCase()} at ${timeStr}${countdown}`,
-              time: timeStr
-            },
-            score: media.averageScore ? (media.averageScore / 10).toFixed(1) : null,
-            status: media.status,
-            episodes: media.episodes,
-            genres: media.genres || [],
-            synopsis: media.description ? media.description.replace(/<[^>]*>/g, '') : ''
-          });
-        });
-      } catch (aniErr) {
-        console.warn('[AnimeSchedule] AniList schedule warning:', aniErr.message);
-      }
-
-      // 3. AnimeSchedule.net Live Timetable Integration
-      let animeScheduleItems = [];
-      try {
-        const asResp = await fetch('https://animeschedule.net', {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html'
-          }
-        });
-        const asHtml = await asResp.text();
-        const colBlocks = asHtml.split(/<div[^>]*class="timetable-column[^"]*\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\b/gi);
-
-        for (let i = 1; i < colBlocks.length; i += 2) {
-          const dayName = colBlocks[i].toLowerCase();
-          if (filterDay && !dayName.startsWith(filterDay.toLowerCase()) && !filterDay.toLowerCase().startsWith(dayName)) continue;
-
-          const blockHtml = colBlocks[i + 1] || '';
-          const showCardMatches = blockHtml.match(/<div[^>]*route="([^"]+)"[\s\S]*?(?=<div[^>]*route=|<\/div>\s*<\/div>\s*<\/div>|$)/g);
-          if (!showCardMatches) continue;
-
-          const seenRoutes = new Set();
-          showCardMatches.forEach(tile => {
-            const routeMatch = tile.match(/route="([^"]+)"/);
-            if (!routeMatch) return;
-            const route = routeMatch[1];
-            if (seenRoutes.has(route)) return;
-            seenRoutes.add(route);
-
-            const titleMatch = tile.match(/class="show-title-bar"[^>]*>([^<]+)<\/h[23]>/) || tile.match(/alt="Official promotional poster for ([^"]+)"/);
-            const title = titleMatch ? titleMatch[1].trim() : route;
-
-            const epMatch = tile.match(/airedEpisode="([^"]+)"/);
-            const epNum = epMatch ? epMatch[1] : '';
-
-            const imgMatch = tile.match(/data-src="([^"]+)"/) || tile.match(/src="([^"]+)"/);
-            let poster = imgMatch ? imgMatch[1].replace(/&amp;/g, '&') : '';
-            if (poster.startsWith('/')) poster = 'https://animeschedule.net' + poster;
-
-            animeScheduleItems.push({
-              id: route,
-              mal_id: route,
-              route: route,
-              title: title,
-              title_english: title,
-              images: {
-                jpg: {
-                  large_image_url: poster,
-                  image_url: poster
-                }
-              },
-              broadcast: {
-                day: dayName,
-                string: epNum ? `Ep ${epNum} on ${dayName.toUpperCase()}` : `Airing on ${dayName.toUpperCase()}`
-              },
-              status: 'Ongoing'
-            });
-          });
         }
-      } catch (asErr) {
-        console.warn('[AnimeSchedule] Live timetable fetch warning:', asErr.message);
-      }
 
-      // Merge and deduplicate items
-      const seenIds = new Set();
-      const items = [];
-      for (const item of [...anilistItems, ...jikanItems, ...animeScheduleItems]) {
-        const key = item.mal_id || item.id || item.title;
-        if (!seenIds.has(String(key))) {
-          seenIds.add(String(key));
-          items.push(item);
+        if (items.length > 0) {
+          window._animeWeeklyScheduleCache = {
+            timestamp: Date.now(),
+            items: items
+          };
         }
       }
 
-      if (!items || items.length === 0) {
-        grid.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted)">No schedule entries found for this day.</div>';
-        return;
-      }
+    if (!items || items.length === 0) {
+      grid.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted)">No schedule entries found for this day.</div>';
+      return;
+    }
 
-      grid.innerHTML = '';
+    grid.innerHTML = '';
       
       // Render Followed / Favorites section at the top
       const followedContainer = document.createElement('div');
@@ -3711,29 +4435,124 @@
         grouped[day].push(item);
       });
 
-      Object.keys(grouped).forEach(day => {
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const todayDayName = dayNames[new Date().getDay()];
+
+      // 1. TODAY Section: If viewing All or Today, render TODAY'S RELEASES at the very top
+      if (!filterDay || filterDay.toLowerCase() === todayDayName) {
+        const todayItems = grouped[todayDayName] || [];
+        if (todayItems.length > 0) {
+          const todaySection = document.createElement('div');
+          todaySection.className = 'anime-schedule-day-group anime-today-section';
+          todaySection.style.marginBottom = '32px';
+
+          const todayTitle = document.createElement('h3');
+          todayTitle.className = 'anime-schedule-day-title';
+          todayTitle.style.cssText = 'color:#fff; font-size:1.2rem; font-weight:800; display:flex; align-items:center; gap:10px; border-bottom:1px solid rgba(255,255,255,0.12); padding-bottom:10px;';
+          todayTitle.innerHTML = `<span style="background:var(--accent); color:#000; padding:4px 12px; border-radius:8px; font-size:0.82rem; font-weight:900; letter-spacing:0.5px;">TODAY</span> <i class="fas fa-calendar-check" style="color:var(--accent);"></i> TODAY'S RELEASES - ${todayDayName.toUpperCase()} (${todayItems.length})`;
+          todaySection.appendChild(todayTitle);
+
+          const todayGrid = document.createElement('div');
+          todayGrid.className = 'anime-schedule-day-grid';
+
+          todayItems.forEach(anime => {
+            const card = document.createElement('div');
+            card.className = 'media-card anime-card';
+
+            const posterUrl = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || 'imgs/poster-placeholder.png';
+            const airTime = anime.broadcast?.string || anime.broadcast?.time || 'Airing Today';
+            const score = anime.score ? `⭐ ${anime.score}` : '';
+
+            const safeTitle = (anime.title_english || anime.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safeTitleAttr = safeTitle.replace(/'/g, "\\'");
+            const isFollowed = isAnimeFollowed(anime.mal_id);
+            const animeItem = {
+              id: anime.mal_id,
+              mal_id: anime.mal_id,
+              title: anime.title_english || anime.title,
+              title_english: anime.title_english || anime.title,
+              poster: posterUrl,
+              airTime,
+              broadcastDay: todayDayName,
+              score: anime.score
+            };
+            window._animeScheduleCache.set(String(anime.mal_id), animeItem);
+
+            card.innerHTML = `
+              <div class="anime-card-poster">
+                <img src="${posterUrl}" loading="lazy" onerror="this.src='imgs/poster-placeholder.png'">
+              </div>
+
+              <!-- Favorite Star Toggle -->
+              <button class="btn-anime-favorite-toggle ${isFollowed ? 'is-followed' : ''}" data-anime-id="${anime.mal_id}" onclick="event.stopPropagation(); window.toggleFollowAnimeById('${anime.mal_id}', event)" title="${isFollowed ? 'Favorited' : 'Add to Favorites'}">
+                <i class="${isFollowed ? 'fas fa-star' : 'far fa-star'}" style="color: ${isFollowed ? '#fbbf24' : '#fff'}; font-size: 13px;"></i>
+              </button>
+
+              <!-- Info Overlay: Appears ONLY on Hover -->
+              <div class="card-info">
+                <div class="card-title" title="${safeTitle}">${safeTitle}</div>
+                <div class="card-meta">
+                  <span class="card-badge-air"><i class="fas fa-clock" style="font-size: 10px;"></i> ${airTime}</span>
+                  ${score ? `<span class="card-badge-score">${score}</span>` : ''}
+                </div>
+              </div>
+            `;
+
+            card.style.cursor = 'pointer';
+            card.onclick = (e) => {
+              e.preventDefault();
+              const q = anime.title_english || anime.title;
+              if (!q) return;
+              const searchInput = document.querySelector('#search-input-main');
+              if (searchInput) searchInput.value = q;
+              if (typeof switchView === 'function') switchView('search');
+              if (typeof window.performUnifiedSearch === 'function') window.performUnifiedSearch(q);
+            };
+
+            todayGrid.appendChild(card);
+          });
+
+          todaySection.appendChild(todayGrid);
+          grid.appendChild(todaySection);
+        }
+      }
+
+      // 2. Weekly breakdown by day
+      const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+      const sortedDays = Object.keys(grouped).sort((a, b) => {
+        const ia = dayOrder.indexOf(a);
+        const ib = dayOrder.indexOf(b);
+        if (ia !== -1 && ib !== -1) return ia - ib;
+        if (ia !== -1) return -1;
+        if (ib !== -1) return 1;
+        return a.localeCompare(b);
+      });
+
+      sortedDays.forEach(day => {
+        if (filterDay && day !== filterDay.toLowerCase()) return;
+
         const daySection = document.createElement('div');
         daySection.className = 'anime-schedule-day-group';
-        daySection.style.cssText = 'margin-bottom: 28px;';
         
         const dayTitle = document.createElement('h3');
-        dayTitle.style.cssText = 'font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 14px; text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; display: flex; align-items: center; gap: 8px;';
-        dayTitle.innerHTML = `<i class="fas fa-calendar-day" style="color:var(--accent);"></i> ${day.toUpperCase()} SCHEDULE (${grouped[day].length})`;
+        dayTitle.className = 'anime-schedule-day-title';
+        const isToday = day === todayDayName;
+        dayTitle.innerHTML = `<i class="fas fa-calendar-day" style="color:var(--accent);"></i> ${day.toUpperCase()} SCHEDULE (${grouped[day].length})${isToday ? ' <span style="font-size:0.75rem; background:rgba(255,255,255,0.12); padding:2px 8px; border-radius:10px; margin-left:8px; font-weight:700;">TODAY</span>' : ''}`;
         daySection.appendChild(dayTitle);
 
         const dayGrid = document.createElement('div');
-        dayGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;';
+        dayGrid.className = 'anime-schedule-day-grid';
 
         grouped[day].forEach(anime => {
           const card = document.createElement('div');
-          card.className = 'anime-card';
-          card.style.cssText = 'background: rgba(255,255,255,0.03); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); cursor: default; user-select: none; position: relative; pointer-events: none;';
+          card.className = 'media-card anime-card';
 
           const posterUrl = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || 'imgs/poster-placeholder.png';
           const airTime = anime.broadcast?.string || anime.broadcast?.time || 'Airing';
-          const score = anime.score ? `⭐ ${anime.score}` : 'NEW';
+          const score = anime.score ? `⭐ ${anime.score}` : '';
 
           const safeTitle = (anime.title_english || anime.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const safeTitleAttr = safeTitle.replace(/'/g, "\\'");
           const isFollowed = isAnimeFollowed(anime.mal_id);
           const animeItem = {
             id: anime.mal_id,
@@ -3748,22 +4567,36 @@
           window._animeScheduleCache.set(String(anime.mal_id), animeItem);
 
           card.innerHTML = `
-            <div style="position: relative; aspect-ratio: 2/3; overflow: hidden;">
-              <img src="${posterUrl}" style="width:100%; height:100%; object-fit:cover; pointer-events: none;" loading="lazy">
-              
-              <!-- Favorite Star Toggle -->
-              <button class="btn-anime-favorite-toggle" data-anime-id="${anime.mal_id}" onclick="window.toggleFollowAnimeById('${anime.mal_id}', event)" style="position: absolute; top: 8px; left: 8px; z-index: 5; background: rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.25); color: ${isFollowed ? '#fbbf24' : 'rgba(255,255,255,0.8)'}; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; transition: all 0.2s; backdrop-filter: blur(4px);" title="${isFollowed ? 'Favorited (Click to remove)' : 'Add to Favorites & track episodes'}">
-                <i class="${isFollowed ? 'fas fa-star' : 'far fa-star'}" style="font-size: 13px;"></i>
-              </button>
-
-              <span style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.8); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; backdrop-filter: blur(4px); pointer-events: none;">${score}</span>
-              <span style="position: absolute; bottom: 8px; left: 8px; background: rgba(99, 102, 241, 0.9); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; pointer-events: none;"><i class="fas fa-clock"></i> ${airTime}</span>
+            <div class="anime-card-poster">
+              <img src="${posterUrl}" loading="lazy" onerror="this.src='imgs/poster-placeholder.png'">
             </div>
-            <div style="padding: 10px; pointer-events: none;">
-              <div style="font-weight: 700; font-size: 0.85rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${safeTitle}">${safeTitle}</div>
-              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">${anime.episodes ? anime.episodes + ' Episodes' : 'Ongoing'}</div>
+
+            <!-- Favorite Star Toggle -->
+            <button class="btn-anime-favorite-toggle ${isFollowed ? 'is-followed' : ''}" data-anime-id="${anime.mal_id}" onclick="event.stopPropagation(); window.toggleFollowAnimeById('${anime.mal_id}', event)" title="${isFollowed ? 'Favorited' : 'Add to Favorites'}">
+              <i class="${isFollowed ? 'fas fa-star' : 'far fa-star'}" style="color: ${isFollowed ? '#fbbf24' : '#fff'}; font-size: 13px;"></i>
+            </button>
+
+            <!-- Info Overlay: Appears ONLY on Hover -->
+            <div class="card-info">
+              <div class="card-title" title="${safeTitle}">${safeTitle}</div>
+              <div class="card-meta">
+                <span class="card-badge-air"><i class="fas fa-clock" style="font-size: 10px;"></i> ${airTime}</span>
+                ${score ? `<span class="card-badge-score">${score}</span>` : ''}
+              </div>
             </div>
           `;
+
+          card.style.cursor = 'pointer';
+          card.onclick = (e) => {
+            e.preventDefault();
+            const q = anime.title_english || anime.title;
+            if (!q) return;
+            const searchInput = document.querySelector('#search-input-main');
+            if (searchInput) searchInput.value = q;
+            if (typeof switchView === 'function') switchView('search');
+            if (typeof window.performUnifiedSearch === 'function') window.performUnifiedSearch(q);
+          };
+
           dayGrid.appendChild(card);
         });
 
@@ -3813,85 +4646,48 @@
         }
       }
 
-      // Direct AniList GraphQL fallback if IPC was not ready or returned empty
+      // Jikan search fallback if IPC was not ready or returned empty
       if (!results || !results.data || results.data.length === 0) {
         try {
-          const gql = `query ($search: String) {
-            Page(page: 1, perPage: 25) {
-              media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
-                id
-                idMal
-                title { romaji english native }
-                coverImage { extraLarge large medium }
-                nextAiringEpisode { episode airingAt timeUntilAiring }
-                status
-                episodes
-                genres
-                averageScore
-                description
-              }
-            }
-          }`;
-          const resp = await fetch('https://graphql.anilist.co', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ query: gql, variables: { search: query } })
-          });
-          const json = await resp.json();
-          const list = json?.data?.Page?.media || [];
-          if (list.length > 0) {
-            const now = Math.floor(Date.now() / 1000);
-            const daysNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            results = {
-              data: list.map(item => {
-                const next = item.nextAiringEpisode;
-                let broadcastString = 'Status: ' + (item.status || 'Finished');
-                let badgeColor = 'rgba(100, 116, 139, 0.9)';
-                if (next && next.airingAt) {
-                  const date = new Date(next.airingAt * 1000);
-                  const dayName = daysNames[date.getDay()];
-                  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                  const diff = next.airingAt - now;
-                  let countdown = '';
-                  if (diff > 0) {
-                    const days = Math.floor(diff / 86400);
-                    const hours = Math.floor((diff % 86400) / 3600);
-                    const mins = Math.floor((diff % 3600) / 60);
-                    countdown = ` (in ${days > 0 ? `${days}d ` : ''}${hours}h ${mins}m)`;
+          const res = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=15`);
+          if (res.ok) {
+            const jData = await res.json();
+            const list = jData?.data || [];
+            if (list.length > 0) {
+              results = {
+                data: list.map(item => {
+                  let broadcastString = item.broadcast?.string || ('Status: ' + (item.status || 'Finished'));
+                  let badgeColor = 'rgba(100, 116, 139, 0.9)';
+                  if (item.airing) {
+                    badgeColor = 'rgba(16, 185, 129, 0.95)';
+                  } else if (item.status === 'Not yet aired') {
+                    badgeColor = 'rgba(245, 158, 11, 0.95)';
                   }
-                  broadcastString = `Ep ${next.episode} on ${dayName} at ${timeStr}${countdown}`;
-                  badgeColor = 'rgba(16, 185, 129, 0.95)';
-                } else if (item.status === 'RELEASING') {
-                  broadcastString = 'Airing Weekly';
-                  badgeColor = 'rgba(59, 130, 246, 0.95)';
-                } else if (item.status === 'NOT_YET_RELEASED') {
-                  broadcastString = 'Upcoming Release';
-                  badgeColor = 'rgba(245, 158, 11, 0.95)';
-                }
 
-                const displayTitle = item.title?.english || item.title?.romaji || item.title?.native || 'Unknown Anime';
-                return {
-                  mal_id: item.idMal || item.id,
-                  id: item.idMal || item.id,
-                  title: displayTitle,
-                  images: {
-                    jpg: {
-                      large_image_url: item.coverImage?.extraLarge || item.coverImage?.large,
-                      image_url: item.coverImage?.large || item.coverImage?.medium
-                    }
-                  },
-                  broadcast: { string: broadcastString },
-                  badgeColor,
-                  score: item.averageScore ? (item.averageScore / 10).toFixed(1) : null,
-                  status: item.status,
-                  genres: item.genres || [],
-                  synopsis: item.description ? item.description.replace(/<[^>]*>/g, '') : ''
-                };
-              })
-            };
+                  const displayTitle = item.title_english || item.title || 'Unknown Anime';
+                  return {
+                    mal_id: item.mal_id,
+                    id: item.mal_id,
+                    title: displayTitle,
+                    images: {
+                      jpg: {
+                        large_image_url: item.images?.webp?.large_image_url || item.images?.jpg?.large_image_url,
+                        image_url: item.images?.webp?.image_url || item.images?.jpg?.image_url
+                      }
+                    },
+                    broadcast: { string: broadcastString },
+                    badgeColor,
+                    score: item.score ? item.score.toFixed(1) : null,
+                    status: item.status,
+                    genres: (item.genres || []).map(g => g.name),
+                    synopsis: item.synopsis || ''
+                  };
+                })
+              };
+            }
           }
         } catch (directErr) {
-          console.warn('[AnimeSearchSchedule] Direct AniList fetch error:', directErr.message);
+          console.warn('[AnimeSearchSchedule] Direct Jikan fetch error:', directErr.message);
         }
       }
 
@@ -3920,27 +4716,25 @@
 
       const section = document.createElement('div');
       section.className = 'anime-schedule-day-group';
-      section.style.cssText = 'margin-bottom: 28px;';
 
       const title = document.createElement('h3');
-      title.style.cssText = 'font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 14px; text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; display: flex; align-items: center; gap: 8px;';
+      title.className = 'anime-schedule-day-title';
       title.innerHTML = `<i class="fas fa-search" style="color:var(--accent);"></i> SEARCH RESULTS FOR "${query.toUpperCase()}" (${items.length})`;
       section.appendChild(title);
 
       const dayGrid = document.createElement('div');
-      dayGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;';
+      dayGrid.className = 'anime-schedule-day-grid';
 
       items.forEach(anime => {
         const card = document.createElement('div');
-        card.className = 'anime-card';
-        card.style.cssText = 'background: rgba(255,255,255,0.03); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); cursor: default; user-select: none; position: relative; pointer-events: none;';
+        card.className = 'media-card anime-card';
 
         const posterUrl = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || 'imgs/poster-placeholder.png';
         const airInfo = anime.broadcast?.string || 'Completed';
-        const badgeColor = anime.badgeColor || 'rgba(99, 102, 241, 0.95)';
-        const score = anime.score ? `⭐ ${anime.score}` : (anime.status || 'NEW');
+        const score = anime.score ? `⭐ ${anime.score}` : '';
 
         const safeTitle = (anime.title_english || anime.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const safeTitleAttr = safeTitle.replace(/'/g, "\\'");
         const animeId = anime.mal_id || anime.id;
         const isFollowed = isAnimeFollowed(animeId);
         const animeItem = {
@@ -3955,22 +4749,28 @@
         window._animeScheduleCache.set(String(animeId), animeItem);
 
         card.innerHTML = `
-          <div style="position: relative; aspect-ratio: 2/3; overflow: hidden;">
-            <img src="${posterUrl}" style="width:100%; height:100%; object-fit:cover; pointer-events: none;" loading="lazy">
-            
-            <!-- Favorite Star Toggle -->
-            <button class="btn-anime-favorite-toggle" data-anime-id="${animeId}" onclick="window.toggleFollowAnimeById('${animeId}', event)" style="position: absolute; top: 8px; left: 8px; z-index: 5; background: rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.25); color: ${isFollowed ? '#fbbf24' : 'rgba(255,255,255,0.8)'}; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; transition: all 0.2s; backdrop-filter: blur(4px);" title="${isFollowed ? 'Favorited (Click to remove)' : 'Add to Favorites & track episodes'}">
-              <i class="${isFollowed ? 'fas fa-star' : 'far fa-star'}" style="font-size: 13px;"></i>
-            </button>
-
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.8); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; backdrop-filter: blur(4px); pointer-events: none;">${score}</span>
-            <span style="position: absolute; bottom: 8px; left: 8px; right: 8px; background: ${badgeColor}; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;"><i class="fas fa-clock"></i> ${airInfo}</span>
+          <div class="anime-card-poster">
+            <img src="${posterUrl}" loading="lazy" onerror="this.src='imgs/poster-placeholder.png'">
           </div>
-          <div style="padding: 10px; pointer-events: none;">
-            <div style="font-weight: 700; font-size: 0.85rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${safeTitle}">${safeTitle}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">${anime.episodes ? anime.episodes + ' Episodes' : (anime.status || 'Ongoing')}</div>
+
+          <!-- Favorite Star Toggle -->
+          <button class="btn-anime-favorite-toggle ${isFollowed ? 'is-followed' : ''}" data-anime-id="${animeId}" onclick="event.stopPropagation(); window.toggleFollowAnimeById('${animeId}', event)" title="${isFollowed ? 'Favorited' : 'Add to Favorites'}">
+            <i class="${isFollowed ? 'fas fa-star' : 'far fa-star'}" style="color: ${isFollowed ? '#fbbf24' : '#fff'}; font-size: 13px;"></i>
+          </button>
+
+          <!-- Info Overlay: Appears ONLY on Hover -->
+          <div class="card-info">
+            <div class="card-title" title="${safeTitle}">${safeTitle}</div>
+            <div class="card-meta">
+              <span class="card-badge-air"><i class="fas fa-clock" style="font-size: 10px;"></i> ${airInfo}</span>
+              ${score ? `<span class="card-badge-score">${score}</span>` : ''}
+            </div>
           </div>
         `;
+
+        // Hover motion is preserved in CSS; clicking does nothing
+        card.onclick = (e) => { e.preventDefault(); };
+
         dayGrid.appendChild(card);
       });
 

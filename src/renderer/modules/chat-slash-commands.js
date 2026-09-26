@@ -113,11 +113,12 @@
           <span class="slash-cmd-highlight">/&lt;query&gt;</span> Type ${isMusic ? 'song or artist name' : 'movie or series title'} to share in chat
         </div>
       `;
+      state.menuEl.style.display = 'flex';
       positionMenu();
-      state.menuEl.style.display = 'block';
     }
 
     function render() {
+      state.menuEl.style.display = 'flex';
       if (!state.results.length) {
         state.menuEl.innerHTML = '<div class="slash-cmd-no-results">No results found</div>';
         positionMenu();
@@ -182,14 +183,16 @@
     }
 
     function positionMenu() {
+      state.menuEl.style.display = 'flex';
+      state.menuEl.style.zIndex = '999999';
       const rect = inputEl.getBoundingClientRect();
       state.menuEl.style.position = 'fixed';
       state.menuEl.style.left = rect.left + 'px';
-      state.menuEl.style.width = rect.width + 'px';
+      state.menuEl.style.width = Math.max(280, rect.width) + 'px';
       
-      const menuHeight = state.menuEl.offsetHeight || 200;
+      const menuHeight = state.menuEl.offsetHeight || 220;
       // Position above input
-      state.menuEl.style.top = (rect.top - menuHeight - 8) + 'px';
+      state.menuEl.style.top = Math.max(10, rect.top - menuHeight - 8) + 'px';
       state.menuEl.style.bottom = 'auto';
     }
 

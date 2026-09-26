@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
-const { exec, execSync, spawn } = require('child_process');
+const { exec, execSync, spawn, execFile } = require('child_process');
 
 // Cached binary paths to avoid repeated filesystem checks
 let cachedFFmpegPath = null;
@@ -76,17 +76,28 @@ function execYtDlp(args, options = {}) {
   const yt = resolveYtDlpPath();
   if (!yt) return Promise.reject(new Error('yt-dlp binary not found'));
   return new Promise((resolve, reject) => {
-    exec(`"${yt}" ${args}`, {
+    const opts = {
       maxBuffer: options.maxBuffer || 1024 * 1024 * 50,
       timeout: options.timeout || 30000,
       windowsHide: true
-    }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(`yt-dlp exec failed: ${error.message}`));
-      } else {
-        resolve(stdout.toString().trim());
-      }
-    });
+    };
+    if (Array.isArray(args)) {
+      execFile(yt, args, opts, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`yt-dlp exec failed: ${error.message}`));
+        } else {
+          resolve(stdout.toString().trim());
+        }
+      });
+    } else {
+      exec(`"${yt}" ${args}`, opts, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`yt-dlp exec failed: ${error.message}`));
+        } else {
+          resolve(stdout.toString().trim());
+        }
+      });
+    }
   });
 }
 

@@ -5,6 +5,8 @@ const env = ipcRenderer.sendSync('get-supabase-env');
 if (env && env.supabaseUrl && env.supabaseAnonKey) {
   contextBridge.exposeInMainWorld('SUPABASE_URL', env.supabaseUrl);
   contextBridge.exposeInMainWorld('SUPABASE_ANON_KEY', env.supabaseAnonKey);
+  contextBridge.exposeInMainWorld('MEEM_SUPABASE_URL', env.supabaseUrl);
+  contextBridge.exposeInMainWorld('MEEM_SUPABASE_ANON_KEY', env.supabaseAnonKey);
   contextBridge.exposeInMainWorld('MEDIAVAULT_SUPABASE_URL', env.supabaseUrl);
   contextBridge.exposeInMainWorld('MEDIAVAULT_SUPABASE_ANON_KEY', env.supabaseAnonKey);
 } else {
@@ -142,6 +144,7 @@ contextBridge.exposeInMainWorld('api', {
   // Native player (singleton window + media:// protocol)
   playMedia: (options) => ipcRenderer.invoke('play-media', options),
   openInVlc: (options) => ipcRenderer.invoke('open-in-vlc', options),
+  openInMeemPlayer: (options) => ipcRenderer.invoke('open-in-meem-player', options),
   playNative: (options) => ipcRenderer.invoke('play-media', options),
   playExternal: (url, meta) => ipcRenderer.invoke('play-media', typeof url === 'object' ? url : { url, ...meta }),
   downloadFile: (url, name) => ipcRenderer.invoke('download-file', url, name),
@@ -215,7 +218,7 @@ contextBridge.exposeInMainWorld('api', {
 
       // Streaming & Media Playback
       'stream-torrent', 'start-torrent-stream', 'stop-torrent-stream', 'play-media', 'open-in-external-player',
-      'open-in-vlc', 'play-external', 'play-native', 'start-local-server', 'get-vlc-status',
+      'open-in-vlc', 'open-in-meem-player', 'play-external', 'play-native', 'start-local-server', 'get-vlc-status',
       'resolve-trailer-stream',
 
       // YouTube
@@ -238,7 +241,7 @@ contextBridge.exposeInMainWorld('api', {
 
       // Utility & Window Controls
       'check-network-status', 'get-app-version', 'open-external', 'set-fullscreen', 'is-fullscreen', 'open-devtools',
-      'check-for-updates', 'download-update', 'install-update'
+      'check-for-updates', 'download-update', 'install-update', 'get-release-notes', 'start-update-download', 'restart-app-and-install'
     ]);
 
     return (channel, ...args) => {
@@ -276,5 +279,13 @@ contextBridge.exposeInMainWorld('api', {
 
   // UTILS
   getFilePath: (file) => webUtils.getPathForFile(file),
-  showNativeNotification: (opts) => ipcRenderer.invoke('show-native-notification', opts)
+  showNativeNotification: (opts) => ipcRenderer.invoke('show-native-notification', opts),
+
+  // TORRENT STREAMING STATUS
+  onTorrentStatus: (cb) => {
+    const h = (_e, data) => cb(data);
+    ipcRenderer.on('torrent-stream-status', h);
+    return () => ipcRenderer.removeListener('torrent-stream-status', h);
+  },
+  stopTorrentStream: () => ipcRenderer.invoke('stop-torrent-stream')
 });

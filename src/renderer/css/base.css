@@ -234,23 +234,298 @@ input[type="checkbox"]:checked::before {
 
 
 
-/* Optional Classic Midnight Dark Theme */
-.dark-theme, .theme-dark {
-  --bg: #050508;
-  --bg-surface: rgba(9, 9, 15, 0.95);
-  --bg-surface-2: rgba(17, 17, 24, 0.9);
-  --bg-card: rgba(13, 13, 20, 0.95);
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.9);
-  --text-muted: rgba(255, 255, 255, 0.6);
-  --border: rgba(255, 255, 255, 0.12);
-  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
-  --accent: #ffffff;
-  --accent-hover: #f8fafc;
-  --accent-light: rgba(255, 255, 255, 0.12);
-  --accent-glow: rgba(255, 255, 255, 0.18);
+/* ═══ Monochrome Inverted Theme (Pure White & Black — Inverted of Pitch Black) ═══ */
+.dark-theme, .theme-dark, .light-theme {
+  --bg: #ffffff;
+  --bg-surface: #f4f5f7;
+  --bg-surface-2: #eaecef;
+  --bg-card: #ffffff;
+  --text-primary: #0a0a0c;
+  --text-secondary: #333340;
+  --text-muted: #666675;
+  --border: rgba(0, 0, 0, 0.12);
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.25);
+  --accent: #000000;
+  --accent-hover: #1a1a1a;
+  --accent-light: rgba(0, 0, 0, 0.06);
+  --accent-glow: rgba(0, 0, 0, 0.15);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.12);
+}
+
+body.dark-theme,
+body.light-theme {
+  background: #ffffff !important;
+  color: #0a0a0c !important;
+}
+
+.dark-theme #sidebar,
+.dark-theme .sidebar {
+  background: #ffffff !important;
+  border-right: 1px solid rgba(0, 0, 0, 0.1) !important;
+}
+
+.dark-theme #sidebar .nav-btn,
+.dark-theme .sidebar .nav-btn {
+  color: #333340 !important;
+}
+
+.dark-theme #sidebar .nav-btn:hover,
+.dark-theme .sidebar .nav-btn:hover {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: #000000 !important;
+}
+
+.dark-theme #sidebar .nav-btn.active,
+.dark-theme .sidebar .nav-btn.active {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .media-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06) !important;
+}
+
+.dark-theme .media-card:hover {
+  border-color: #000000 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+}
+
+.dark-theme .settings-card,
+.dark-theme .bento-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05) !important;
+}
+
+.dark-theme button.btn-primary,
+.dark-theme .btn-primary-sm,
+.dark-theme .play-circle,
+.dark-theme .watch-now,
+.dark-theme #btn-mobile-start,
+.dark-theme #profile-confirm {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border: 1px solid #000000 !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2) !important;
+}
+
+.dark-theme .btn-outline {
+  background: transparent !important;
+  color: #000000 !important;
+  border: 1px solid rgba(0, 0, 0, 0.25) !important;
+}
+
+.dark-theme .btn-outline:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+  border-color: #000000 !important;
+}
+
+.dark-theme .search-box,
+.dark-theme .search-bar,
+.dark-theme .hub-search-bar,
+.dark-theme .discover-search-box,
+.dark-theme .global-search-box {
+  border: 1.5px solid rgba(0, 0, 0, 0.15) !important;
+  background: #f4f5f7 !important;
+  color: #0a0a0c !important;
+}
+
+.dark-theme .search-box input,
+.dark-theme .search-bar input,
+.dark-theme .hub-search-bar input,
+.dark-theme .discover-search-box input,
+.dark-theme .global-search-box input {
+  color: #0a0a0c !important;
+}
+
+.dark-theme .search-box input::placeholder,
+.dark-theme .search-bar input::placeholder,
+.dark-theme .hub-search-bar input::placeholder,
+.dark-theme .discover-search-box input::placeholder,
+.dark-theme .global-search-box input::placeholder {
+  color: #777788 !important;
+}
+
+.dark-theme .search-box:focus-within,
+.dark-theme .search-bar:focus-within,
+.dark-theme .hub-search-bar:focus-within,
+.dark-theme .discover-search-box:focus-within,
+.dark-theme .global-search-box:focus-within {
+  border-color: #000000 !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+.dark-theme input:checked + .slider {
+  background: #000000 !important;
+}
+
+/* Typography & Headings in Light/Inverted Theme */
+.dark-theme h1,
+.dark-theme h2,
+.dark-theme h3,
+.dark-theme h4,
+.dark-theme .view-header h1,
+.dark-theme .discover-section-header h3,
+.dark-theme .bento-card-title,
+.dark-theme .section-title,
+.dark-theme .page-title,
+.dark-theme .bento-item-title,
+.dark-theme .discover-title {
+  color: #0a0a0c !important;
+}
+
+.dark-theme .discover-meta,
+.dark-theme .bento-item-sub,
+.dark-theme .sidebar-empty-hint,
+.dark-theme .placeholder-title {
+  color: rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Quick Portals & Bento Card Coverage in Light/Inverted Theme */
+.dark-theme .bento-card,
+.dark-theme .bento-side-panel,
+.dark-theme .bento-card-left-wide,
+.dark-theme .bento-watchlist-deck {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05) !important;
+}
+
+.dark-theme .bento-shortcut-item {
+  background: #f8f9fa !important;
+  border: 1px solid rgba(0, 0, 0, 0.09) !important;
+  color: #0a0a0c !important;
+}
+
+.dark-theme .bento-shortcut-item:hover {
+  background: #eef1f5 !important;
+  border-color: rgba(0, 0, 0, 0.25) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
+}
+
+.dark-theme .bento-shortcut-item i {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid rgba(0, 0, 0, 0.15) !important;
+}
+
+.dark-theme .bento-shortcut-item:hover i {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Genre Pills & Nav Filters in Light Theme */
+.dark-theme .genre-pill {
+  background: #f0f2f5 !important;
+  color: #0a0a0c !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+}
+
+.dark-theme .genre-pill.active,
+.dark-theme .genre-pill:hover {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+}
+
+.dark-theme #discover-sidebar .nav-btn {
+  background: transparent !important;
+  color: #333340 !important;
+}
+
+.dark-theme #discover-sidebar .nav-btn.active {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+.dark-theme #discover-sidebar .nav-btn:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: #000000 !important;
+}
+
+/* Settings, Forms & Update Info in Light Theme */
+.dark-theme .settings-card h3 {
+  color: #0a0a0c !important;
+}
+
+.dark-theme .dl-form input,
+.dark-theme .dl-form select,
+.dark-theme .settings-input {
+  background: #f4f5f7 !important;
+  color: #0a0a0c !important;
+  border: 1px solid rgba(0, 0, 0, 0.15) !important;
+}
+
+.dark-theme .update-info-row {
+  background: #f8f9fa !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Top App Header & Bar in Light Theme */
+.dark-theme .top-bar,
+.dark-theme #app-header {
+  background: #ffffff !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+}
+
+.dark-theme .top-btn {
+  background: #f4f5f7 !important;
+  color: #0a0a0c !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+}
+
+.dark-theme .top-btn:hover {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+/* Modals & Detail Overlay in Light Theme */
+.dark-theme #detail-modal,
+.dark-theme #cinematic-detail-modal,
+.dark-theme .dd-modal-content {
+  background: #ffffff !important;
+  color: #0a0a0c !important;
+}
+
+.dark-theme .dd-side-panel,
+.dark-theme .dd-panel-header,
+.dark-theme .dd-mobile-panel,
+.dark-theme .dd-mobile-panel-header {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #0a0a0c !important;
+}
+
+.dark-theme .dd-ep-card,
+.dark-theme .stream-card {
+  background: #f8f9fa !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  color: #0a0a0c !important;
+}
+
+.dark-theme .dd-ep-card:hover,
+.dark-theme .stream-card:hover {
+  background: #eef1f5 !important;
+  border-color: #000000 !important;
+}
+
+.dark-theme .stream-title,
+.dark-theme .dd-ep-title {
+  color: #0a0a0c !important;
+}
+
+.dark-theme .stream-btn-play {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border: none !important;
 }
 
 /* Hide mobile drawer header on desktop */
@@ -321,12 +596,17 @@ button:hover, .btn:hover, .btn-primary:hover, .btn-primary-sm:hover, .play-circl
   line-height: 1 !important;
 }
 
-.search-box input, .hub-search-bar input, .discover-search-box input, .global-search-box input, .search-bar input { 
+.search-box input, .hub-search-bar input, .discover-search-box input, .global-search-box input, .search-bar input, input[type="text"], input[type="search"], input[type="password"] { 
   background: transparent !important; 
   border: none !important; 
   outline: none !important; 
   box-shadow: none !important; 
   color: var(--text-primary) !important;
+  -webkit-app-region: no-drag !important;
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text !important;
 }
 
 /* Subtle Light White Border for All Search Input Containers */
@@ -479,8 +759,15 @@ img {
   height: 100%;
 }
 
-.title-logo {
+.title-logo,
+.title-logo-img {
+  height: 15px;
+  max-height: 15px;
+  width: auto;
+  object-fit: contain;
   flex-shrink: 0;
+  vertical-align: middle;
+  margin-top: 8px;
 }
 
 .title-text {
@@ -492,6 +779,170 @@ img {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* ─── TOP BAR TORRENT STREAMING & BUFFERING LOADER (MONOCHROME & SEAMLESS) ─── */
+@keyframes torrentPulseMono {
+  0% { transform: scale(0.92); opacity: 0.5; }
+  100% { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes torrentLoaderEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes torrentLoaderExit {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+}
+
+#torrent-titlebar-loader {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: 14px;
+  padding: 0 4px;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+  max-width: 480px;
+  height: 28px;
+  user-select: none;
+}
+
+#torrent-titlebar-loader.active {
+  display: flex !important;
+  animation: torrentLoaderEntrance 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#torrent-titlebar-loader.exiting {
+  display: flex !important;
+  animation: torrentLoaderExit 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.torrent-loader-icon-wrap {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+#torrent-loader-icon {
+  font-size: 10px;
+  color: #ffffff !important;
+  animation: torrentPulseMono 1.2s infinite alternate ease-in-out;
+}
+
+#torrent-loader-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 135px;
+  font-family: 'Cairo', sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.torrent-loader-track-wrap {
+  position: relative;
+  width: 85px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.torrent-loader-progress-bar {
+  width: 0%;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.torrent-loader-threshold-marker {
+  position: absolute;
+  left: 30%;
+  top: -3px;
+  width: 2px;
+  height: 10px;
+  background: #ffffff;
+  border-radius: 1px;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+  z-index: 3;
+}
+
+#torrent-loader-speed {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+#torrent-loader-peers {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+#torrent-loader-peers i {
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+#torrent-loader-abort-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 2px;
+  border-radius: 50%;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+#torrent-loader-abort-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+#torrent-titlebar-loader.ready #torrent-loader-icon {
+  color: #ffffff !important;
+  animation: none;
 }
 
 .title-bar-controls {
@@ -669,4 +1120,21 @@ body.playing-mode #ambient-glow-container,
 body.fullscreen-mode #ambient-glow-container,
 .fullscreen-mode #ambient-glow-container {
   display: none !important;
+}
+
+/* ── Disable & Hide Picture-in-Picture Controls ── */
+video::-webkit-media-controls-picture-in-picture-button,
+video::-webkit-media-controls-pip-button,
+video::-internal-media-controls-picture-in-picture-button,
+.btn-pip,
+#btn-pip,
+#psd-btn-pip {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }

@@ -49,94 +49,105 @@ class GumroadService {
     }
 
     const cleanKey = licenseKey.trim();
-    const payload = {
-      license_key: cleanKey,
-      increment_uses_count: false
-    };
 
-    const activeProductId = productId || this.defaultProductId || 'MEEMVIP';
-    if (activeProductId) {
-      let prodId = activeProductId;
-      if (activeProductId.startsWith('http')) {
+    // The Gumroad product_id for MEEM VIP (from API error message)
+    const MEEM_PRODUCT_ID = 'hGdj3GQzGMSQE9e27Vt_Qw==';
+
+    // Candidate permalinks to test against Gumroad
+    const candidates = [];
+    if (productId) {
+      let cleanProd = String(productId).trim();
+      if (cleanProd.startsWith('http')) {
         try {
-          const u = new URL(activeProductId);
+          const u = new URL(cleanProd);
           const parts = u.pathname.split('/').filter(Boolean);
-          prodId = parts[parts.length - 1];
-        } catch (e) {
-          prodId = activeProductId;
-        }
+          cleanProd = parts[parts.length - 1];
+        } catch (_) {}
       }
-      payload.product_id = prodId;
-      payload.product_permalink = prodId;
+      candidates.push(cleanProd);
     }
+    candidates.push('MEEMVIP', 'meemvip', 'MEEM-VIP', 'meem-vip', 'meem_vip', 'MEEM_VIP');
 
-    try {
-      console.log(`[GumroadService] Verifying license key: ${cleanKey.slice(0, 8)}...`);
-      const response = await axios.post(this.apiUrl, payload, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 10000
-      });
+    // Remove duplicates
+    const uniqueCandidates = Array.from(new Set(candidates.filter(Boolean)));
 
-      const data = response.data;
-      if (data && data.success) {
-        const purchase = data.purchase || {};
+    let lastError = 'That license does not exist for the provided product.';
 
-        if (purchase.subscription_cancelled_at || purchase.subscription_failed_at || purchase.refunded || purchase.chargebacked || purchase.disputed) {
-          return {
-            success: false,
-            error: 'This subscription has been cancelled, refunded, or payment failed.'
+    for (const permalink of uniqueCandidates) {
+      try {
+        const payload = {
+          product_permalink: permalink,
+          product_id: MEEM_PRODUCT_ID,
+          license_key: cleanKey,
+          increment_uses_count: false
+        };
+
+        console.log(`[GumroadService] Verifying license with permalink: "${permalink}" (key: ${cleanKey.slice(0, 8)}...)...`);
+        const response = await axios.post(this.apiUrl, payload, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000
+        });
+
+        const data = response.data;
+        if (data && data.success) {
+          const purchase = data.purchase || {};
+
+          if (purchase.subscription_cancelled_at || purchase.subscription_failed_at || purchase.refunded || purchase.chargebacked || purchase.disputed) {
+            return {
+              success: false,
+              error: 'This subscription has been cancelled, refunded, or payment failed.'
+            };
+          }
+
+          let expiresAt = null;
+          if (purchase.subscription_ended_at) {
+            expiresAt = new Date(purchase.subscription_ended_at).toISOString();
+          } else if (purchase.recurrence === 'monthly') {
+            const d = new Date(purchase.created_at || Date.now());
+            d.setDate(d.getDate() + 32);
+            expiresAt = d.toISOString();
+          } else if (purchase.recurrence === 'yearly') {
+            const d = new Date(purchase.created_at || Date.now());
+            d.setFullYear(d.getFullYear() + 1);
+            d.setDate(d.getDate() + 5);
+            expiresAt = d.toISOString();
+          } else {
+            // Lifetime / one-time purchase
+            expiresAt = new Date('2099-01-01T00:00:00.000Z').toISOString();
+          }
+
+          const licenseInfo = {
+            licenseKey: cleanKey,
+            productName: purchase.product_name || 'MEEM VIP',
+            productId: purchase.product_id || '',
+            permalink: permalink,
+            email: purchase.email || '',
+            recurrence: purchase.recurrence || 'lifetime',
+            expiresAt,
+            verifiedAt: new Date().toISOString()
           };
-        }
 
-        let expiresAt = null;
-        if (purchase.subscription_ended_at) {
-          expiresAt = new Date(purchase.subscription_ended_at).toISOString();
-        } else if (purchase.recurrence === 'monthly') {
-          const d = new Date(purchase.created_at || Date.now());
-          d.setDate(d.getDate() + 32);
-          expiresAt = d.toISOString();
-        } else if (purchase.recurrence === 'yearly') {
-          const d = new Date(purchase.created_at || Date.now());
-          d.setFullYear(d.getFullYear() + 1);
-          d.setDate(d.getDate() + 5);
-          expiresAt = d.toISOString();
+          this.saveLicense(licenseInfo);
+
+          return {
+            success: true,
+            valid: true,
+            expiresAt,
+            licenseInfo
+          };
         } else {
-          // Lifetime / one-time purchase
-          expiresAt = new Date('2099-01-01T00:00:00.000Z').toISOString();
+          lastError = data?.message || lastError;
         }
-
-        const licenseInfo = {
-          licenseKey: cleanKey,
-          productName: purchase.product_name || 'MEEM VIP',
-          productId: purchase.product_id || '',
-          email: purchase.email || '',
-          recurrence: purchase.recurrence || 'lifetime',
-          expiresAt,
-          verifiedAt: new Date().toISOString()
-        };
-
-        this.saveLicense(licenseInfo);
-
-        return {
-          success: true,
-          valid: true,
-          expiresAt,
-          licenseInfo
-        };
-      } else {
-        return {
-          success: false,
-          error: data?.message || 'Invalid license key'
-        };
+      } catch (err) {
+        lastError = err.response?.data?.message || err.message || lastError;
+        console.warn(`[GumroadService] Attempt with "${permalink}" failed:`, lastError);
       }
-    } catch (err) {
-      console.error('[GumroadService] License verification error:', err.response?.data || err.message);
-      const msg = err.response?.data?.message || err.message || 'Verification failed';
-      return {
-        success: false,
-        error: msg
-      };
     }
+
+    return {
+      success: false,
+      error: lastError
+    };
   }
 }
 

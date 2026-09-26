@@ -172,7 +172,7 @@
 }
 
 /* ═══════════════════════════════════════════
-   PC SIDE PANEL (Luxury Glassmorphic)
+   PC SIDE PANEL (OLED Black)
    ═══════════════════════════════════════════ */
 
 .dd-side-panel {
@@ -181,16 +181,16 @@
     bottom: 20px;
     right: -500px;
     width: 380px;
-    background: rgba(14, 14, 18, 0.94) !important;
+    background: #000000 !important;
     backdrop-filter: blur(32px) saturate(180%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 20px;
     z-index: 1000;
-    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), color 0.6s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.6s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s cubic-bezier(0.16, 1, 0.3, 1), fill 0.6s cubic-bezier(0.16, 1, 0.3, 1), stroke 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.5s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.5s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.5s cubic-bezier(0.16, 1, 0.3, 1);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: -20px 0 60px rgba(0, 0, 0, 0.95);
+    box-shadow: -15px 0 50px rgba(0, 0, 0, 0.95);
 }
 
 .dd-side-panel.active {
@@ -198,36 +198,36 @@
 }
 
 .dd-panel-header {
-    padding: 30px 35px;
+    padding: 24px 28px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: rgba(18, 18, 24, 0.98) !important;
+    background: #000000 !important;
     border-bottom: 1px solid rgba(255,255,255,0.08);
-    border-radius: 24px 24px 0 0;
+    border-radius: 20px 20px 0 0;
 }
 
 .dd-panel-header h3 {
     margin: 0;
-    font-size: 1.7rem;
-    font-weight: 900;
-    letter-spacing: -0.8px;
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff !important;
 }
 
 .dd-panel-close {
-    background: rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.1);
     color: #fff;
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: 0.3s;
+    transition: 0.2s ease;
 }
 
 .dd-panel-close:hover {
@@ -240,7 +240,7 @@
 .dd-panel-content {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 16px;
     background: transparent !important;
 }
 
@@ -266,10 +266,8 @@
     transform: translateY(0);
 }
 
-/* Removed global hiding of #mobile-dock, handled dynamically by JS / mobile.css now */
-
 .dd-mobile-panel-header {
-    padding: 20px;
+    padding: 18px 20px;
     display: flex;
     align-items: center;
     background: #000000 !important;
@@ -280,51 +278,45 @@
     gap: 15px;
 }
 
-/* ── Stream Card (redesigned with flex body + lang badges) ── */
+/* ── Stream Card (Flat Modern OLED Monochrome) ── */
 .dd-stream-card {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 14px;
-    padding: 14px 18px;
-    background: rgba(20, 20, 26, 0.85) !important;
-    backdrop-filter: blur(24px) saturate(180%) !important;
+    gap: 13px;
+    padding: 12px 16px;
+    background: #000000 !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 16px;
+    border-radius: 14px;
     cursor: pointer;
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease !important;
-    margin-bottom: 10px;
+    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
+    margin-bottom: 12px;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
 }
 
 .dd-stream-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.025), transparent);
-    transform: translateX(-100%);
-    transition: transform 0.5s ease;
-    pointer-events: none;
-}
-
-.dd-stream-card:hover::before {
-    transform: translateX(100%);
+    display: none;
 }
 
 .dd-stream-icon {
     flex-shrink: 0;
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.1rem;
+    font-size: 1rem;
     background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dd-stream-card:hover .dd-stream-icon {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
 /* Body column holds title + meta row */
@@ -333,62 +325,71 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 4px;
 }
 
 .dd-stream-server {
-    font-size: 0.88rem;
+    font-size: 13.5px;
     font-weight: 700;
     color: #fff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.25;
+    line-height: 1.3;
 }
 
 .dd-stream-meta-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
+    gap: 7px;
+    flex-wrap: nowrap;
+    overflow: hidden;
 }
 
 .dd-quality-badge {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.14);
     color: #fff;
-    font-size: 9px;
+    font-size: 9.5px;
     font-weight: 800;
     padding: 2px 7px;
     border-radius: 5px;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    letter-spacing: 0.3px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    line-height: 1.2;
 }
 
 .dd-lang-badge {
-    background: rgba(255,255,255,0.1);
-    color: rgba(255,255,255,0.85);
-    font-size: 9px;
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.7);
+    font-size: 9.5px;
     font-weight: 800;
-    padding: 2px 6px;
+    padding: 2px 7px;
     border-radius: 5px;
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    border: 1px solid rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.09);
+    line-height: 1.2;
 }
 
 .dd-sub-badge {
-    background: rgba(139, 92, 246, 0.2);
-    color: #a78bfa;
-    border-color: rgba(139, 92, 246, 0.3);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 5px;
+    text-transform: uppercase;
+    line-height: 1.2;
 }
 
 .dd-addon-badge {
     margin-left: auto;
-    font-size: 9px;
+    font-size: 9.5px;
     font-weight: 700;
-    color: rgba(255,255,255,0.35);
-    letter-spacing: 0.5px;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 0.3px;
     text-transform: uppercase;
     white-space: nowrap;
 }
@@ -404,31 +405,31 @@
 
 .dd-stream-play-icon {
     flex-shrink: 0;
-    width: 42px;
-    height: 42px;
+    width: 34px;
+    height: 34px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
-    color: #fff;
-    font-size: 14px;
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), fill 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), stroke 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    background: #ffffff;
+    border: 1px solid #ffffff;
+    border-radius: 9px;
+    color: #000000;
+    font-size: 13px;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .dd-stream-card:hover {
-    background: rgba(30, 30, 40, 0.95) !important;
-    border-color: rgba(255, 255, 255, 0.28) !important;
-    transform: translateY(-2px);
-    box-shadow: 0 12px 28px rgba(0,0,0,0.7) !important;
+    background: #0a0a10 !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.7) !important;
 }
 
 .dd-stream-card:hover .dd-stream-play-icon {
     background: #ffffff !important;
     color: #000000 !important;
-    transform: scale(1.08);
-    box-shadow: 0 0 20px rgba(255, 255, 255, 0.35);
+    transform: scale(1.06);
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.35);
 }
 
 .dd-mobile-panel-back {
@@ -469,67 +470,102 @@
 .dd-episode-list {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 8px;
 }
 
 .dd-ep-card {
     display: flex;
-    gap: 18px;
-    background: rgba(20, 20, 26, 0.85) !important;
-    backdrop-filter: blur(24px) saturate(180%) !important;
+    align-items: center;
+    gap: 12px;
+    background: #000000 !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 18px;
-    padding: 14px;
+    border-radius: 12px;
+    padding: 8px 10px;
     cursor: pointer;
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease !important;
+    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
     position: relative;
     overflow: hidden;
-    animation: dd-fade-in 0.5s ease backwards;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    margin-bottom: 0px;
 }
 
 .dd-ep-card:hover {
-    background: rgba(30, 30, 40, 0.95) !important;
-    border-color: rgba(255, 255, 255, 0.28) !important;
-    transform: translateX(-4px) scale(1.01);
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
+    background: #0a0a10 !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
 }
 
 .dd-ep-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(45deg, transparent, rgba(255,255,255,0.03), transparent);
-    transform: translateX(-100%);
-    transition: 0.6s;
-}
-
-.dd-ep-card:hover::before {
-    transform: translateX(100%);
+    display: none;
 }
 
 .dd-ep-img {
-    width: 150px;
-    height: 85px;
+    width: 100px;
+    height: 58px;
     position: relative;
-    border-radius: 12px;
+    border-radius: 8px;
     overflow: hidden;
     flex-shrink: 0;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.7);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .dd-ep-img img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: transform 0.5s;
+    transition: transform 0.3s ease;
 }
 
-/* Consolidated Season Select Styling */
+.dd-ep-card:hover .dd-ep-img img {
+    transform: scale(1.05);
+}
+
+.dd-ep-number {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 1.5px 5px;
+    font-size: 0.62rem;
+    font-weight: 800;
+    border-radius: 4px;
+    letter-spacing: 0.3px;
+}
+
+.dd-ep-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.dd-ep-name {
+    font-weight: 700;
+    font-size: 0.88rem;
+    margin-bottom: 2px;
+    color: #fff;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dd-ep-date {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.4);
+    font-weight: 500;
+}
+
+/* Consolidated Season Select Styling (OLED Flat) */
 .dd-season-select-wrap {
     position: relative;
     width: 100%;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
     z-index: 10;
 }
 
@@ -537,32 +573,29 @@
     width: 100%;
     -webkit-appearance: none;
     appearance: none;
-    background: rgba(20, 20, 26, 0.9) !important;
-    backdrop-filter: blur(20px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    background: #000000 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
     color: #ffffff;
-    padding: 12px 18px;
-    padding-right: 45px; /* Space for custom arrow */
-    border-radius: 14px;
+    padding: 10px 14px;
+    padding-right: 36px;
+    border-radius: 10px;
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: 0.88rem;
     cursor: pointer;
-    transition: all 0.25s ease;
+    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     color-scheme: dark;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 }
 
 .dd-season-select:hover {
-    background: rgba(30, 30, 40, 0.95) !important;
-    border-color: rgba(255, 255, 255, 0.3) !important;
-    transform: translateY(-1px);
+    background: #0a0a10 !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
 }
 
 .dd-season-select:focus {
     outline: none;
-    background: rgba(30, 30, 40, 0.98) !important;
+    background: #0a0a10 !important;
     border-color: #ffffff !important;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6), 0 0 0 3px rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
 }
 
 .dd-season-select-wrap::after {
@@ -570,13 +603,13 @@
     font-family: 'Font Awesome 6 Free';
     font-weight: 900;
     position: absolute;
-    right: 18px;
+    right: 14px;
     top: 50%;
     transform: translateY(-50%);
     color: rgba(255, 255, 255, 0.6);
     pointer-events: none;
-    font-size: 0.85rem;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 0.75rem;
+    transition: transform 0.2s ease;
 }
 
 .dd-season-select-wrap:focus-within::after {
@@ -587,19 +620,19 @@
 .dd-season-select option {
     background: #000000 !important;
     color: #fff;
-    padding: 12px;
+    padding: 10px;
 }
 
 /* Premium Season Picker (Tabs) */
 .dd-season-picker-premium {
-    margin-bottom: 25px;
+    margin-bottom: 14px;
     width: 100%;
 }
 
 .dd-season-tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     padding: 2px;
 }
 
@@ -607,72 +640,29 @@
     background: #ffffff !important;
     color: #000000 !important;
     border: 1px solid #ffffff !important;
-    box-shadow: 0 4px 20px rgba(255, 255, 255, 0.25) !important;
-    transform: translateY(-2px);
+    box-shadow: 0 2px 10px rgba(255, 255, 255, 0.2) !important;
     font-weight: 800 !important;
 }
 
 .season-tab, .dd-season-tab {
-    padding: 8px 22px;
-    border-radius: 14px;
+    padding: 6px 16px;
+    border-radius: 8px;
     background: rgba(255, 255, 255, 0.05);
     color: rgba(255, 255, 255, 0.7);
     font-weight: 700;
     cursor: pointer;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), fill 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     white-space: nowrap;
     text-transform: uppercase;
-    font-size: 11.5px;
-    letter-spacing: 0.5px;
+    font-size: 11px;
+    letter-spacing: 0.4px;
 }
 
 .season-tab:hover, .dd-season-tab:hover {
     background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.18);
     color: #fff;
-    transform: translateY(-1px);
-}
-
-.dd-ep-card:hover .dd-ep-img img {
-    transform: scale(1.1);
-}
-
-.dd-ep-number {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
-    padding: 4px 10px;
-    font-size: 0.7rem;
-    font-weight: 800;
-    border-radius: 8px;
-    letter-spacing: 0.5px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-}
-
-.dd-ep-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-.dd-ep-name {
-    font-weight: 800;
-    font-size: 1rem;
-    margin-bottom: 6px;
-    color: #fff;
-    line-height: 1.3;
-}
-
-.dd-ep-date {
-    font-size: 0.78rem;
-    color: var(--text-dim);
-    font-weight: 500;
 }
 
 @keyframes dd-fade-in {
@@ -831,6 +821,91 @@
 }
 
 /* ═══════════════════════════════════════════
+   SEPARATED RATING BADGES (IMDb, TMDB, MAL)
+   ═══════════════════════════════════════════ */
+
+.dd-ratings-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.dd-rating-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: clamp(0.85rem, 0.2vw + 0.8rem, 0.98rem);
+    font-weight: 800;
+    line-height: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+    user-select: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.dd-rating-badge:hover {
+    transform: translateY(-1.5px);
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.dd-rating-badge .dd-rating-source {
+    background: transparent !important;
+    padding: 0 !important;
+    font-size: 0.82rem;
+    font-weight: 900;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    line-height: 1;
+}
+
+.dd-rating-badge .dd-rating-val {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 800;
+    color: #ffffff;
+    font-size: 0.88rem;
+}
+
+/* IMDb Styling */
+.dd-rating-badge.dd-rating-imdb {
+    border-color: rgba(245, 197, 24, 0.35);
+}
+.dd-rating-badge.dd-rating-imdb .dd-rating-source {
+    color: #f5c518;
+}
+
+/* TMDB Styling */
+.dd-rating-badge.dd-rating-tmdb {
+    border-color: rgba(1, 180, 228, 0.35);
+}
+.dd-rating-badge.dd-rating-tmdb .dd-rating-source {
+    color: #01b4e4;
+}
+
+/* MAL (MyAnimeList) Styling */
+.dd-rating-badge.dd-rating-mal {
+    border-color: rgba(79, 116, 200, 0.4);
+}
+.dd-rating-badge.dd-rating-mal .dd-rating-source {
+    color: #648ae8;
+}
+
+/* Kitsu Styling */
+.dd-rating-badge.dd-rating-kitsu {
+    border-color: rgba(253, 117, 92, 0.4);
+}
+.dd-rating-badge.dd-rating-kitsu .dd-rating-source {
+    color: #fd755c;
+}
+
+/* ═══════════════════════════════════════════
    PILLS
    ═══════════════════════════════════════════ */
 
@@ -944,6 +1019,24 @@
     color: #ffffff !important;
     transform: translateY(-1px);
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+}
+
+.dd-summary-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.dd-summary-actions .dd-read-more-btn {
+    margin-top: 0 !important;
+}
+
+.dd-yt-trailer-btn:hover i {
+    color: #ff0000 !important;
+    transform: scale(1.15);
+    transition: transform 0.2s ease, color 0.2s ease;
 }
 
 /* ═══════════════════════════════════════════
@@ -1258,9 +1351,10 @@
         flex-wrap: nowrap !important;
         justify-content: center;
         width: 100% !important;
-        gap: 12px !important;
-        margin-top: 10px;
-        padding-bottom: 20px;
+        gap: 14px !important;
+        margin-top: auto !important;
+        padding-top: 24px !important;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px) !important;
     }
 
     .dd-bottom-actions > * {
@@ -1287,7 +1381,7 @@
 .dd-streams-list-unified {
     display: none;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
     padding-top: 10px;
 }
 
@@ -1295,66 +1389,76 @@
     display: flex;
 }
 
-/* ── Streaming Links (Vibrant Premium) ── */
+/* ── Streaming Links (Flat Modern OLED Monochrome) ── */
 .dd-streams-list-unified .stream-card-v2 {
-    background: #050508 !important; /* Pure Black Theme */
+    background: #000000 !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 20px !important;
-    padding: 22px !important;
-    margin-bottom: 18px !important;
+    border-radius: 14px !important;
+    padding: 12px 16px !important;
+    margin-bottom: 12px !important;
     width: 100% !important;
     box-sizing: border-box;
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 15px;
-    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), fill 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), stroke 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    gap: 13px;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease !important;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
 }
 
 .dd-streams-list-unified .stream-card-v2:hover {
-    background: #0e0e14 !important;
+    background: #0a0a10 !important;
     border-color: rgba(255, 255, 255, 0.3) !important;
-    transform: scale(1.02) !important;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
 }
 
 .dd-streams-list-unified .stream-provider-name {
-    font-size: 0.8rem;
-    font-weight: 900;
+    font-size: 0.75rem;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 2px;
-    color: #E50914; /* Vibrant Red */
-    text-shadow: 0 0 15px rgba(229, 9, 20, 0.5);
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.6);
 }
 
 .dd-streams-list-unified .stream-file-name {
-    font-size: 1.05rem !important;
-    font-weight: 800;
+    font-size: 0.95rem !important;
+    font-weight: 700;
     color: #fff;
-    line-height: 1.4;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    line-height: 1.3;
 }
 
 .dd-streams-list-unified .q-badge { 
-    background: linear-gradient(135deg, #00d2ff, #3a7bd5); /* Electric Blue */
-    color: #fff;
-    box-shadow: 0 5px 15px rgba(0, 210, 255, 0.4);
-    padding: 5px 12px;
+    background: rgba(255, 255, 255, 0.14) !important;
+    color: #fff !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 9.5px;
+    font-weight: 800;
+    text-transform: uppercase;
 }
 
-.dd-streams-list-unified .badge-v2:contains('4K'),
-.dd-streams-list-unified .badge-v2:contains('2160p') {
-    background: linear-gradient(135deg, #f5c518, #d4a017) !important;
-    color: #000 !important;
-    box-shadow: 0 4px 10px rgba(245, 197, 24, 0.3);
+.dd-streams-list-unified .badge-v2 {
+    background: rgba(255, 255, 255, 0.14) !important;
+    color: #fff !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    padding: 1.5px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 800;
+    text-transform: uppercase;
 }
 
 .dd-streams-list-unified .s-badge { 
-    background: rgba(255,255,255,0.1); 
-    color: #ddd; 
+    background: rgba(255, 255, 255, 0.05); 
+    color: rgba(255, 255, 255, 0.6); 
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 1.5px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 700;
 }
 
 .dd-panel-back-to-ep {

@@ -169,7 +169,10 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
 
     const outputTemplate = path.join(path.dirname(outputPath), downloadId + '.%(ext)s');
     
-    // Optimized yt-dlp arguments with YouTube client fallback flags to prevent Code 1 errors
+    const resolvedFfmpeg = adapter.getFfmpegPath() || ffmpegPath;
+    const hasFfmpeg = resolvedFfmpeg && fs.existsSync(resolvedFfmpeg);
+
+    // Optimized yt-dlp arguments with VisionOS/Web client to guarantee Full HD 1080p without SABR 360p throttling
     const args = [
       '--no-playlist',
       '-o', outputTemplate,
@@ -178,13 +181,17 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
       '-N', '8',
       '--no-check-certificate',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      '--extractor-args', 'youtube:player_client=android,web'
+      '--extractor-args', 'youtube:player_client=visionos,web'
     ];
     
-    if (ffmpegPath && fs.existsSync(ffmpegPath)) {
-      args.push('--ffmpeg-location', ffmpegPath, '-f', 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best', '--merge-output-format', 'mp4');
+    if (hasFfmpeg) {
+      args.push(
+        '--ffmpeg-location', resolvedFfmpeg,
+        '-f', 'bestvideo[height<=?1080]+bestaudio/bestvideo+bestaudio/best',
+        '--merge-output-format', 'mp4'
+      );
     } else {
-      args.push('-f', 'best[height<=1080]/best');
+      args.push('-f', 'bestvideo[height<=?1080]+bestaudio/best');
     }
     
     args.push(url);
@@ -232,18 +239,28 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
       } else {
         console.warn(`[Downloader] Primary yt-dlp failed (Code ${code}), trying fallback mode. Stderr:`, stderrOutput);
         
-        // Fallback retry with simplified format flags & android client
+        // Fallback retry with visionos/tv client and FFmpeg support
         const fallbackArgs = [
           '--no-playlist',
           '-o', outputTemplate,
           '--no-warnings',
           '--newline',
+          '-N', '8',
           '--no-check-certificate',
           '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          '--extractor-args', 'youtube:player_client=android',
-          '-f', 'bestvideo+bestaudio/best',
-          url
+          '--extractor-args', 'youtube:player_client=visionos,tv,mweb'
         ];
+
+        if (hasFfmpeg) {
+          fallbackArgs.push(
+            '--ffmpeg-location', resolvedFfmpeg,
+            '-f', 'bestvideo+bestaudio/best',
+            '--merge-output-format', 'mp4'
+          );
+        } else {
+          fallbackArgs.push('-f', 'bestvideo+bestaudio/best');
+        }
+        fallbackArgs.push(url);
 
         try {
           const fallbackProc = adapter.spawnYtDlp(fallbackArgs);
