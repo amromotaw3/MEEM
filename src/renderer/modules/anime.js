@@ -3271,18 +3271,24 @@
         }
       }
 
+      // Check caches (tmdbCache, cinemetaCache) if imdb_id or tmdbId is missing on item
+      const itemKey = item.id || item.tmdbId || item.imdb_id;
+      const cachedTmdb = window.appData?.tmdbCache?.[itemKey] || (item.id ? window.appData?.tmdbCache?.[item.id] : null);
+      const cachedCinemeta = window.appData?.cinemetaCache?.[itemKey] || (item.id ? window.appData?.cinemetaCache?.[item.id] : null);
+
       let showMeta = currentShow ? (typeof getMetadataForItem === 'function' ? getMetadataForItem(currentShow) : null) : null;
       let itemMeta = typeof getMetadataForItem === 'function' ? getMetadataForItem(item) : null;
-      let resolvedImdb = item.imdb_id || item.imdbId || itemMeta?.cinemetaId || itemMeta?.imdbId || itemMeta?.imdb_id || showMeta?.cinemetaId || showMeta?.imdbId || showMeta?.imdb_id || window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId || null;
+      let resolvedImdb = item.imdb_id || item.imdbId || itemMeta?.cinemetaId || itemMeta?.imdbId || itemMeta?.imdb_id || showMeta?.cinemetaId || showMeta?.imdbId || showMeta?.imdb_id || window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId || window.currentUnifiedDetailItem?.imdb_id || window.currentUnifiedDetailItem?.imdbId || cachedTmdb?.external_ids?.imdb_id || cachedTmdb?.imdb_id || cachedCinemeta?.imdb_id || null;
 
       if (resolvedImdb && (typeof isLocalFilePath === 'function' ? isLocalFilePath(resolvedImdb) : (resolvedImdb.includes('/') || resolvedImdb.includes('\\')))) {
         resolvedImdb = null;
       }
 
       // Normalize tmdbId: strip "tmdb:" prefix so the main process gets a clean numeric ID
-      let normalizedTmdbId = item.tmdbId || item.tmdb_id || item.id || window.currentDetailItem?.tmdbId || window.currentDetailItem?.tmdb_id || window.currentDetailItem?.id;
-      if (normalizedTmdbId && String(normalizedTmdbId).startsWith('tmdb:')) {
-        normalizedTmdbId = String(normalizedTmdbId).replace('tmdb:', '');
+      let rawTmdbId = item.tmdbId || item.tmdb_id || (item.id && !String(item.id).startsWith('tt') && !String(item.id).startsWith('kitsu:') && !String(item.id).startsWith('mal:') ? item.id : null) || window.currentDetailItem?.tmdbId || window.currentDetailItem?.tmdb_id || window.currentUnifiedDetailItem?.tmdbId || window.currentUnifiedDetailItem?.tmdb_id || cachedTmdb?.id || null;
+      let normalizedTmdbId = rawTmdbId ? String(rawTmdbId).replace('tmdb:', '') : null;
+      if (normalizedTmdbId && (normalizedTmdbId.startsWith('tt') || normalizedTmdbId.startsWith('kitsu:') || normalizedTmdbId.startsWith('mal:'))) {
+        normalizedTmdbId = null;
       }
 
       let streams;
