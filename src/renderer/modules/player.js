@@ -1888,6 +1888,11 @@
             await loadSubtitleFromUrl(sub.url, `${sub.lang} (${sub.sourceLabel || sub.source})`);
           }
 
+          subtitlesEnabled = true;
+          $('#btn-subtitle')?.classList.remove('subtitle-off');
+          $('#btn-subtitle')?.classList.add('subtitle-on');
+          if ($('#psd-sub-status')) $('#psd-sub-status').textContent = 'On';
+
           if (currentMediaMetadata) renderTracksPanel(currentMediaMetadata);
           searchSubdlPlayerSubtitles(); // Re-render to show active state
         };
@@ -2197,6 +2202,10 @@
 
           try {
             await loadSubtitleFromUrl(sub.url, `${sub.lang.toUpperCase()} (SubDL)`);
+            subtitlesEnabled = true;
+            $('#btn-subtitle')?.classList.remove('subtitle-off');
+            $('#btn-subtitle')?.classList.add('subtitle-on');
+            if ($('#psd-sub-status')) $('#psd-sub-status').textContent = 'On';
             showToast('✅ Subtitle loaded successfully!');
             searchSubdlPlayerSubtitles(queryOverride);
           } catch (err) {
