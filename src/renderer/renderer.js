@@ -2166,7 +2166,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const isIptv = item.type === 'iptv' || !!(item.streamUrl && !item.path);
     const isLive = isRadio || isIptv;
     const isLocalVideo = (item.isLocal || (item.path && !item.path.startsWith('http') && !item.path.startsWith('tmdb:') && !item.path.startsWith('stremio:'))) && !isMovieOrShow && !isLive && !isMusic;
-    const isOnlineMedia = !isLocalVideo && !isLive && !isMusic;
 
     // Pin & Lock Labels
     const pl = $('#ctx-pin-label');
@@ -2179,44 +2178,44 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if ($('#ctx-play')) { $('#ctx-play').style.setProperty('display', 'flex', 'important'); showDiv1 = true; }
     if ($('#ctx-pin')) { $('#ctx-pin').style.setProperty('display', 'flex', 'important'); showDiv1 = true; }
 
-    // Group 2: Metadata / Customization
+    // Group 2: Metadata / Customization (ONLY FOR LOCAL FILES & MUSIC)
     let showDiv2 = false;
     if (isMusic) {
       // STRICTLY MUSIC ONLY!
       if ($('#ctx-edit-music')) { $('#ctx-edit-music').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
       if ($('#ctx-delete-music')) { $('#ctx-delete-music').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
-    } else {
-      // MOVIES & SERIES & VIDEOS (NEVER MUSIC!)
-      if ($('#ctx-tmdb-search') && (isLocalVideo || (isOnlineMedia && !isLive))) { $('#ctx-tmdb-search').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
-      if ($('#ctx-cover') && isLocalVideo) { $('#ctx-cover').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
-      if ($('#ctx-rename') && isLocalVideo) { $('#ctx-rename').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
-      if ($('#ctx-rename-tmdb') && isLocalVideo && (item.tmdbId || item.id || item._tmdbName)) { $('#ctx-rename-tmdb').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
-      if ($('#ctx-regen-thumb') && isLocalVideo) { $('#ctx-regen-thumb').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+    } else if (isLocalVideo) {
+      // LOCAL FILES ONLY (NOT ONLINE MOVIES/SHOWS)
+      if ($('#ctx-tmdb-search')) { $('#ctx-tmdb-search').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-cover')) { $('#ctx-cover').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-rename')) { $('#ctx-rename').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-rename-tmdb') && (item.tmdbId || item.id || item._tmdbName)) { $('#ctx-rename-tmdb').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
+      if ($('#ctx-regen-thumb')) { $('#ctx-regen-thumb').style.setProperty('display', 'flex', 'important'); showDiv2 = true; }
     }
 
     // Group 3: Progress & Removal
     let showDiv3 = false;
     const watchedBtn = $('#ctx-watched');
-    if (watchedBtn && (isLocalVideo || isOnlineMedia || isShow) && !isLive && !isMusic) {
-      watchedBtn.style.display = 'flex';
+    if (watchedBtn && !isLive && !isMusic) {
+      watchedBtn.style.setProperty('display', 'flex', 'important');
       showDiv3 = true;
       const wl = $('#ctx-watched-label');
       if (wl) {
-        const pbKey = getPlaybackKey(item);
-        const isW = currentProfile?.playback?.[pbKey]?.watched || (currentProfile?.playback?.[pbKey]?.duration > 0 && (currentProfile.playback[pbKey].time / currentProfile.playback[pbKey].duration) > .9);
+        const isW = isItemWatched(item, currentProfile);
         wl.textContent = isW ? 'Remove from Watched' : 'Mark as Watched';
       }
     }
 
-    const canDelete = isLocalVideo || ['watchlist', 'custom-list-detail'].includes(currentView);
+    const inWl = (currentProfile?.watchlist || []).some(w => isSameItem(w, item));
+    const canDelete = isLocalVideo || ['watchlist', 'custom-list-detail'].includes(currentView) || inWl;
     if ($('#ctx-delete') && canDelete && !isMusic) {
-      $('#ctx-delete').style.display = 'flex';
+      $('#ctx-delete').style.setProperty('display', 'flex', 'important');
       showDiv3 = true;
       const deleteLabel = $('#ctx-delete-label');
       if (deleteLabel) {
         if (currentView === 'custom-list-detail') {
           deleteLabel.textContent = 'Remove from Collection';
-        } else if (currentView === 'watchlist') {
+        } else if (currentView === 'watchlist' || inWl) {
           deleteLabel.textContent = 'Remove from Watchlist';
         } else {
           deleteLabel.textContent = 'Delete File';
@@ -2225,12 +2224,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
 
     // Group 4: Security
-    if ($('#ctx-lock')) $('#ctx-lock').style.display = 'flex';
+    let showDiv4 = false;
+    if ($('#ctx-lock')) { $('#ctx-lock').style.setProperty('display', 'flex', 'important'); showDiv4 = true; }
 
-    // Set Dividers
-    if ($('#ctx-div-1')) $('#ctx-div-1').style.display = (showDiv1 && showDiv2) ? 'block' : 'none';
+    // Set Dividers cleanly
+    if ($('#ctx-div-1')) $('#ctx-div-1').style.display = (showDiv1 && (showDiv2 || showDiv3)) ? 'block' : 'none';
     if ($('#ctx-div-2')) $('#ctx-div-2').style.display = (showDiv2 && showDiv3) ? 'block' : 'none';
-    if ($('#ctx-div-3')) $('#ctx-div-3').style.display = 'block';
+    if ($('#ctx-div-3')) $('#ctx-div-3').style.display = (showDiv3 && showDiv4) ? 'block' : 'none';
 
     if (e) window.positionContextMenu(e);
   };
@@ -16321,6 +16321,61 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   });
 
+  function isItemWatched(item, profile = currentProfile) {
+    if (!item) return false;
+    const prof = profile || window.currentProfile;
+    if (!prof) return false;
+
+    if (item.watched === true || item.status === 'completed' || item.completed === true) return true;
+
+    // Check profile.watched array
+    if (Array.isArray(prof.watched)) {
+      const foundInWatched = prof.watched.some(w => {
+        if (!w) return false;
+        if (typeof w === 'string' || typeof w === 'number') {
+          return String(w) === String(item.id) || String(w) === String(item.tmdbId) || String(w) === String(item.imdb_id);
+        }
+        return isSameItem(w, item);
+      });
+      if (foundInWatched) return true;
+    }
+
+    // Check playback record
+    const pb = prof.playback;
+    if (pb && typeof pb === 'object') {
+      const primaryKey = typeof getPlaybackKey === 'function' ? getPlaybackKey(item) : (item.id || item.path);
+      const candidateKeys = [
+        primaryKey,
+        item.id,
+        item.tmdbId,
+        item.tmdb_id,
+        item.imdb_id,
+        item.imdbId,
+        item.path
+      ].filter(Boolean);
+
+      for (const k of candidateKeys) {
+        const entry = pb[k];
+        if (entry?.watched || (entry?.duration > 0 && (entry.time / entry.duration) > 0.85)) {
+          return true;
+        }
+      }
+
+      // Check episode keys for series/anime
+      const rawId = String(item.id || item.tmdbId || item.imdb_id || '');
+      if (rawId) {
+        const episodeKeys = Object.keys(pb).filter(k => k === rawId || k.startsWith(rawId + '_') || k.startsWith(rawId + 'S') || k.startsWith(rawId + 'E'));
+        if (episodeKeys.length > 0) {
+          const anyEpisodeWatched = episodeKeys.some(k => pb[k]?.watched || (pb[k]?.duration > 0 && (pb[k].time / pb[k].duration) > 0.85));
+          if (anyEpisodeWatched) return true;
+        }
+      }
+    }
+
+    return false;
+  }
+  window.isItemWatched = isItemWatched;
+
   // ── Watchlist ──
   function renderWatchlist() {
     if (typeof renderLibCustomLists === 'function') renderLibCustomLists();
@@ -16345,7 +16400,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       );
     }
 
-    // Split into live, pending, and watched
+    // Split into live, pending (Watching), and watched
     const liveItems = [];
     const pending = [];
     const watched = [];
@@ -16354,10 +16409,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const isLive = item.type === 'radio' || item.type === 'iptv' || item.media_type === 'radio' || item.media_type === 'iptv' || !!item.radioUrl || !!item.streamUrl;
       if (isLive) {
         liveItems.push(item);
+      } else if (isItemWatched(item, currentProfile)) {
+        watched.push(item);
       } else {
-        const pb = currentProfile.playback?.[getPlaybackKey(item)];
-        if (pb?.watched) watched.push(item);
-        else pending.push(item);
+        pending.push(item);
       }
     });
 
@@ -19453,25 +19508,56 @@ function performUnifiedSearch(q) {
   };
 
   window.toggleUnifiedWatched = (item) => {
-    if (!currentProfile) return;
-    const key = window.getPlaybackKey ? window.getPlaybackKey(item) : (item.id || item.path);
+    if (!currentProfile || !item) return;
     if (!currentProfile.playback) currentProfile.playback = {};
-    if (!currentProfile.playback[key]) {
-      currentProfile.playback[key] = { time: 0, duration: 1, watched: true };
-    } else {
-      const pb = currentProfile.playback[key];
-      const isW = pb.watched || (pb.duration > 0 && (pb.time / pb.duration) > .9);
-      if (isW) {
-        pb.watched = false;
-        pb.time = 0;
-      } else {
-        pb.watched = true;
-      }
+
+    const currentlyWatched = typeof isItemWatched === 'function' ? isItemWatched(item, currentProfile) : false;
+    const targetState = !currentlyWatched;
+
+    const primaryKey = window.getPlaybackKey ? window.getPlaybackKey(item) : (item.id || item.path);
+    const keysToUpdate = [
+      primaryKey,
+      item.id,
+      item.tmdbId,
+      item.tmdb_id,
+      item.imdb_id,
+      item.imdbId,
+      item.path
+    ].filter(Boolean);
+
+    const rawId = String(item.id || item.tmdbId || item.imdb_id || '');
+    if (rawId) {
+      Object.keys(currentProfile.playback).forEach(k => {
+        if (k === rawId || k.startsWith(rawId + '_') || k.startsWith(rawId + 'S') || k.startsWith(rawId + 'E')) {
+          if (!keysToUpdate.includes(k)) keysToUpdate.push(k);
+        }
+      });
     }
 
-    // Automatically add to watchlist if it's marked as watched and not already in library
-    if (currentProfile.playback[key].watched) {
-      const inWatchlist = currentProfile.watchlist.some(i => isSameItem(i, item));
+    keysToUpdate.forEach(k => {
+      if (!currentProfile.playback[k]) {
+        currentProfile.playback[k] = { time: 0, duration: 1, watched: targetState };
+      } else {
+        currentProfile.playback[k].watched = targetState;
+        if (!targetState) currentProfile.playback[k].time = 0;
+      }
+    });
+
+    item.watched = targetState;
+    if (targetState) item.status = 'completed';
+    else delete item.status;
+
+    if (!Array.isArray(currentProfile.watched)) currentProfile.watched = [];
+    if (targetState) {
+      const existsInWatched = currentProfile.watched.some(w => isSameItem(w, item));
+      if (!existsInWatched) currentProfile.watched.unshift(item);
+    } else {
+      currentProfile.watched = currentProfile.watched.filter(w => !isSameItem(w, item));
+    }
+
+    // Automatically add to watchlist if it's marked as watched and not already in watchlist
+    if (targetState) {
+      const inWatchlist = (currentProfile.watchlist || []).some(i => isSameItem(i, item));
       if (!inWatchlist) {
         currentProfile.watchlist.unshift(item);
       }
@@ -19482,7 +19568,7 @@ function performUnifiedSearch(q) {
       window.updateUnifiedWatchlistUI();
     }
     if (currentView === 'watchlist') renderWatchlist();
-    showToast(currentProfile.playback[key].watched ? 'Marked as Watched' : 'Marked as Unwatched');
+    showToast(targetState ? 'Marked as Watched' : 'Marked as Unwatched');
   };
 
   // Provide a safe isInLibrary helper. `window.api` can be non-extensible
