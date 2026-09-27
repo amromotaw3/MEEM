@@ -400,7 +400,7 @@ getMusicMeta = function(item) {
   return {
     title: override.title || item.title || item.name || item.filename?.replace(/\.[^/.]+$/, '') || 'Unknown Title',
     artist: override.artist || item.artist || 'Unknown Artist',
-    cover: custom || override.cover || item.cover || item.thumbnail || item.poster || item.image || null
+    cover: custom || override.cover || item.cover || item.thumbnail || item.poster || item.image || item.picture || (/^[a-zA-Z0-9_-]{11}$/.test(String(item.id || item.videoId || '').replace(/^(yt:|youtube:)/, '')) ? `https://i.ytimg.com/vi/${String(item.id || item.videoId || '').replace(/^(yt:|youtube:)/, '')}/hqdefault.jpg` : null)
   };
 }
 

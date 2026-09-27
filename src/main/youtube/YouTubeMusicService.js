@@ -316,6 +316,7 @@ class YouTubeMusicService {
 
   async getAudioStreamUrl(videoId) {
     if (!videoId) return { success: false, error: 'Video ID is required' };
+    videoId = String(videoId).replace(/^(yt:|youtube:)/, '').trim();
 
     const cached = this.cache.get(videoId);
     if (cached && (Date.now() - cached.timestamp < 3 * 3600 * 1000)) {

@@ -8735,7 +8735,33 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 cl.items.splice(idx, 1);
                 showToast(`Removed from "${cl.name}"`);
               } else {
-                cl.items.push(item);
+                if (cl.type === 'music') {
+                  const rawId = String(item.id || item.videoId || '').replace(/^(yt:|youtube:)/, '');
+                  const ytThumb = /^[a-zA-Z0-9_-]{11}$/.test(rawId) ? `https://i.ytimg.com/vi/${rawId}/hqdefault.jpg` : '';
+                  const thumb = item.thumbnail || item.cover || item.poster || item.image || item.picture || (typeof getMusicMeta === 'function' ? getMusicMeta(item).cover : '') || ytThumb || '';
+                  const dur = Number(item.duration || (item.duration_ms ? item.duration_ms / 1000 : 0));
+                  const durFmt = item.durationFormatted && item.durationFormatted !== '0:00' ? item.durationFormatted : (dur > 0 && typeof formatTime === 'function' ? formatTime(dur) : '0:00');
+                  cl.items.push({
+                    id: item.id,
+                    type: 'music',
+                    title: item.title || item.name || 'Track',
+                    artist: item.artist || 'Artist',
+                    album: item.album || 'Single',
+                    thumbnail: thumb,
+                    cover: thumb,
+                    poster: thumb,
+                    duration: dur,
+                    durationFormatted: durFmt,
+                    added_at: new Date().toISOString(),
+                    added_by: {
+                      id: currentProfile.id,
+                      name: currentProfile.name,
+                      avatar: currentProfile.avatar
+                    }
+                  });
+                } else {
+                  cl.items.push(item);
+                }
                 showToast(`Added to "${cl.name}"`);
               }
               persist(true);
@@ -9930,13 +9956,62 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
 
       empty.style.display = 'none';
-      const firstTrackThumb = items[0]?.thumbnail || '';
+
+      const getTrackThumb = (t) => {
+        if (!t) return 'imgs/appicon.png';
+        let img = t.thumbnail || t.cover || t.poster || t.image || t.picture || '';
+        if (!img && typeof getMusicMeta === 'function') {
+          const m = getMusicMeta(t);
+          if (m && m.cover) img = m.cover;
+        }
+        const rawId = String(t.id || t.videoId || '').replace(/^(yt:|youtube:)/, '');
+        if (!img && /^[a-zA-Z0-9_-]{11}$/.test(rawId)) {
+          img = `https://i.ytimg.com/vi/${rawId}/hqdefault.jpg`;
+        }
+        if (!img && (window.appData?.banners || window.appData?.thumbnails)) {
+          img = (window.appData.banners && (window.appData.banners[t.id] || window.appData.banners[t.path])) ||
+                (window.appData.thumbnails && (window.appData.thumbnails[t.id] || window.appData.thumbnails[t.path])) || '';
+        }
+        if (!img && window.appData?.music) {
+          const found = window.appData.music.find(m => (m.id && m.id === t.id) || (m.path && (m.path === t.path || m.path === t.id)) || (m.title && m.title === t.title));
+          if (found) {
+            img = found.thumbnail || found.cover || found.poster || found.image || '';
+          }
+        }
+        if (!img) return 'imgs/appicon.png';
+        if (typeof toMediaPlayUrl === 'function') return toMediaPlayUrl(img) || img;
+        if (typeof localImg === 'function') return localImg(img) || img;
+        return img;
+      };
+
+      const getTrackDuration = (t) => {
+        if (!t) return '0:00';
+        if (t.durationFormatted && t.durationFormatted !== '0:00') return t.durationFormatted;
+        let dur = Number(t.duration || (t.duration_ms ? t.duration_ms / 1000 : 0));
+        if (!dur && t.metadata?.duration) dur = Number(t.metadata.duration);
+        if (!dur && window.appData?.music) {
+          const found = window.appData.music.find(m => (m.id && m.id === t.id) || (m.path && (m.path === t.path || m.path === t.id)) || (m.title && m.title === t.title));
+          if (found) {
+            if (found.durationFormatted && found.durationFormatted !== '0:00') return found.durationFormatted;
+            if (found.duration) dur = Number(found.duration);
+          }
+        }
+        if (dur > 0 && typeof formatTime === 'function') {
+          return formatTime(dur);
+        }
+        return t.durationFormatted || '0:00';
+      };
+
+      const firstTrackThumb = items.length > 0 ? getTrackThumb(items[0]) : '';
+      const currentTrackId = window.MeemAudioPlayer?.currentTrack?.id ? String(window.MeemAudioPlayer.currentTrack.id) : null;
+      const isPlayerActive = !!(window.MeemAudioPlayer && window.MeemAudioPlayer.isPlaying);
+      const isPlaylistActive = currentTrackId && items.some(t => String(t.id) === currentTrackId);
 
       const tableHtml = `
         <div class="spotify-playlist-container">
           <div class="spotify-playlist-header">
             <div class="spotify-pl-cover-wrap">
-              ${firstTrackThumb ? `<img src="${firstTrackThumb}" class="spotify-pl-cover-img" onerror="this.src='imgs/appicon.png'">` : `<div class="spotify-pl-cover-placeholder"><i class="fas fa-music"></i></div>`}
+              ${firstTrackThumb && firstTrackThumb !== 'imgs/appicon.png' ? `<img src="${firstTrackThumb}" class="spotify-pl-cover-img" onerror="this.src='imgs/appicon.png'">` : `<div class="spotify-pl-cover-placeholder"><i class="fas fa-music"></i></div>`}
             </div>
             <div class="spotify-pl-meta">
               <span class="spotify-pl-type-badge">PLAYLIST</span>
@@ -9950,8 +10025,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           </div>
 
           <div class="spotify-pl-action-bar">
-            <button id="btn-play-all-playlist" class="spotify-pl-play-all-btn" title="Play Playlist">
-              <i class="fas fa-play"></i>
+            <button id="btn-play-all-playlist" class="spotify-pl-play-all-btn" title="${isPlaylistActive && isPlayerActive ? 'Pause Playlist' : 'Play Playlist'}">
+              <i class="fas ${isPlaylistActive && isPlayerActive ? 'fa-pause' : 'fa-play'}"></i>
             </button>
           </div>
 
@@ -9969,17 +10044,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 </tr>
               </thead>
               <tbody>
-                ${items.map((item, idx) => `
-                  <tr class="spotify-track-row" data-track-id="${item.id}" data-index="${idx}">
+                ${items.map((item, idx) => {
+                  const isCur = currentTrackId && String(item.id) === currentTrackId;
+                  const thumb = getTrackThumb(item);
+                  const durText = getTrackDuration(item);
+                  return `
+                  <tr class="spotify-track-row ${isCur ? 'active-track-row' : ''}" data-track-id="${item.id}" data-index="${idx}" style="${isCur ? 'background: rgba(99, 102, 241, 0.14);' : ''}">
                     <td class="col-num" style="text-align: center;">
-                      <span class="track-index-num">${idx + 1}</span>
-                      <button class="track-row-play-btn" title="Play"><i class="fas fa-play"></i></button>
+                      <span class="track-index-num" style="${isCur ? 'display:none;' : ''}">${idx + 1}</span>
+                      <span class="track-playing-icon" style="${isCur ? 'display:inline-flex;' : 'display:none;'} align-items:center; justify-content:center; color:var(--accent, #6366f1);"><i class="fas ${isPlayerActive ? 'fa-volume-high' : 'fa-pause'}"></i></span>
+                      <button class="track-row-play-btn" title="Play"><i class="fas ${isCur && isPlayerActive ? 'fa-pause' : 'fa-play'}"></i></button>
                     </td>
                     <td class="col-title">
                       <div class="track-title-cell">
-                        <img src="${item.thumbnail || 'imgs/appicon.png'}" class="track-cell-thumb" onerror="this.src='imgs/appicon.png'">
+                        <img src="${thumb}" class="track-cell-thumb" onerror="this.src='imgs/appicon.png'">
                         <div class="track-cell-meta">
-                          <div class="track-cell-title" title="${escapeHTML(item.title)}">${escapeHTML(item.title)}</div>
+                          <div class="track-cell-title" style="${isCur ? 'color: var(--accent, #6366f1); font-weight: 700;' : ''}" title="${escapeHTML(item.title)}">${escapeHTML(item.title)}</div>
                           <div class="track-cell-artist" title="${escapeHTML(item.artist || 'Artist')}">${escapeHTML(item.artist || 'Artist')}</div>
                         </div>
                       </div>
@@ -9992,7 +10072,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                       </div>
                     </td>
                     <td class="col-date">${formatRelativeDate(item.added_at)}</td>
-                    <td class="col-dur" style="text-align: right;">${item.durationFormatted || '0:00'}</td>
+                    <td class="col-dur" style="text-align: right;">${durText}</td>
                     <td class="col-actions" style="text-align: center;">
                       <div style="display: inline-flex; align-items: center; gap: 4px;">
                         <button class="track-queue-btn" title="Add to Queue" data-track-id="${item.id}"><i class="fas fa-list-ul"></i></button>
@@ -10000,7 +10080,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                       </div>
                     </td>
                   </tr>
-                `).join('')}
+                `;}).join('')}
               </tbody>
             </table>
           </div>
@@ -10012,7 +10092,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       // Bind Play All
       document.getElementById('btn-play-all-playlist')?.addEventListener('click', () => {
         if (items.length > 0 && window.MeemAudioPlayer) {
-          window.MeemAudioPlayer.playTrack(items[0], items);
+          const isThisPlaylistCurrent = window.MeemAudioPlayer.currentTrack && items.some(t => String(t.id) === String(window.MeemAudioPlayer.currentTrack.id));
+          if (isThisPlaylistCurrent) {
+            window.MeemAudioPlayer.togglePlay();
+          } else {
+            window.MeemAudioPlayer.playTrack(items[0], items);
+          }
         }
       });
 
@@ -10023,9 +10108,115 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const idx = parseInt(row.dataset.index, 10);
           const track = items[idx];
           if (track && window.MeemAudioPlayer) {
-            window.MeemAudioPlayer.playTrack(track, items);
+            if (window.MeemAudioPlayer.currentTrack && String(window.MeemAudioPlayer.currentTrack.id) === String(track.id)) {
+              window.MeemAudioPlayer.togglePlay();
+            } else {
+              window.MeemAudioPlayer.playTrack(track, items);
+            }
           }
         });
+      });
+
+      // Reactive update when music player track or play state changes
+      const updatePlaylistActiveState = () => {
+        const curId = window.MeemAudioPlayer?.currentTrack?.id ? String(window.MeemAudioPlayer.currentTrack.id) : null;
+        const isPlaying = !!(window.MeemAudioPlayer && window.MeemAudioPlayer.isPlaying);
+        const playAllBtn = document.getElementById('btn-play-all-playlist');
+        if (playAllBtn) {
+          const isThisPlaylistPlaying = curId && items.some(t => String(t.id) === curId);
+          playAllBtn.innerHTML = `<i class="fas ${isThisPlaylistPlaying && isPlaying ? 'fa-pause' : 'fa-play'}"></i>`;
+          playAllBtn.title = isThisPlaylistPlaying && isPlaying ? 'Pause Playlist' : 'Play Playlist';
+        }
+        grid.querySelectorAll('.spotify-track-row').forEach(r => {
+          const tId = r.dataset.trackId;
+          const isCur = curId && String(tId) === curId;
+          r.classList.toggle('active-track-row', !!isCur);
+          r.style.background = isCur ? 'rgba(99, 102, 241, 0.14)' : '';
+          const idxNum = r.querySelector('.track-index-num');
+          const playIcon = r.querySelector('.track-playing-icon');
+          const rowBtnIcon = r.querySelector('.track-row-play-btn i');
+          const titleEl = r.querySelector('.track-cell-title');
+          if (idxNum) idxNum.style.display = isCur ? 'none' : '';
+          if (playIcon) {
+            playIcon.style.display = isCur ? 'inline-flex' : 'none';
+            playIcon.innerHTML = `<i class="fas ${isPlaying ? 'fa-volume-high' : 'fa-pause'}"></i>`;
+          }
+          if (rowBtnIcon) {
+            rowBtnIcon.className = `fas ${isCur && isPlaying ? 'fa-pause' : 'fa-play'}`;
+          }
+          if (titleEl) {
+            titleEl.style.color = isCur ? 'var(--accent, #6366f1)' : '';
+            titleEl.style.fontWeight = isCur ? '700' : '';
+          }
+        });
+      };
+      window.addEventListener('meem:music-track-changed', updatePlaylistActiveState);
+
+      // Auto-heal missing metadata in background
+      items.forEach((item, idx) => {
+        const rawId = String(item.id || item.videoId || '').replace(/^(yt:|youtube:)/, '');
+        const isYt = /^[a-zA-Z0-9_-]{11}$/.test(rawId) || !!item.videoId;
+        const missingDur = !item.duration || item.duration === 0 || !item.durationFormatted || item.durationFormatted === '0:00';
+        const missingThumb = !item.thumbnail || !item.thumbnail.trim();
+
+        if (isYt && (missingDur || missingThumb)) {
+          if (window.api && window.api.invoke) {
+            window.api.invoke('youtube-get-video-info', rawId).then(info => {
+              if (info && (info.details || info.success)) {
+                const details = info.details || info;
+                let changed = false;
+                if (details.duration && missingDur) {
+                  item.duration = details.duration;
+                  item.durationFormatted = formatTime(details.duration);
+                  changed = true;
+                }
+                if (details.thumbnail && missingThumb) {
+                  item.thumbnail = details.thumbnail;
+                  changed = true;
+                }
+                if (details.author && (!item.artist || !item.artist.trim())) {
+                  item.artist = details.author;
+                  changed = true;
+                }
+                if (changed) {
+                  const row = grid.querySelector(`.spotify-track-row[data-track-id="${item.id}"]`);
+                  if (row) {
+                    const durEl = row.querySelector('.col-dur');
+                    if (durEl && item.durationFormatted) durEl.textContent = item.durationFormatted;
+                    const thumbEl = row.querySelector('.track-cell-thumb');
+                    if (thumbEl && (item.thumbnail || details.thumbnail)) thumbEl.src = item.thumbnail || details.thumbnail;
+                    const artistEl = row.querySelector('.track-cell-artist');
+                    if (artistEl && item.artist) {
+                      artistEl.textContent = item.artist;
+                      artistEl.title = item.artist;
+                    }
+                  }
+                  if (idx === 0) {
+                    const coverImg = grid.querySelector('.spotify-pl-cover-img');
+                    if (coverImg && (item.thumbnail || details.thumbnail)) coverImg.src = item.thumbnail || details.thumbnail;
+                  }
+                  if (typeof persist === 'function') persist(true);
+                }
+              }
+            }).catch(() => {});
+          }
+        } else if ((item.path || (item.id && (item.id.includes('/') || item.id.includes('\\')))) && missingDur) {
+          const filePath = item.path || item.id;
+          const probeAudio = new Audio();
+          probeAudio.src = filePath.startsWith('http') ? filePath : ('local-file:///' + filePath.replace(/\\/g, '/'));
+          probeAudio.addEventListener('loadedmetadata', () => {
+            if (probeAudio.duration && isFinite(probeAudio.duration)) {
+              item.duration = probeAudio.duration;
+              item.durationFormatted = formatTime(probeAudio.duration);
+              const row = grid.querySelector(`.spotify-track-row[data-track-id="${item.id}"]`);
+              if (row) {
+                const durEl = row.querySelector('.col-dur');
+                if (durEl) durEl.textContent = item.durationFormatted;
+              }
+              if (typeof persist === 'function') persist(true);
+            }
+          }, { once: true });
+        }
       });
 
       // Bind Add to Queue
@@ -10116,14 +10307,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     if (itemToAdd) {
       if (type === 'music') {
+        const rawId = String(itemToAdd.id || itemToAdd.videoId || '').replace(/^(yt:|youtube:)/, '');
+        const ytThumb = /^[a-zA-Z0-9_-]{11}$/.test(rawId) ? `https://i.ytimg.com/vi/${rawId}/hqdefault.jpg` : '';
+        const thumb = itemToAdd.thumbnail || itemToAdd.cover || itemToAdd.poster || itemToAdd.image || itemToAdd.picture || (typeof getMusicMeta === 'function' ? getMusicMeta(itemToAdd).cover : '') || ytThumb || '';
+        const dur = Number(itemToAdd.duration || (itemToAdd.duration_ms ? itemToAdd.duration_ms / 1000 : 0));
+        const durFmt = itemToAdd.durationFormatted && itemToAdd.durationFormatted !== '0:00' ? itemToAdd.durationFormatted : (dur > 0 && typeof formatTime === 'function' ? formatTime(dur) : '0:00');
         newList.items.push({
           id: itemToAdd.id,
+          type: 'music',
           title: itemToAdd.title || 'Track',
           artist: itemToAdd.artist || 'Artist',
           album: itemToAdd.album || 'Single',
-          thumbnail: itemToAdd.thumbnail || '',
-          duration: itemToAdd.duration || 0,
-          durationFormatted: itemToAdd.durationFormatted || '0:00',
+          thumbnail: thumb,
+          cover: thumb,
+          poster: thumb,
+          duration: dur,
+          durationFormatted: durFmt,
           added_at: new Date().toISOString(),
           added_by: {
             id: currentProfile.id,
@@ -10509,20 +10708,25 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         theme_color: row.theme_color || '#6366f1',
         items: (row.list_items || row.items || []).map(item => {
           const itemData = item.item_data || {};
-          const isMusic = (item.type === 'music') || (row.type === 'music') || !!itemData.artist || (item.source === 'music');
+          const isMusic = (item.type === 'music') || (row.type === 'music') || !!itemData.artist || (item.source === 'music') || !!item.artist;
           if (isMusic) {
+            const rawId = String(item.media_id || item.id || '').replace(/^(yt:|youtube:)/, '');
+            const ytThumb = /^[a-zA-Z0-9_-]{11}$/.test(rawId) ? `https://i.ytimg.com/vi/${rawId}/hqdefault.jpg` : '';
+            const thumb = item.thumbnail || item.cover || item.poster || item.poster_path || itemData.thumbnail || item.backdrop_path || ytThumb || '';
+            const dur = Number(item.duration || itemData.duration || 0);
             return {
               id: item.media_id || item.id,
               type: 'music',
               title: item.title || itemData.title || '',
-              artist: itemData.artist || item.overview || '',
-              album: itemData.album || '',
-              thumbnail: item.poster_path || itemData.thumbnail || item.backdrop_path || '',
-              poster: item.poster_path || itemData.thumbnail || '',
-              duration: itemData.duration || 0,
-              durationFormatted: itemData.durationFormatted || item.release_date || '0:00',
+              artist: item.artist || itemData.artist || item.overview || '',
+              album: item.album || itemData.album || '',
+              thumbnail: thumb,
+              cover: thumb,
+              poster: item.poster || thumb,
+              duration: dur,
+              durationFormatted: item.durationFormatted || itemData.durationFormatted || (dur > 0 && typeof formatTime === 'function' ? formatTime(dur) : '') || item.release_date || '0:00',
               added_at: item.added_at || itemData.added_at || new Date().toISOString(),
-              added_by: itemData.added_by || null
+              added_by: item.added_by || itemData.added_by || null
             };
           }
           return {

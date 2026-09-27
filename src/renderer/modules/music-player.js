@@ -33,7 +33,15 @@
 
   function resolveTrackThumbnail(track) {
     if (!track) return DEFAULT_MUSIC_COVER;
-    let raw = track.thumbnail || track.cover || track.poster || track.image || track.albumArt || '';
+    let raw = track.thumbnail || track.cover || track.poster || track.image || track.picture || track.albumArt || '';
+    if (!raw && track.id) {
+      const rawId = String(track.id).replace(/^(yt:|youtube:)/, '');
+      if (/^[a-zA-Z0-9_-]{11}$/.test(rawId)) raw = `https://i.ytimg.com/vi/${rawId}/hqdefault.jpg`;
+    }
+    if (!raw && track.videoId) {
+      const rawVid = String(track.videoId).replace(/^(yt:|youtube:)/, '');
+      if (/^[a-zA-Z0-9_-]{11}$/.test(rawVid)) raw = `https://i.ytimg.com/vi/${rawVid}/hqdefault.jpg`;
+    }
     if (!raw || typeof raw !== 'string' || !raw.trim()) {
       return DEFAULT_MUSIC_COVER;
     }
@@ -573,7 +581,8 @@
           // 2. Extract real audio stream URL from backend
           let streamUrl = null;
           if (window.api && window.api.getMusicStreamUrl) {
-            const streamRes = await window.api.getMusicStreamUrl(track.id);
+            const cleanVidId = String(track.videoId || track.id || '').replace(/^(yt:|youtube:)/, '');
+            const streamRes = await window.api.getMusicStreamUrl(cleanVidId);
             if (streamRes && streamRes.success && streamRes.streamUrl) {
               streamUrl = streamRes.streamUrl;
             }
@@ -1112,14 +1121,22 @@
               targetList.items = targetList.items.filter(t => t.id !== track.id);
               if (window.showToast) window.showToast(`Removed "${track.title}" from ${targetList.name}`);
             } else {
+              const rawId = String(track.id || track.videoId || '').replace(/^(yt:|youtube:)/, '');
+              const ytThumb = /^[a-zA-Z0-9_-]{11}$/.test(rawId) ? `https://i.ytimg.com/vi/${rawId}/hqdefault.jpg` : '';
+              const thumb = track.thumbnail || track.cover || track.poster || track.image || track.picture || ytThumb || '';
+              const dur = Number(track.duration || (track.duration_ms ? track.duration_ms / 1000 : 0));
+              const durFmt = track.durationFormatted && track.durationFormatted !== '0:00' ? track.durationFormatted : (dur > 0 && typeof formatTime === 'function' ? formatTime(dur) : '0:00');
               targetList.items.push({
                 id: track.id,
-                title: track.title,
-                artist: track.artist,
+                type: 'music',
+                title: track.title || 'Track',
+                artist: track.artist || 'Artist',
                 album: track.album || 'Single',
-                thumbnail: track.thumbnail,
-                duration: track.duration,
-                durationFormatted: track.durationFormatted,
+                thumbnail: thumb,
+                cover: thumb,
+                poster: thumb,
+                duration: dur,
+                durationFormatted: durFmt,
                 added_at: new Date().toISOString(),
                 added_by: {
                   id: currentProfile.id,
@@ -1144,6 +1161,11 @@
           if (typeof window.createNewCustomList === 'function') {
             window.createNewCustomList(name, track, 'music');
           } else {
+            const rawId = String(track.id || track.videoId || '').replace(/^(yt:|youtube:)/, '');
+            const ytThumb = /^[a-zA-Z0-9_-]{11}$/.test(rawId) ? `https://i.ytimg.com/vi/${rawId}/hqdefault.jpg` : '';
+            const thumb = track.thumbnail || track.cover || track.poster || track.image || track.picture || ytThumb || '';
+            const dur = Number(track.duration || (track.duration_ms ? track.duration_ms / 1000 : 0));
+            const durFmt = track.durationFormatted && track.durationFormatted !== '0:00' ? track.durationFormatted : (dur > 0 && typeof formatTime === 'function' ? formatTime(dur) : '0:00');
             const nList = {
               id: 'list_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
               name,
@@ -1151,12 +1173,15 @@
               profile_id: currentProfile.id,
               items: [{
                 id: track.id,
-                title: track.title,
-                artist: track.artist,
+                type: 'music',
+                title: track.title || 'Track',
+                artist: track.artist || 'Artist',
                 album: track.album || 'Single',
-                thumbnail: track.thumbnail,
-                duration: track.duration,
-                durationFormatted: track.durationFormatted,
+                thumbnail: thumb,
+                cover: thumb,
+                poster: thumb,
+                duration: dur,
+                durationFormatted: durFmt,
                 added_at: new Date().toISOString(),
                 added_by: {
                   id: currentProfile.id,
@@ -1298,6 +1323,11 @@
       this.updateLikeUI();
       this.updateDownloadUI();
       this.updateVolumeUI();
+      try {
+        window.dispatchEvent(new CustomEvent('meem:music-track-changed', {
+          detail: { track: this.currentTrack, isPlaying: this.isPlaying }
+        }));
+      } catch (e) {}
     }
 
     updateProgressUI() {
