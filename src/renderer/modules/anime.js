@@ -4312,7 +4312,7 @@
 
         const airDate = new Date(s.airingAt * 1000);
         const dayName = airDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-        const timeString = airDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const timeString = airDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const title = s.media.title?.english || s.media.title?.romaji || 'Anime';
         const poster = s.media.coverImage?.extraLarge || s.media.coverImage?.large || s.media.coverImage?.medium || '';
         const score = s.media.averageScore ? (s.media.averageScore / 10).toFixed(1) : null;
@@ -4332,11 +4332,67 @@
           broadcast: {
             day: dayName,
             time: timeString,
-            string: `Ep ${s.episode} · ${dayName.toUpperCase()} ${timeString}`
+            string: `Ep ${s.episode} · ${timeString}`
           },
           score: score,
-          status: 'Ongoing'
+          status: 'Ongoing',
+          isUpcoming: false
         });
+      }
+
+      // Also fetch Top Upcoming Anime from AniList
+      try {
+        const upcomingQuery = `query {
+          Page(page: 1, perPage: 25) {
+            media(status: NOT_YET_RELEASED, sort: POPULARITY_DESC, isAdult: false) {
+              id
+              idMal
+              title { romaji english native }
+              coverImage { extraLarge large medium }
+              status
+              startDate { year month day }
+              genres
+              averageScore
+            }
+          }
+        }`;
+        const upRes = await fetch('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ query: upcomingQuery })
+        });
+        if (upRes.ok) {
+          const upJson = await upRes.json();
+          const upList = upJson.data?.Page?.media || [];
+          for (const m of upList) {
+            const mediaId = m.idMal || m.id;
+            if (seenMediaIds.has(String(mediaId))) continue;
+            seenMediaIds.add(String(mediaId));
+            const poster = m.coverImage?.extraLarge || m.coverImage?.large || '';
+            const title = m.title?.english || m.title?.romaji || 'Upcoming Anime';
+            const year = m.startDate?.year ? `${m.startDate.year}` : '';
+            const month = m.startDate?.month ? `/${m.startDate.month}` : '';
+            const dateStr = year ? `Releasing ${year}${month}` : 'Upcoming Season';
+            mapped.push({
+              id: mediaId,
+              mal_id: mediaId,
+              anilist_id: m.id,
+              title: title,
+              title_english: m.title?.english || title,
+              images: { jpg: { large_image_url: poster, image_url: poster } },
+              broadcast: {
+                day: 'upcoming',
+                time: dateStr,
+                string: dateStr
+              },
+              score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
+              status: 'Not yet aired',
+              isUpcoming: true
+            });
+          }
+        }
+      } catch (upErr) {
+        console.warn('[AnimeSchedule] Upcoming fetch failed:', upErr.message);
       }
 
       return mapped;
@@ -4431,7 +4487,7 @@
       // Group items by broadcast day
       const grouped = {};
       items.forEach(item => {
-        const day = (item.broadcast?.day || 'Scheduled').toLowerCase();
+        const day = (item.isUpcoming ? 'upcoming' : (item.broadcast?.day || 'Scheduled')).toLowerCase();
         if (!grouped[day]) grouped[day] = [];
         grouped[day].push(item);
       });
@@ -4518,8 +4574,8 @@
         }
       }
 
-      // 2. Weekly breakdown by day
-      const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+      // 2. Weekly breakdown by day + Upcoming section
+      const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'upcoming'];
       const sortedDays = Object.keys(grouped).sort((a, b) => {
         const ia = dayOrder.indexOf(a);
         const ib = dayOrder.indexOf(b);
@@ -4538,7 +4594,12 @@
         const dayTitle = document.createElement('h3');
         dayTitle.className = 'anime-schedule-day-title';
         const isToday = day === todayDayName;
-        dayTitle.innerHTML = `<i class="fas fa-calendar-day" style="color:var(--accent);"></i> ${day.toUpperCase()} SCHEDULE (${grouped[day].length})${isToday ? ' <span style="font-size:0.75rem; background:rgba(255,255,255,0.12); padding:2px 8px; border-radius:10px; margin-left:8px; font-weight:700;">TODAY</span>' : ''}`;
+        const isUpcoming = day === 'upcoming';
+        const iconClass = isUpcoming ? 'fa-rocket' : 'fa-calendar-day';
+        const titleText = isUpcoming ? 'UPCOMING ANIME SEASONS' : `${day.toUpperCase()} SCHEDULE`;
+        const accentBadge = isUpcoming ? '<span style="font-size:0.75rem; background:rgba(0,173,181,0.2); color:#00adb5; border:1px solid rgba(0,173,181,0.4); padding:2px 8px; border-radius:10px; margin-left:8px; font-weight:700;">SOON</span>' : (isToday ? ' <span style="font-size:0.75rem; background:rgba(255,255,255,0.12); padding:2px 8px; border-radius:10px; margin-left:8px; font-weight:700;">TODAY</span>' : '');
+
+        dayTitle.innerHTML = `<i class="fas ${iconClass}" style="color:var(--accent);"></i> ${titleText} (${grouped[day].length})${accentBadge}`;
         daySection.appendChild(dayTitle);
 
         const dayGrid = document.createElement('div');
@@ -4549,7 +4610,7 @@
           card.className = 'media-card anime-card';
 
           const posterUrl = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || 'imgs/poster-placeholder.png';
-          const airTime = anime.broadcast?.string || anime.broadcast?.time || 'Airing';
+          const airTime = anime.broadcast?.string || anime.broadcast?.time || (anime.isUpcoming ? 'Coming Soon' : 'Airing');
           const score = anime.score ? `⭐ ${anime.score}` : '';
 
           const safeTitle = (anime.title_english || anime.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -4581,7 +4642,7 @@
             <div class="card-info">
               <div class="card-title" title="${safeTitle}">${safeTitle}</div>
               <div class="card-meta">
-                <span class="card-badge-air"><i class="fas fa-clock" style="font-size: 10px;"></i> ${airTime}</span>
+                <span class="card-badge-air"><i class="fas ${anime.isUpcoming ? 'fa-calendar-alt' : 'fa-clock'}" style="font-size: 10px;"></i> ${airTime}</span>
                 ${score ? `<span class="card-badge-score">${score}</span>` : ''}
               </div>
             </div>
