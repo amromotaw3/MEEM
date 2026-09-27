@@ -9543,40 +9543,47 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     });
   }
 
-  async function renderCustomListDetail(listId) {
+  async function renderCustomListDetail(listId, skipReset = false) {
     if (currentView !== 'custom-list-detail' && currentView !== 'player') {
       customListSourceView = currentView;
     }
     activeCustomListId = listId;
 
-    // Immediately clear/reset the detail view elements to a loading state:
-    const titleEl = $('#custom-list-title');
-    if (titleEl) titleEl.textContent = 'Loading...';
-    const membersEl = document.getElementById('custom-list-members');
-    if (membersEl) membersEl.innerHTML = '';
-    const searchEl = $('#search-custom-list');
-    if (searchEl) searchEl.value = '';
-    const gridEl = $('#custom-list-grid');
-    if (gridEl) {
-      gridEl.innerHTML = '<div style="display:flex; justify-content:center; align-items:center; grid-column: 1 / -1; min-height: 200px;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: var(--accent);"></i></div>';
-    }
-    const emptyEl = $('#custom-list-empty');
-    if (emptyEl) emptyEl.style.display = 'none';
-
-    // Refresh custom lists from DB to get latest updates via REST API (non-realtime)
-    await refreshCustomListsFromDb().catch(e => console.warn('[Collab] Failed to refresh custom lists:', e));
-
     const list = currentProfile?.custom_lists?.find(l => l.id === listId);
-    if (!list) {
+
+    if (!skipReset) {
+      // Immediately clear/reset the detail view elements to a loading state when switching lists:
+      const titleEl = $('#custom-list-title');
+      if (titleEl) titleEl.textContent = 'Loading...';
+      const membersEl = document.getElementById('custom-list-members');
+      if (membersEl) membersEl.innerHTML = '';
+      const searchEl = $('#search-custom-list');
+      if (searchEl) searchEl.value = '';
+      const gridEl = $('#custom-list-grid');
+      if (gridEl) {
+        gridEl.innerHTML = '<div style="display:flex; justify-content:center; align-items:center; grid-column: 1 / -1; min-height: 200px;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: var(--accent);"></i></div>';
+      }
+      const emptyEl = $('#custom-list-empty');
+      if (emptyEl) emptyEl.style.display = 'none';
+
+      // Refresh custom lists from DB to get latest updates via REST API (non-realtime)
+      await refreshCustomListsFromDb().catch(e => console.warn('[Collab] Failed to refresh custom lists:', e));
+
+      const updatedList = currentProfile?.custom_lists?.find(l => l.id === listId);
+      if (!updatedList) {
+        switchView('watchlist');
+        return;
+      }
+
+      if (window.socialPresence && typeof window.socialPresence.subscribeChat === 'function') {
+        window.socialPresence.subscribeChat(listId);
+      }
+
+      if (titleEl) titleEl.textContent = updatedList.name;
+    } else if (!list) {
       switchView('watchlist');
       return;
     }
-
-    if (window.socialPresence && typeof window.socialPresence.subscribeChat === 'function') {
-      window.socialPresence.subscribeChat(listId);
-    }
-
-    if (titleEl) titleEl.textContent = list.name;
 
     // Fetch members and owner profile info to draw avatars in the header
     (async () => {
@@ -10599,7 +10606,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   document.addEventListener('input', (e) => {
     const searchInput = e.target.closest('#search-custom-list');
     if (searchInput) {
-      if (activeCustomListId) renderCustomListDetail(activeCustomListId);
+      if (activeCustomListId) renderCustomListDetail(activeCustomListId, true);
     }
   });
 
