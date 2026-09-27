@@ -408,33 +408,59 @@ async function openInMeemPlayer(args) {
     const portMatch = targetPath.match(/:(\d+)\//);
     const streamPort = portMatch ? portMatch[1] : '11470';
 
-    // Fetch TMDB Season episodes if resolvedTmdbId is known for TV Show
-    let tmdbEpisodesMap = {};
-    if (isTvShow && resolvedTmdbId && tmdbKey) {
-      try {
-        const axios = require('axios');
-        const targetSeason = season || 1;
-        const tmdbSeasonUrl = `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${targetSeason}?api_key=${tmdbKey}`;
-        const seasonResp = await axios.get(tmdbSeasonUrl, { timeout: 2000 }).catch(() => null);
-        if (seasonResp && seasonResp.data && Array.isArray(seasonResp.data.episodes)) {
-          seasonResp.data.episodes.forEach(ep => {
-            tmdbEpisodesMap[ep.episode_number] = {
-              name: ep.name,
-              still: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : null,
-              overview: ep.overview || ''
-            };
-          });
-        }
-      } catch (_) {}
+    // Fetch episode metadata and stills (Smart Cinemeta + TMDB fallback)
+    let episodeMetadataMap = {};
+    if (isTvShow) {
+      const axios = require('axios');
+      const targetSeason = season || 1;
+
+      // 1. Check Cinemeta first (free, instant, no API key needed, has full episode stills)
+      if (resolvedImdbId && String(resolvedImdbId).startsWith('tt')) {
+        try {
+          const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/series/${resolvedImdbId}.json`;
+          const cResp = await axios.get(cinemetaUrl, { timeout: 3000 }).catch(() => null);
+          if (cResp?.data?.meta?.videos && Array.isArray(cResp.data.meta.videos)) {
+            cResp.data.meta.videos.forEach(v => {
+              const vSeason = v.season != null ? v.season : (v.seasonNumber || 1);
+              const vEp = v.episode != null ? v.episode : (v.number != null ? v.number : v.episodeNumber);
+              if (vSeason === targetSeason && vEp != null) {
+                episodeMetadataMap[vEp] = {
+                  name: v.title || v.name || '',
+                  still: v.thumbnail || v.still || '',
+                  overview: v.overview || ''
+                };
+              }
+            });
+          }
+        } catch (_) {}
+      }
+
+      // 2. Fetch TMDB Season episodes if user provided a TMDB key
+      if (resolvedTmdbId && tmdbKey) {
+        try {
+          const tmdbSeasonUrl = `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${targetSeason}?api_key=${tmdbKey}`;
+          const seasonResp = await axios.get(tmdbSeasonUrl, { timeout: 2500 }).catch(() => null);
+          if (seasonResp?.data && Array.isArray(seasonResp.data.episodes)) {
+            seasonResp.data.episodes.forEach(ep => {
+              const existing = episodeMetadataMap[ep.episode_number] || {};
+              episodeMetadataMap[ep.episode_number] = {
+                name: ep.name || existing.name || '',
+                still: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : (existing.still || null),
+                overview: ep.overview || existing.overview || ''
+              };
+            });
+          }
+        } catch (_) {}
+      }
     }
 
     playlistItems = torrentFiles.map((f, i) => {
       const parsedEp = extractSeasonEpisode(f.name);
       const epNum = parsedEp ? parsedEp.episode : (f.idx + 1);
       const snNum = parsedEp ? parsedEp.season : (season || 1);
-      const tmdbEp = tmdbEpisodesMap[epNum];
-      const epTitle = (tmdbEp && tmdbEp.name) ? tmdbEp.name : ((!isTvShow || torrentFiles.length === 1) ? (opts.title || f.name) : f.name);
-      const epThumb = (tmdbEp && tmdbEp.still) ? tmdbEp.still : (poster || '');
+      const epMeta = episodeMetadataMap[epNum];
+      const epTitle = (epMeta && epMeta.name) ? epMeta.name : ((!isTvShow || torrentFiles.length === 1) ? (opts.title || f.name) : f.name);
+      const epThumb = (epMeta && epMeta.still) ? epMeta.still : (poster || '');
 
       return {
         path: `http://127.0.0.1:${streamPort}/${f.idx}/${encodeURIComponent(f.name)}`,
@@ -445,7 +471,7 @@ async function openInMeemPlayer(args) {
         thumbnail: epThumb,
         tmdb_id: resolvedTmdbId ? String(resolvedTmdbId) : '',
         imdb_id: resolvedImdbId ? String(resolvedImdbId) : '',
-        overview: tmdbEp?.overview || ''
+        overview: epMeta?.overview || ''
       };
     });
   }

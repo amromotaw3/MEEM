@@ -250,14 +250,58 @@ function startPersistentServer(onStarted) {
           }
         });
 
+        const targetEp = parseInt(url.searchParams.get('episode') || '0', 10);
+        const targetSeason = parseInt(url.searchParams.get('season') || '0', 10);
+
         let targetSrtPath = '';
         if (subUrl.toLowerCase().endsWith('.zip') || resp.data.slice(0, 4).toString('utf-8').includes('PK')) {
           const zip = new AdmZip(Buffer.from(resp.data));
           const entries = zip.getEntries();
-          const subEntry = entries.find(e => !e.isDirectory && (e.entryName.endsWith('.srt') || e.entryName.endsWith('.ass') || e.entryName.endsWith('.vtt')));
-          if (subEntry) {
-            targetSrtPath = path.join(subsDir, `sub_${Date.now()}_${path.basename(subEntry.entryName)}`);
-            fs.writeFileSync(targetSrtPath, subEntry.getData());
+          const subEntries = entries.filter(e => !e.isDirectory && /\.(srt|ass|vtt)$/i.test(e.entryName));
+          
+          let selectedEntry = null;
+          if (subEntries.length > 0) {
+            if (targetEp > 0) {
+              // Score entries to accurately pick matching episode in multi-episode packs
+              const scored = subEntries.map(e => {
+                const name = path.basename(e.entryName).toLowerCase();
+                let score = 0;
+                
+                // Match S01E05 / S1E5
+                if (targetSeason > 0) {
+                  const sRegex = new RegExp(`s0*${targetSeason}e0*${targetEp}([^0-9]|$)`, 'i');
+                  if (sRegex.test(name)) score += 100;
+                }
+                
+                // Match E05 / EP05 / Episode 05
+                const epRegex = new RegExp(`(?:e|ep|episode)[._ -]?0*${targetEp}([^0-9]|$)`, 'i');
+                if (epRegex.test(name)) score += 80;
+
+                // Match delimited episode number like " - 05 ", "[05]", "(05)", "_05_"
+                const delimRegex = new RegExp(`[\\[\\(_ .-]0*${targetEp}[\\]\\)_ .-]`, 'i');
+                if (delimRegex.test(name)) score += 60;
+
+                // Match isolated episode number
+                const isoRegex = new RegExp(`(^|[^0-9])0*${targetEp}([^0-9]|$)`, 'i');
+                if (isoRegex.test(name)) score += 40;
+
+                return { entry: e, score };
+              });
+
+              scored.sort((a, b) => b.score - a.score);
+              if (scored[0].score > 0) {
+                selectedEntry = scored[0].entry;
+              }
+            }
+
+            if (!selectedEntry) {
+              selectedEntry = subEntries[0];
+            }
+          }
+
+          if (selectedEntry) {
+            targetSrtPath = path.join(subsDir, `sub_${Date.now()}_${path.basename(selectedEntry.entryName)}`);
+            fs.writeFileSync(targetSrtPath, selectedEntry.getData());
           }
         } else {
           targetSrtPath = path.join(subsDir, `sub_${Date.now()}.srt`);
