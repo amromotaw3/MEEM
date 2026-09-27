@@ -4498,37 +4498,20 @@
     const filterBtns = document.querySelectorAll('.anime-schedule-filter-btn');
     filterBtns.forEach(btn => {
       const isMatch = (btn.dataset.day || '') === (filterDay || '');
-      const isUpcomingBtn = btn.dataset.day === 'upcoming';
-
       if (isMatch) {
         btn.classList.add('active');
-        if (isUpcomingBtn) {
-          btn.style.background = '#00adb5';
-          btn.style.color = '#ffffff';
-          btn.style.borderColor = '#00adb5';
-          btn.style.boxShadow = '0 0 12px rgba(0, 173, 181, 0.4)';
-          btn.style.fontWeight = '700';
-        } else {
-          btn.style.background = 'var(--accent, #6366f1)';
-          btn.style.color = '#ffffff';
-          btn.style.borderColor = 'var(--accent, #6366f1)';
-          btn.style.boxShadow = '0 0 12px rgba(99, 102, 241, 0.35)';
-          btn.style.fontWeight = '700';
-        }
+        btn.style.background = '#ffffff';
+        btn.style.color = '#000000';
+        btn.style.borderColor = '#ffffff';
+        btn.style.boxShadow = '0 0 12px rgba(255, 255, 255, 0.35)';
+        btn.style.fontWeight = '700';
       } else {
         btn.classList.remove('active');
         btn.style.boxShadow = 'none';
-        if (isUpcomingBtn) {
-          btn.style.background = 'rgba(0, 173, 181, 0.15)';
-          btn.style.color = '#00adb5';
-          btn.style.borderColor = 'rgba(0, 173, 181, 0.4)';
-          btn.style.fontWeight = '600';
-        } else {
-          btn.style.background = 'rgba(255,255,255,0.06)';
-          btn.style.color = '#ffffff';
-          btn.style.borderColor = 'rgba(255,255,255,0.12)';
-          btn.style.fontWeight = '600';
-        }
+        btn.style.background = 'rgba(255, 255, 255, 0.06)';
+        btn.style.color = '#ffffff';
+        btn.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+        btn.style.fontWeight = '600';
       }
     });
 
@@ -4711,7 +4694,7 @@
         const isUpcoming = day === 'upcoming';
         const iconClass = isUpcoming ? 'fa-rocket' : 'fa-calendar-day';
         const titleText = isUpcoming ? 'UPCOMING ANIME SEASONS' : `${day.toUpperCase()} SCHEDULE`;
-        const accentBadge = isUpcoming ? '<span style="font-size:0.75rem; background:rgba(0,173,181,0.2); color:#00adb5; border:1px solid rgba(0,173,181,0.4); padding:2px 8px; border-radius:10px; margin-left:8px; font-weight:700;">SOON</span>' : (isToday ? ' <span style="font-size:0.75rem; background:rgba(255,255,255,0.12); padding:2px 8px; border-radius:10px; margin-left:8px; font-weight:700;">TODAY</span>' : '');
+        const accentBadge = isUpcoming ? '<span style="font-size:0.75rem; background:rgba(255,255,255,0.12); color:#ffffff; border:1px solid rgba(255,255,255,0.25); padding:2px 8px; border-radius:10px; margin-left:8px; font-weight:700;">SOON</span>' : (isToday ? ' <span style="font-size:0.75rem; background:rgba(255,255,255,0.12); padding:2px 8px; border-radius:10px; margin-left:8px; font-weight:700;">TODAY</span>' : '');
 
         dayTitle.innerHTML = `<i class="fas ${iconClass}" style="color:var(--accent);"></i> ${titleText} (${grouped[day].length})${accentBadge}`;
         daySection.appendChild(dayTitle);
