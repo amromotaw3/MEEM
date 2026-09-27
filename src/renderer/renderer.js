@@ -12037,7 +12037,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       // ── Async episode enrichment via TMDB (with key) or Cinemeta (fallback) ──
       // ── Async episode enrichment via TMDB (with key) or Cinemeta (fallback) ──
       if (!cachedSeasons[sn] || Object.keys(cachedSeasons[sn] || {}).length === 0) {
-        const tmdbKey = appData.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
+        const tmdbKey = appData.tmdbKey || null;
         const tmdbEnabled = appData.tmdbEnabled !== false;
         const mappedSn = (appData.seasonOffset && appData.seasonOffset[`${show.id}_${sn}`]) || sn;
         let showId = show.tmdbId || show.imdbId || tmdb?.tmdbId || tmdb?.imdb_id || tmdb?.imdbId || (tmdb?.id && !String(tmdb.id).includes('/') && !String(tmdb.id).includes('\\') ? tmdb.id : null) || tmdb?.cinemetaId || null;
@@ -12188,7 +12188,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
     }
 
-    const tmdbKey = appData.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
+    const tmdbKey = appData.tmdbKey || null;
     const tmdbEnabled = appData.tmdbEnabled !== false;
     const tmdbEps = {};
 

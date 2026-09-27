@@ -266,7 +266,7 @@ async function openInMeemPlayer(args) {
   } catch (_) {}
   if (opts.quality) preferredQuality = String(opts.quality);
 
-  const tmdbKey = localData?.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
+  const tmdbKey = localData?.tmdbKey || '';
   const subdlApiKey = localData?.subdlConfig?.apiKey || localData?.subdlKey || '';
   const subdlLanguages = Array.isArray(localData?.subdlConfig?.languages) ? localData.subdlConfig.languages.join(',') : 'AR,EN';
 
@@ -410,7 +410,7 @@ async function openInMeemPlayer(args) {
 
     // Fetch TMDB Season episodes if resolvedTmdbId is known for TV Show
     let tmdbEpisodesMap = {};
-    if (isTvShow && resolvedTmdbId) {
+    if (isTvShow && resolvedTmdbId && tmdbKey) {
       try {
         const axios = require('axios');
         const targetSeason = season || 1;

@@ -1268,10 +1268,10 @@ function initMetadataIpc(ipcMain) {
     try {
       if (!tvId) return { episodes: [] };
       const data = await loadData();
-      const tmdbKey = data.tmdbKey || '14cc163152a514d455d31590ab8d4d8c';
+      const tmdbKey = data.tmdbKey || null;
 
       let resolvedTvId = tvId;
-      if (String(tvId).startsWith('tt')) {
+      if (tmdbKey && String(tvId).startsWith('tt')) {
         const tmdbFindUrl = `https://api.themoviedb.org/3/find/${tvId}?api_key=${tmdbKey}&external_source=imdb_id`;
         const tmdbFindResp = await axios.get(tmdbFindUrl, { timeout: 6000 }).catch(() => null);
         const resultsList = tmdbFindResp?.data?.tv_results;
@@ -1283,8 +1283,8 @@ function initMetadataIpc(ipcMain) {
         }
       }
 
-      // If resolvedTvId is numeric TMDB ID, query TMDB API
-      if (/^\d+$/.test(String(resolvedTvId))) {
+      // If resolvedTvId is numeric TMDB ID and user has TMDB key, query TMDB API
+      if (tmdbKey && /^\d+$/.test(String(resolvedTvId))) {
         try {
           const url = `https://api.themoviedb.org/3/tv/${resolvedTvId}/season/${seasonNum}?api_key=${tmdbKey}`;
           const resp = await axios.get(url, { timeout: 8000 }).catch(() => null);

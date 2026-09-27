@@ -1586,22 +1586,40 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         }
     };
 
+    const renderEpisodeSkeletons = (count = 6) => {
+        return Array.from({ length: count }).map(() => `
+            <div class="dd-ep-skeleton-card">
+                <div class="dd-ep-skeleton-thumb"></div>
+                <div class="dd-ep-skeleton-info">
+                    <div class="dd-ep-skeleton-title"></div>
+                    <div class="dd-ep-skeleton-date"></div>
+                </div>
+            </div>
+        `).join('');
+    };
+
     // Apply fetched stills to already-rendered episode cards
     const applyTmdbStillsToCards = (listEl, stillsMap, seasonN) => {
-        if (!stillsMap || !Object.keys(stillsMap).length) return;
+        if (!stillsMap || !Object.keys(stillsMap).length || !listEl) return;
         const cards = listEl.querySelectorAll(`.dd-ep-card[data-season="${seasonN}"]`);
         cards.forEach(card => {
             const epN = parseInt(card.dataset.episode);
             const stillUrl = stillsMap[epN];
             if (!stillUrl) return;
             const img = card.querySelector('img');
+            const epImgDiv = card.querySelector('.dd-ep-img');
             if (img && img.isConnected) {
-                const fullStill = stillUrl.startsWith('http') ? stillUrl : `https://image.tmdb.org/t/p/w500${stillUrl}`;
-                img.onerror = () => {
-                    img.onerror = null;
-                    img.src = currentItem.backdrop_path || currentItem.poster_path || 'imgs/no-backdrop.png';
+                const fullStill = stillUrl.startsWith('http') ? stillUrl : `https://image.tmdb.org/t/p/w400${stillUrl}`;
+                if (img.src === fullStill) return;
+                const preload = new Image();
+                preload.onload = () => {
+                    if (img && img.isConnected) {
+                        img.src = fullStill;
+                        img.classList.add('is-ready');
+                        if (epImgDiv) epImgDiv.classList.add('img-loaded');
+                    }
                 };
-                img.src = fullStill;
+                preload.src = fullStill;
             }
         });
     };
@@ -1628,7 +1646,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         });
 
         listEl.innerHTML = '';
-        const batchSize = 20;
+        const batchSize = 30;
         let currentIdx = 0;
         const renderId = Math.random();
         listEl.dataset.renderId = renderId;
@@ -1654,28 +1672,36 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                 card.className = 'dd-ep-card';
                 card.dataset.season = currentSeason;
                 card.dataset.episode = epNum;
-                card.style.animationDelay = `${Math.min(i * 0.05, 1)}s`;
+                // Snappy micro-stagger for the first few cards (max 0.09s total), instant for the rest
+                card.style.animationDelay = (currentIdx === 0 && i < 6) ? `${i * 0.015}s` : '0s';
                 card.onclick = () => window.selectUnifiedEpisode(currentSeason, epNum, finalTitle, epThumb || '', v.path || '');
-
-                const imgEl = document.createElement('img');
-                imgEl.src = thumbUrl;
-
-                // Smart fallback: if image fails → try TMDB still → then backdrop
-                const showId = window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId ||
-                               (String(window.currentDetailItem?.id || '').startsWith('tt') ? window.currentDetailItem.id : null) ||
-                               window.currentDetailItem?.tmdb_id || window.currentDetailItem?.tmdbId;
-
-                if (!isUnreleased) {
-                    imgEl.onerror = () => {
-                        imgEl.onerror = null;
-                        imgEl.src = currentItem.backdrop_path || currentItem.poster_path || 'imgs/no-backdrop.png';
-                    };
-                } else {
-                    imgEl.onerror = () => { imgEl.onerror = null; imgEl.src = 'imgs/no-backdrop.png'; };
-                }
 
                 const epImgDiv = document.createElement('div');
                 epImgDiv.className = 'dd-ep-img';
+
+                const imgEl = document.createElement('img');
+                imgEl.loading = 'lazy';
+                imgEl.decoding = 'async';
+                imgEl.alt = finalTitle;
+
+                imgEl.onload = () => {
+                    imgEl.classList.add('is-ready');
+                    epImgDiv.classList.add('img-loaded');
+                };
+
+                imgEl.onerror = () => {
+                    imgEl.onerror = null;
+                    imgEl.src = isUnreleased ? 'imgs/no-backdrop.png' : (currentItem.backdrop_path || currentItem.poster_path || 'imgs/no-backdrop.png');
+                    imgEl.classList.add('is-ready');
+                    epImgDiv.classList.add('img-loaded');
+                };
+
+                imgEl.src = thumbUrl;
+                if (imgEl.complete && imgEl.naturalWidth > 0) {
+                    imgEl.classList.add('is-ready');
+                    epImgDiv.classList.add('img-loaded');
+                }
+
                 epImgDiv.appendChild(imgEl);
 
                 const epNumDiv = document.createElement('div');
@@ -1685,7 +1711,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
                 if (isUnreleased) {
                     const overlay = document.createElement('div');
-                    overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#fff;letter-spacing:1px;';
+                    overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#fff;letter-spacing:1px;z-index:3;';
                     overlay.textContent = 'UPCOMING';
                     epImgDiv.appendChild(overlay);
                 }
@@ -1982,57 +2008,6 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                 `;
                 const listEl = document.getElementById('dd-unified-ep-list');
                 
-                // Inject skeleton styles if they don't exist
-                if (!document.querySelector('style[data-episode-skeleton]')) {
-                    const style = document.createElement('style');
-                    style.setAttribute('data-episode-skeleton', 'true');
-                    style.textContent = `
-                    @keyframes shimmer {
-                      0% { background-position: -1000px 0; }
-                      100% { background-position: 1000px 0; }
-                    }
-                    .episode-item-skeleton {
-                      display: flex;
-                      flex-direction: column;
-                      gap: 8px;
-                      padding: 12px;
-                      background: rgba(255,255,255,0.02);
-                      border: 1px solid rgba(255,255,255,0.05);
-                      border-radius: 12px;
-                      animation: shimmer 2s infinite;
-                      background: linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.02) 100%);
-                      background-size: 1000px 100%;
-                      margin-bottom: 12px;
-                    }
-                    .episode-skeleton-thumb {
-                      width: 100%;
-                      height: 120px;
-                      background: linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.05) 100%);
-                      border-radius: 8px;
-                      background-size: 1000px 100%;
-                      animation: shimmer 2s infinite;
-                    }
-                    .episode-skeleton-title {
-                      width: 70%;
-                      height: 16px;
-                      background: linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.05) 100%);
-                      border-radius: 4px;
-                      background-size: 1000px 100%;
-                      animation: shimmer 2s infinite;
-                    }
-                    .episode-skeleton-desc {
-                      width: 100%;
-                      height: 12px;
-                      background: linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.05) 100%);
-                      border-radius: 4px;
-                      background-size: 1000px 100%;
-                      animation: shimmer 2s infinite;
-                      margin-bottom: 4px;
-                    }
-                    `;
-                    document.head.appendChild(style);
-                }
-
                 const offlineEps = item.episodes.map(ep => ({
                     episode: ep.episode,
                     episode_number: ep.episode,
@@ -2043,19 +2018,11 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                     path: ep.path
                 }));
 
-                // Show skeleton loaders in the panel instead of local list immediate render
-                listEl.innerHTML = Array.from({ length: Math.min(offlineEps.length || 6, 6) }).map(() => `
-                    <div class="episode-item-skeleton">
-                        <div class="episode-skeleton-thumb"></div>
-                        <div class="episode-skeleton-title"></div>
-                        <div class="episode-skeleton-desc"></div>
-                        <div class="episode-skeleton-desc" style="width: 100%;"></div>
-                    </div>
-                `).join('');
+                // Render local episodes immediately with zero waiting!
+                renderEpisodesInBatches(listEl, offlineEps, offlineEps[0]?.season || 1, false);
 
-                // Fetch episode details / thumbnails asynchronously and enrich the list
+                // Fetch episode details / thumbnails asynchronously and enrich the list in background
                 (async () => {
-                    let enriched = false;
                     try {
                         const cache = window.appData?.tmdbCache?.[item.id] || {};
                         const idToUse = item.imdb_id || item.tmdbId || item.tmdb_id || cache.tmdbId || item.id;
@@ -2082,130 +2049,93 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                         if (!kitsuId) kitsuId = item.kitsuId || (String(item.id).startsWith('kitsu:') ? String(item.id).replace('kitsu:', '') : null);
                         if (!malId) malId = item.mal_id || item.malId || (String(item.id).startsWith('mal:') ? String(item.id).replace('mal:', '') : null);
 
-                        const isAnime = false; // Disabled: all anime routed through Cinemeta/TMDB
+                        const isAnime = false;
                         let apiEpisodes = null;
 
-                        if (isAnime) {
-                            let kitsuData = null;
-                            if (kitsuId) {
-                                kitsuData = await window.api.invoke('kitsu-details', kitsuId).catch(() => null);
+                        const tmdbKey = window.appData?.tmdbKey || null;
+                        const tmdbEnabled = window.appData?.tmdbEnabled !== false;
+
+                        if (tmdbKey && tmdbEnabled && (imdbId || tmdbId)) {
+                            try {
+                                if (imdbId && !tmdbId) {
+                                    const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${tmdbKey}&external_source=imdb_id`;
+                                    const findRes = await fetch(findUrl).then(r => r.json()).catch(() => null);
+                                    if (findRes && findRes.tv_results && findRes.tv_results.length > 0) {
+                                        tmdbId = findRes.tv_results[0].id;
+                                    }
+                                }
+
+                                if (tmdbId) {
+                                    const uniqueSeasons = [...new Set(offlineEps.map(ep => ep.season || 1))];
+                                    let tmdbEpisodes = [];
+                                    for (const season of uniqueSeasons) {
+                                        const seasonUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${tmdbKey}`;
+                                        const seasonRes = await fetch(seasonUrl).then(r => r.json()).catch(() => null);
+                                        if (seasonRes && seasonRes.episodes) {
+                                            const mapped = seasonRes.episodes.map(ep => ({
+                                                episode: ep.episode_number,
+                                                season: ep.season_number,
+                                                name: ep.name,
+                                                still_path: ep.still_path ? `https://image.tmdb.org/t/p/w400${ep.still_path}` : null,
+                                                air_date: ep.air_date
+                                            }));
+                                            tmdbEpisodes.push(...mapped);
+                                        }
+                                    }
+                                    if (tmdbEpisodes.length > 0) {
+                                        apiEpisodes = tmdbEpisodes;
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('[DETAIL] TMDB local episode fetch failed:', e);
                             }
-                            if (!kitsuData && malId) {
-                                kitsuData = await window.api.invoke('kitsu-details-by-mal', malId).catch(() => null);
+                        }
+
+                        // Fallback to Cinemeta if TMDB fetch did not work
+                        if (!apiEpisodes) {
+                            let cinemetaId = imdbId || tmdbId || item.id;
+                            if (!cinemetaId && tmdbId) {
+                                cinemetaId = 'tmdb:' + tmdbId;
                             }
-                            if (kitsuData && kitsuData.videos && kitsuData.videos.length > 0) {
-                                apiEpisodes = kitsuData.videos.map(v => ({
-                                    episode: v.episode,
-                                    name: v.name || v.title,
-                                    still_path: v.thumbnail,
-                                    air_date: v.released
-                                }));
-                            } else if (malId) {
-                                const jikanData = await window.api.invoke('jikan-episodes', malId).catch(() => null);
-                                if (jikanData && jikanData.data) {
-                                    apiEpisodes = jikanData.data.map(ep => ({
-                                        episode: ep.mal_id,
-                                        name: ep.title,
-                                        still_path: ep.images?.jpg?.image_url,
-                                        air_date: ep.aired
+                            if (cinemetaId) {
+                                let cinemeta = await window.api.invoke('cinemeta-details', { id: cinemetaId, type: 'tv' }).catch(() => null);
+                                let resolvedCinemeta = cinemeta?.meta || cinemeta;
+                                if (resolvedCinemeta && resolvedCinemeta.videos && resolvedCinemeta.videos.length > 0) {
+                                    apiEpisodes = resolvedCinemeta.videos.map(v => ({
+                                        episode: v.episode,
+                                        season: v.season,
+                                        name: v.title || v.name,
+                                        still_path: v.thumbnail || v.still || v.still_path || v.image,
+                                        air_date: v.released
                                     }));
-                                }
-                            }
-                        } else {
-                            const tmdbKey = window.appData?.tmdbKey || null;
-                            const tmdbEnabled = window.appData?.tmdbEnabled !== false;
-
-                            if (tmdbKey && tmdbEnabled && (imdbId || tmdbId)) {
-                                try {
-                                    // 1. If we only have an IMDb ID, find the TMDB TV ID first
-                                    if (imdbId && !tmdbId) {
-                                        const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${tmdbKey}&external_source=imdb_id`;
-                                        const findRes = await fetch(findUrl).then(r => r.json()).catch(() => null);
-                                        if (findRes && findRes.tv_results && findRes.tv_results.length > 0) {
-                                            tmdbId = findRes.tv_results[0].id;
-                                        }
-                                    }
-
-                                    // 2. Query TMDB season episodes for all unique seasons present in local episodes
-                                    if (tmdbId) {
-                                        const uniqueSeasons = [...new Set(offlineEps.map(ep => ep.season || 1))];
-                                        let tmdbEpisodes = [];
-                                        for (const season of uniqueSeasons) {
-                                            const seasonUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${tmdbKey}`;
-                                            const seasonRes = await fetch(seasonUrl).then(r => r.json()).catch(() => null);
-                                            if (seasonRes && seasonRes.episodes) {
-                                                const mapped = seasonRes.episodes.map(ep => ({
-                                                    episode: ep.episode_number,
-                                                    season: ep.season_number,
-                                                    name: ep.name,
-                                                    still_path: ep.still_path ? `https://image.tmdb.org/t/p/w300${ep.still_path}` : null,
-                                                    air_date: ep.air_date
-                                                }));
-                                                tmdbEpisodes.push(...mapped);
-                                            }
-                                        }
-                                        if (tmdbEpisodes.length > 0) {
-                                            apiEpisodes = tmdbEpisodes;
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.error('[DETAIL] TMDB local episode fetch failed:', e);
-                                }
-                            }
-
-                            // Fallback to Cinemeta if TMDB fetch did not work
-                            if (!apiEpisodes) {
-                                let cinemetaId = imdbId || tmdbId || item.id;
-                                if (!cinemetaId && tmdbId) {
-                                    cinemetaId = 'tmdb:' + tmdbId;
-                                }
-                                if (cinemetaId) {
-                                    let cinemeta = await window.api.invoke('cinemeta-details', { id: cinemetaId, type: 'tv' }).catch(() => null);
-                                    let resolvedCinemeta = cinemeta?.meta || cinemeta;
-                                    if (resolvedCinemeta && resolvedCinemeta.videos && resolvedCinemeta.videos.length > 0) {
-                                        apiEpisodes = resolvedCinemeta.videos.map(v => ({
-                                            episode: v.episode,
-                                            season: v.season,
-                                            name: v.title || v.name,
-                                            still_path: v.thumbnail || v.still || v.still_path || v.image,
-                                            air_date: v.released
-                                        }));
-                                    }
                                 }
                             }
                         }
 
                         if (apiEpisodes && apiEpisodes.length > 0) {
-                            const enrichedEps = offlineEps.map(ep => {
-                                const match = apiEpisodes.find(ae => {
-                                    if (isAnime) {
-                                        if (Number(ae.episode) === Number(ep.episode)) return true;
-                                        if (ae.season && Number(ae.season) === Number(ep.season) && Number(ae.episode) === Number(ep.episode)) return true;
-                                        return false;
-                                    } else {
-                                        return Number(ae.episode) === Number(ep.episode) && Number(ae.season) === Number(ep.season);
-                                    }
-                                });
-                                if (match) {
-                                    return {
-                                        ...ep,
-                                        name: ep.name.startsWith('Episode') ? (match.name || ep.name) : ep.name,
-                                        still_path: match.still_path || ep.still_path,
-                                        air_date: match.air_date || ep.air_date
-                                    };
-                                }
-                                return ep;
+                            const stillsMap = {};
+                            const titlesMap = {};
+                            apiEpisodes.forEach(ae => {
+                                if (ae.still_path) stillsMap[ae.episode] = ae.still_path;
+                                if (ae.name) titlesMap[ae.episode] = ae.name;
                             });
+                            applyTmdbStillsToCards(listEl, stillsMap, offlineEps[0]?.season || 1);
 
-                            renderEpisodesInBatches(listEl, enrichedEps, enrichedEps[0]?.season || 1, false);
-                            enriched = true;
+                            // Smoothly update titles if they were generic
+                            const cards = listEl.querySelectorAll(`.dd-ep-card[data-season="${offlineEps[0]?.season || 1}"]`);
+                            cards.forEach(card => {
+                                const epN = parseInt(card.dataset.episode);
+                                const newTitle = titlesMap[epN];
+                                if (newTitle) {
+                                    const titleEl = card.querySelector('.dd-ep-name');
+                                    if (titleEl && (titleEl.textContent.startsWith('Episode') || !titleEl.textContent.trim())) {
+                                        titleEl.textContent = newTitle;
+                                    }
+                                }
+                            });
                         }
                     } catch (err) {
-                        console.error('[DETAIL] Failed to fetch local episodes metadata:', err);
-                    } finally {
-                        if (!enriched) {
-                            renderEpisodesInBatches(listEl, offlineEps, offlineEps[0]?.season || 1, false);
-                        }
+                        console.error('[DETAIL] Failed to enrich local episodes metadata:', err);
                     }
                 })();
 
@@ -2346,34 +2276,25 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
     window.loadUnifiedEpisodes = async (tvId, seasonNum, isKitsu = false, isJikan = false) => {
         const list = document.getElementById('dd-unified-ep-list');
         if (list) {
-            list.innerHTML = '<div class="dd-loader-spinner-premium"></div>';
             list.style.display = 'flex';
         }
         const streamContainer = document.getElementById('dd-streams-container-unified');
         if (streamContainer) streamContainer.style.display = 'none';
 
         if (isJikan) {
+            if (list) list.innerHTML = renderEpisodeSkeletons(6);
             const data = await window.api.invoke('jikan-episodes', tvId);
             if (data && data.data) {
                 const listEl = document.getElementById('dd-unified-ep-list');
                 if (!listEl) return;
-                listEl.innerHTML = data.data.map((ep, idx) => {
-                    const epNum = ep.mal_id;
-                    const finalTitle = ep.title || `Episode ${epNum}`;
-                    const thumbUrl = ep.images?.jpg?.image_url || window.currentDetailItem?.backdrop_path || window.currentDetailItem?.poster_path || 'imgs/no-backdrop.png';
-                    return `
-                        <div class="dd-ep-card" style="animation-delay: ${idx * 0.05}s" onclick="window.selectUnifiedEpisode(1, ${epNum}, '${(finalTitle || '').replace(/'/g, "\\'")}', '${thumbUrl}', '')">
-                            <div class="dd-ep-img">
-                                <img src="${thumbUrl}" onerror="this.onerror=null;this.src='imgs/no-backdrop.png'">
-                                <div class="dd-ep-number">EP ${epNum}</div>
-                            </div>
-                            <div class="dd-ep-info">
-                                <div class="dd-ep-name">${escapeHTML(finalTitle)}</div>
-                                <div class="dd-ep-date">${ep.aired ? new Date(ep.aired).toLocaleDateString() : ''}</div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
+                const formatted = data.data.map(ep => ({
+                    episode_number: ep.mal_id,
+                    season_number: 1,
+                    name: ep.title || `Episode ${ep.mal_id}`,
+                    still_path: ep.images?.jpg?.image_url || null,
+                    air_date: ep.aired
+                }));
+                renderEpisodesInBatches(listEl, formatted, 1, false);
             } else {
                 if (document.getElementById('dd-unified-ep-list')) {
                     document.getElementById('dd-unified-ep-list').innerHTML = '<div style="padding: 20px; color: var(--text-muted);">No episodes found.</div>';
@@ -2383,49 +2304,70 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         }
 
         if (isKitsu) {
+            if (list) list.innerHTML = renderEpisodeSkeletons(6);
             const data = await window.api.invoke('kitsu-details', tvId);
             // track which Kitsu season/anime id we loaded episodes for
             try { window._lastUnifiedKitsuSeasonId = String(tvId).replace('kitsu:', ''); } catch (e) { window._lastUnifiedKitsuSeasonId = tvId; }
             if (data && data.videos) {
                 const listEl = document.getElementById('dd-unified-ep-list');
                 if (!listEl) return;
+                renderEpisodesInBatches(listEl, data.videos, 1, true);
 
-                let tmdbEpisodes = [];
-                try {
-                    const tmdbId = data.tmdb_id || window.currentDetailItem?.tmdb_id || window.currentDetailItem?.tmdbId || (window._lastExtraData?.tmdb_id);
+                // Enrich with TMDB in background if possible
+                const tmdbId = data.tmdb_id || window.currentDetailItem?.tmdb_id || window.currentDetailItem?.tmdbId || (window._lastExtraData?.tmdb_id);
+                if (tmdbId) {
                     const activeSeason = data.seasons?.find(s => String(s.id) === String(tvId).replace('kitsu:', '')) || data.seasons?.find(s => s.active);
                     const tmdbSeasonNum = activeSeason ? activeSeason.season_number : 1;
-                    if (tmdbId) {
-                        const tmdbData = await window.api.invoke('tmdb-season-details', tmdbId, tmdbSeasonNum).catch(() => null);
+                    window.api.invoke('tmdb-season-details', tmdbId, tmdbSeasonNum).then(tmdbData => {
                         if (tmdbData && tmdbData.episodes) {
-                            tmdbEpisodes = tmdbData.episodes;
+                            const map = {};
+                            tmdbData.episodes.forEach(te => {
+                                if (te.still_path) map[te.episode_number] = te.still_path;
+                            });
+                            applyTmdbStillsToCards(listEl, map, 1);
                         }
-                    }
-                } catch (err) {
-                    console.warn('[UNIFIED] TMDB season details fetch failed for Kitsu enrichment:', err);
+                    }).catch(() => {});
                 }
-
-                listEl.innerHTML = data.videos.map((v, idx) => {
-                    const epNum = v.episode;
-                    const finalTitle = v.name || v.title || `Episode ${epNum}`;
-                    const tmdbEp = tmdbEpisodes.find(te => Number(te.episode_number) === Number(epNum));
-                    const highResThumb = tmdbEp?.still_path || v.thumbnail;
-                    const thumbUrl = highResThumb || window.currentDetailItem?.backdrop_path || window.currentDetailItem?.poster_path || 'imgs/no-backdrop.png';
-                    return `
-                        <div class="dd-ep-card" style="animation-delay: ${idx * 0.05}s" onclick="window.selectUnifiedEpisode(${v.season || 1}, ${epNum}, '${(finalTitle || '').replace(/'/g, "\\'")}', '${highResThumb || ''}', '${(v.path || '').replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')">
-                            <div class="dd-ep-img">
-                                <img src="${thumbUrl}" onerror="this.onerror=null;this.src='imgs/no-backdrop.png'">
-                                <div class="dd-ep-number">EP ${epNum}</div>
-                            </div>
-                            <div class="dd-ep-info">
-                                <div class="dd-ep-name">${escapeHTML(finalTitle)}</div>
-                                <div class="dd-ep-date">${v.released ? new Date(v.released).toLocaleDateString() : ''}</div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
             }
             return;
+        }
+
+        // ── Normal Series (TMDB / Cinemeta) ──
+        // 1. Instant Render: check if this season's episodes already exist in memory from Cinemeta!
+        let instantEpisodes = null;
+        if (window._lastTmdbData && Array.isArray(window._lastTmdbData.videos)) {
+            const seasonVids = window._lastTmdbData.videos.filter(v => Number(v.season) === Number(seasonNum));
+            if (seasonVids.length > 0) {
+                instantEpisodes = seasonVids.map(v => ({
+                    episode_number: v.episode,
+                    season_number: v.season,
+                    name: v.title || v.name || `Episode ${v.episode}`,
+                    still_path: v.thumbnail || v.still || v.still_path || v.image || null,
+                    air_date: v.released || null
+                }));
+            }
+        }
+
+        if (instantEpisodes && instantEpisodes.length > 0 && list) {
+            // Render immediately with ZERO waiting for network!
+            renderEpisodesInBatches(list, instantEpisodes, seasonNum, false);
+
+            // In background, fetch TMDB season details to enrich stills and update cards smoothly
+            window.api.invoke('tmdb-season-details', tvId, seasonNum).then(res => {
+                if (res && res.episodes && res.episodes.length > 0) {
+                    const map = {};
+                    res.episodes.forEach(ep => {
+                        if (ep.still_path) map[ep.episode_number] = ep.still_path;
+                    });
+                    applyTmdbStillsToCards(list, map, seasonNum);
+                }
+            }).catch(() => {});
+            return;
+        }
+
+        // 2. Not cached in memory yet: show realistic skeleton cards while fetching
+        if (list) {
+            list.innerHTML = renderEpisodeSkeletons(6);
         }
 
         let data = await window.api.invoke('tmdb-season-details', tvId, seasonNum).catch(() => null);
@@ -2462,7 +2404,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
         if (data && data.episodes && data.episodes.length > 0) {
             const listEl = document.getElementById('dd-unified-ep-list');
-            renderEpisodesInBatches(listEl, data.episodes, seasonNum, false);
+            if (listEl) renderEpisodesInBatches(listEl, data.episodes, seasonNum, false);
         } else {
             if (document.getElementById('dd-unified-ep-list')) {
                 document.getElementById('dd-unified-ep-list').innerHTML = '<div style="padding: 20px; color: var(--text-muted); text-align: center;">No episodes found.</div>';

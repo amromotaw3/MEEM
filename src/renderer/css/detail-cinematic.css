@@ -179,14 +179,15 @@
     position: fixed;
     top: 20px;
     bottom: 20px;
-    right: -500px;
+    right: 20px;
     width: 380px;
     background: #000000 !important;
     backdrop-filter: blur(32px) saturate(180%) !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 20px;
     z-index: 1000;
-    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.5s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.5s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    transform: translateX(calc(100% + 40px));
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -194,7 +195,7 @@
 }
 
 .dd-side-panel.active {
-    right: 20px;
+    transform: translateX(0);
 }
 
 .dd-panel-header {
@@ -473,6 +474,22 @@
     gap: 8px;
 }
 
+@keyframes ddEpCardIn {
+    0% {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes ddEpImgShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
 .dd-ep-card {
     display: flex;
     align-items: center;
@@ -482,10 +499,12 @@
     border-radius: 12px;
     padding: 8px 10px;
     cursor: pointer;
-    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
     position: relative;
     overflow: hidden;
     margin-bottom: 0px;
+    animation: ddEpCardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    will-change: transform, opacity;
 }
 
 .dd-ep-card:hover {
@@ -507,18 +526,92 @@
     overflow: hidden;
     flex-shrink: 0;
     box-shadow: 0 2px 8px rgba(0,0,0,0.6);
-    background: rgba(255, 255, 255, 0.03);
+    background: #0d0d12;
+}
+
+.dd-ep-img::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0.02) 100%);
+    background-size: 200% 100%;
+    animation: ddEpImgShimmer 1.8s infinite linear;
+    transition: opacity 0.25s ease;
+    z-index: 1;
+}
+
+.dd-ep-img.img-loaded::before {
+    opacity: 0;
+    pointer-events: none;
 }
 
 .dd-ep-img img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: transform 0.3s ease;
+    opacity: 0;
+    transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    z-index: 2;
+}
+
+.dd-ep-img img.is-ready {
+    opacity: 1;
 }
 
 .dd-ep-card:hover .dd-ep-img img {
     transform: scale(1.05);
+}
+
+/* Skeleton Loading Cards */
+.dd-ep-skeleton-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #000000 !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border-radius: 12px;
+    padding: 8px 10px;
+    margin-bottom: 0px;
+    position: relative;
+    overflow: hidden;
+    animation: ddEpCardIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.dd-ep-skeleton-thumb {
+    width: 100px;
+    height: 58px;
+    border-radius: 8px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
+    background-size: 200% 100%;
+    animation: ddEpImgShimmer 1.5s infinite linear;
+    flex-shrink: 0;
+}
+
+.dd-ep-skeleton-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dd-ep-skeleton-title {
+    width: 65%;
+    height: 13px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
+    background-size: 200% 100%;
+    animation: ddEpImgShimmer 1.5s infinite linear;
+}
+
+.dd-ep-skeleton-date {
+    width: 30%;
+    height: 10px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.02) 100%);
+    background-size: 200% 100%;
+    animation: ddEpImgShimmer 1.5s infinite linear;
 }
 
 .dd-ep-number {
