@@ -4411,16 +4411,38 @@
   async function loadAnimeSchedule(filterDay = '', forceRefresh = false) {
     const filterBtns = document.querySelectorAll('.anime-schedule-filter-btn');
     filterBtns.forEach(btn => {
-      if (btn.dataset.day === filterDay) {
+      const isMatch = (btn.dataset.day || '') === (filterDay || '');
+      const isUpcomingBtn = btn.dataset.day === 'upcoming';
+
+      if (isMatch) {
         btn.classList.add('active');
-        btn.style.background = '#fff';
-        btn.style.color = '#000';
-        btn.style.fontWeight = '800';
+        if (isUpcomingBtn) {
+          btn.style.background = '#00adb5';
+          btn.style.color = '#ffffff';
+          btn.style.borderColor = '#00adb5';
+          btn.style.boxShadow = '0 0 12px rgba(0, 173, 181, 0.4)';
+          btn.style.fontWeight = '700';
+        } else {
+          btn.style.background = 'var(--accent, #6366f1)';
+          btn.style.color = '#ffffff';
+          btn.style.borderColor = 'var(--accent, #6366f1)';
+          btn.style.boxShadow = '0 0 12px rgba(99, 102, 241, 0.35)';
+          btn.style.fontWeight = '700';
+        }
       } else {
         btn.classList.remove('active');
-        btn.style.background = 'rgba(255,255,255,0.06)';
-        btn.style.color = '#fff';
-        btn.style.fontWeight = '600';
+        btn.style.boxShadow = 'none';
+        if (isUpcomingBtn) {
+          btn.style.background = 'rgba(0, 173, 181, 0.15)';
+          btn.style.color = '#00adb5';
+          btn.style.borderColor = 'rgba(0, 173, 181, 0.4)';
+          btn.style.fontWeight = '600';
+        } else {
+          btn.style.background = 'rgba(255,255,255,0.06)';
+          btn.style.color = '#ffffff';
+          btn.style.borderColor = 'rgba(255,255,255,0.12)';
+          btn.style.fontWeight = '600';
+        }
       }
     });
 
