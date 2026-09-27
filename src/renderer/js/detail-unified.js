@@ -609,7 +609,7 @@ function setupUnifiedSkeleton(container, item) {
                                     </button>
                                     <div id="dd-create-list-input-container" style="display: none; align-items: center; gap: 6px; width: 100%;">
                                         <input type="text" id="new-list-name-input" placeholder="List name..." style="flex: 1; min-width: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; padding: 6px 10px; font-size: 12px; font-weight: 600; outline: none;">
-                                        <button id="btn-submit-new-list" type="button" style="background: linear-gradient(135deg, #00adb5 0%, #00f2fe 100%); border: none; color: #fff; padding: 6px 12px; font-size: 11px; font-weight: 800; border-radius: 8px; cursor: pointer; transition: all 0.2s;">Create</button>
+                                        <button id="btn-submit-new-list" type="button" style="background: #ffffff; border: none; color: #000000; padding: 6px 14px; font-size: 11px; font-weight: 800; border-radius: 8px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 10px rgba(255,255,255,0.2);">Create</button>
                                     </div>
                                 </div>
                             </div>
@@ -1785,7 +1785,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
             <div style="display: flex; flex-direction: column; height: 100%; overflow: hidden;">
                 <div style="padding: 15px; display: flex; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.01);">
                     <input type="text" id="panel-new-list-input" placeholder="Create new collection..." style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; padding: 10px 14px; font-size: 13px; font-weight: 600; outline: none; transition: border-color 0.2s;">
-                    <button id="panel-btn-create-list" style="background: linear-gradient(135deg, #00adb5 0%, #00f2fe 100%); border: none; color: #fff; padding: 10px 18px; font-size: 13px; font-weight: 800; border-radius: 10px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 15px rgba(0, 173, 181, 0.3);">Create</button>
+                    <button id="panel-btn-create-list" style="background: #ffffff; border: none; color: #000000; padding: 10px 18px; font-size: 13px; font-weight: 800; border-radius: 10px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 15px rgba(255, 255, 255, 0.25);">Create</button>
                 </div>
                 <div id="panel-lists-scroll" style="display: flex; flex-direction: column; gap: 12px; padding: 15px; overflow-y: auto; flex: 1;"></div>
             </div>

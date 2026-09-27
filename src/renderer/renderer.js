@@ -8638,23 +8638,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     const overlay = document.createElement('div');
     overlay.id = 'add-to-list-modal-overlay';
-    overlay.className = 'modal-overlay';
-    overlay.style.cssText = `
-      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-      z-index: 10000; display: flex; align-items: center; justify-content: center;
-      padding: 20px; animation: fadeIn 0.2s ease;
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(5,5,8,0.88);backdrop-filter:blur(35px);-webkit-backdrop-filter:blur(35px);display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s ease;';
+    overlay.innerHTML = `
+      <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
+        <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+          <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
+        </svg>
+      </div>
+      <div id="add-to-list-modal-box" style="background:rgba(255,255,255,0.03);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border:1px solid rgba(255,255,255,0.1);border-radius:36px;padding:36px 32px;width:500px;max-width:92vw;box-shadow:0 40px 100px rgba(0,0,0,0.85);display:flex;flex-direction:column;gap:18px;position:relative;z-index:2;color:#fff;"></div>
     `;
 
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.style.cssText = `
-      width: 420px; max-width: 95vw; background: var(--bg-card, #14141f);
-      border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px;
-      padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.8);
-      display: flex; flex-direction: column; gap: 16px; color: #fff;
-    `;
-
+    const modalBox = overlay.querySelector('#add-to-list-modal-box');
     const title = item.title || item.name || item.original_title || 'Item';
 
     const renderContent = () => {
@@ -8662,63 +8657,83 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const isW = typeof isItemWatched === 'function' ? isItemWatched(item, currentProfile) : false;
       const customLists = (currentProfile.custom_lists || []).filter(l => l.type !== 'music');
 
-      modal.innerHTML = `
-        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px;">
-          <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
-            <i class="fas fa-folder-plus" style="color: var(--accent, #6366f1); font-size: 1.2rem; flex-shrink: 0;"></i>
-            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800;">Add to List / Collection</h3>
-              <p style="margin: 2px 0 0; font-size: 0.8rem; color: var(--text-muted, rgba(255,255,255,0.6)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(title)}</p>
+      modalBox.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:18px;">
+          <div style="display:flex;align-items:center;gap:14px;overflow:hidden;">
+            <div style="width:52px;height:52px;border-radius:18px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <i class="fas fa-folder-plus" style="color:#ffffff;font-size:22px;"></i>
+            </div>
+            <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              <h3 style="margin:0;font-size:1.35rem;font-weight:800;color:#fff;letter-spacing:-0.4px;">Add to List / Collection</h3>
+              <p style="margin:3px 0 0;font-size:0.85rem;color:rgba(255,255,255,0.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(title)}</p>
             </div>
           </div>
-          <button id="add-to-list-close" style="background: rgba(255,255,255,0.1); border: none; color: #fff; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;">
-            <i class="fas fa-times"></i>
+          <button id="add-to-list-close" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14);color:rgba(255,255,255,0.75);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)';this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.color='rgba(255,255,255,0.75)';">
+            <i class="fas fa-times" style="font-size:14px;"></i>
           </button>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 4px;">
+        <div style="display:flex;flex-direction:column;gap:10px;max-height:280px;overflow-y:auto;padding-right:4px;">
           <!-- My List -->
-          <div class="list-modal-row" data-type="watchlist" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: ${isWl ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.04)'}; border: 1px solid ${isWl ? 'rgba(99, 102, 241, 0.5)' : 'rgba(255,255,255,0.08)'}; cursor: pointer; transition: all 0.2s;">
-            <span style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.9rem;">
-              <i class="fas fa-bookmark" style="color: ${isWl ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.5)'}"></i> My List (Watching)
+          <div class="list-modal-row ${isWl ? 'active' : ''}" data-type="watchlist" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-radius:18px;background:${isWl ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.03)'};border:1px solid ${isWl ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.08)'};cursor:pointer;transition:all 0.2s;box-shadow:${isWl ? '0 4px 18px rgba(0,0,0,0.35)' : 'none'};">
+            <span style="display:flex;align-items:center;gap:12px;font-weight:${isWl ? '800' : '600'};font-size:0.95rem;color:${isWl ? '#ffffff' : 'rgba(255,255,255,0.85)'};">
+              <i class="fas fa-bookmark" style="color:#ffffff;opacity:${isWl ? '1' : '0.55'};font-size:1.05rem;"></i> My List (Watching)
             </span>
-            <i class="fas fa-${isWl ? 'check-circle' : 'circle'}" style="font-size: 1.1rem; color: ${isWl ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.2)'}"></i>
+            <i class="fas ${isWl ? 'fa-check-circle' : 'fa-circle'}" style="font-size:1.15rem;color:${isWl ? '#ffffff' : 'rgba(255,255,255,0.2)'};${isWl ? 'filter:drop-shadow(0 0 6px rgba(255,255,255,0.5));' : ''}"></i>
           </div>
 
           <!-- Watched -->
-          <div class="list-modal-row" data-type="watched" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: ${isW ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.04)'}; border: 1px solid ${isW ? 'rgba(16, 185, 129, 0.5)' : 'rgba(255,255,255,0.08)'}; cursor: pointer; transition: all 0.2s;">
-            <span style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.9rem;">
-              <i class="fas fa-eye" style="color: ${isW ? '#10b981' : 'rgba(255,255,255,0.5)'}"></i> Watched
+          <div class="list-modal-row ${isW ? 'active' : ''}" data-type="watched" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-radius:18px;background:${isW ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.03)'};border:1px solid ${isW ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.08)'};cursor:pointer;transition:all 0.2s;box-shadow:${isW ? '0 4px 18px rgba(0,0,0,0.35)' : 'none'};">
+            <span style="display:flex;align-items:center;gap:12px;font-weight:${isW ? '800' : '600'};font-size:0.95rem;color:${isW ? '#ffffff' : 'rgba(255,255,255,0.85)'};">
+              <i class="fas fa-eye" style="color:#ffffff;opacity:${isW ? '1' : '0.55'};font-size:1.05rem;"></i> Watched
             </span>
-            <i class="fas fa-${isW ? 'check-circle' : 'circle'}" style="font-size: 1.1rem; color: ${isW ? '#10b981' : 'rgba(255,255,255,0.2)'}"></i>
+            <i class="fas ${isW ? 'fa-check-circle' : 'fa-circle'}" style="font-size:1.15rem;color:${isW ? '#ffffff' : 'rgba(255,255,255,0.2)'};${isW ? 'filter:drop-shadow(0 0 6px rgba(255,255,255,0.5));' : ''}"></i>
           </div>
 
           <!-- Custom Collections -->
-          ${customLists.length > 0 ? `<div style="font-size: 0.72rem; font-weight: 800; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px; padding: 0 4px;">My Collections</div>` : ''}
+          ${customLists.length > 0 ? `<div style="font-size:0.75rem;font-weight:800;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1px;margin-top:8px;padding-left:4px;">My Collections</div>` : ''}
           ${customLists.map(cl => {
             const inCl = (cl.items || []).some(ci => isSameItem(ci, item));
             return `
-              <div class="list-modal-row" data-type="custom" data-list-id="${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: ${inCl ? 'rgba(0, 173, 181, 0.2)' : 'rgba(255,255,255,0.04)'}; border: 1px solid ${inCl ? 'rgba(0, 173, 181, 0.5)' : 'rgba(255,255,255,0.08)'}; cursor: pointer; transition: all 0.2s;">
-                <span style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <i class="fas fa-layer-group" style="color: ${inCl ? '#00adb5' : 'rgba(255,255,255,0.5)'}"></i> ${escapeHTML(cl.name)}
-                  <span style="font-size: 0.75rem; color: rgba(255,255,255,0.4); font-weight: 600;">(${(cl.items || []).length})</span>
+              <div class="list-modal-row ${inCl ? 'active' : ''}" data-type="custom" data-list-id="${cl.id}" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-radius:18px;background:${inCl ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.03)'};border:1px solid ${inCl ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.08)'};cursor:pointer;transition:all 0.2s;box-shadow:${inCl ? '0 4px 18px rgba(0,0,0,0.35)' : 'none'};">
+                <span style="display:flex;align-items:center;gap:12px;font-weight:${inCl ? '800' : '600'};font-size:0.95rem;color:${inCl ? '#ffffff' : 'rgba(255,255,255,0.85)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                  <i class="fas fa-layer-group" style="color:#ffffff;opacity:${inCl ? '1' : '0.55'};font-size:1.05rem;"></i> ${escapeHTML(cl.name)}
+                  <span style="font-size:0.78rem;color:rgba(255,255,255,0.45);font-weight:600;">(${(cl.items || []).length})</span>
                 </span>
-                <i class="fas fa-${inCl ? 'check-circle' : 'circle'}" style="font-size: 1.1rem; color: ${inCl ? '#00adb5' : 'rgba(255,255,255,0.2)'}"></i>
+                <i class="fas ${inCl ? 'fa-check-circle' : 'fa-circle'}" style="font-size:1.15rem;color:${inCl ? '#ffffff' : 'rgba(255,255,255,0.2)'};${inCl ? 'filter:drop-shadow(0 0 6px rgba(255,255,255,0.5));' : ''}"></i>
               </div>
             `;
           }).join('')}
         </div>
 
         <!-- Create New List Form -->
-        <div style="display: flex; gap: 8px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 14px;">
-          <input type="text" id="modal-new-list-name" placeholder="Create new collection..." style="flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; color: #fff; padding: 10px 14px; font-size: 0.85rem; outline: none;">
-          <button id="modal-create-list-btn" style="background: var(--accent, #6366f1); border: none; color: #fff; border-radius: 10px; padding: 10px 16px; font-size: 0.85rem; font-weight: 800; cursor: pointer; flex-shrink: 0;">+ Create</button>
+        <div style="display:flex;gap:10px;border-top:1px solid rgba(255,255,255,0.08);padding-top:18px;margin-top:2px;">
+          <input type="text" id="modal-new-list-name" placeholder="Create new collection..." style="flex:1;min-width:0;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.18);border-radius:16px;color:#fff;padding:14px 18px;font-size:0.95rem;font-weight:600;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='rgba(255,255,255,0.4)';" onblur="this.style.borderColor='rgba(255,255,255,0.18)';">
+          <button id="modal-create-list-btn" style="padding:14px 24px;background:#ffffff !important;color:#000000 !important;border:none;border-radius:16px;font-size:0.95rem;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(255,255,255,0.3);display:flex;align-items:center;gap:6px;transition:all 0.2s;flex-shrink:0;" onmouseover="this.style.background='#f4f4f5 !important';this.style.transform='translateY(-1px)';" onmouseout="this.style.background='#ffffff !important';this.style.transform='none';">
+            <i class="fas fa-plus" style="color:#000000;font-size:13px;"></i> Create
+          </button>
         </div>
       `;
 
-      modal.querySelector('#add-to-list-close').onclick = () => overlay.remove();
+      const closeBtn = modalBox.querySelector('#add-to-list-close');
+      if (closeBtn) closeBtn.onclick = () => overlay.remove();
 
-      modal.querySelectorAll('.list-modal-row').forEach(row => {
+      modalBox.querySelectorAll('.list-modal-row').forEach(row => {
+        row.onmouseenter = () => {
+          if (!row.classList.contains('active')) {
+            row.style.background = 'rgba(255, 255, 255, 0.07)';
+            row.style.borderColor = 'rgba(255, 255, 255, 0.18)';
+            row.style.transform = 'translateY(-1px)';
+          }
+        };
+        row.onmouseleave = () => {
+          if (!row.classList.contains('active')) {
+            row.style.background = 'rgba(255, 255, 255, 0.03)';
+            row.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+            row.style.transform = 'none';
+          }
+        };
+
         row.onclick = () => {
           const type = row.dataset.type;
           if (type === 'watchlist') {
@@ -8770,12 +8785,15 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
               }
             }
           }
+          if (typeof updateSearchPreview === 'function' && $('#search-preview-panel.active')) {
+            updateSearchPreview(item);
+          }
           renderContent();
         };
       });
 
-      const newListNameInput = modal.querySelector('#modal-new-list-name');
-      const createBtn = modal.querySelector('#modal-create-list-btn');
+      const newListNameInput = modalBox.querySelector('#modal-new-list-name');
+      const createBtn = modalBox.querySelector('#modal-create-list-btn');
 
       const handleCreate = () => {
         const name = newListNameInput.value.trim();
@@ -8795,17 +8813,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         currentProfile.custom_lists.push(newList);
         persist(true);
         showToast(`Created collection "${name}" and added item!`);
+        if (typeof updateSearchPreview === 'function' && $('#search-preview-panel.active')) {
+          updateSearchPreview(item);
+        }
         renderContent();
       };
 
-      createBtn.onclick = handleCreate;
-      newListNameInput.onkeydown = (e) => {
-        if (e.key === 'Enter') handleCreate();
-      };
+      if (createBtn) createBtn.onclick = handleCreate;
+      if (newListNameInput) {
+        newListNameInput.onkeydown = (e) => {
+          if (e.key === 'Enter') handleCreate();
+        };
+      }
     };
 
     renderContent();
-    overlay.appendChild(modal);
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);
   };
@@ -18944,19 +18966,20 @@ function performUnifiedSearch(q) {
       position: absolute;
       bottom: calc(100% + 10px);
       right: 0;
-      width: 280px;
-      max-height: 380px;
-      background: rgba(18, 18, 28, 0.94);
-      backdrop-filter: blur(24px) saturate(180%);
-      -webkit-backdrop-filter: blur(24px) saturate(180%);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 18px;
-      padding: 14px;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 25px rgba(99, 102, 241, 0.15);
+      width: 310px;
+      max-height: 420px;
+      background: rgba(12, 12, 18, 0.96);
+      backdrop-filter: blur(40px);
+      -webkit-backdrop-filter: blur(40px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 22px;
+      padding: 16px;
+      box-shadow: 0 30px 70px rgba(0, 0, 0, 0.9);
       z-index: 1000;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
+      color: #fff;
       animation: ddMenuFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     `;
 
@@ -18967,30 +18990,30 @@ function performUnifiedSearch(q) {
       const customLists = (profile.custom_lists || []).filter(l => l.type !== 'music');
 
       let html = `
-        <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.8px; padding: 2px 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.08);">
-          <i class="fas fa-folder-plus" style="color: var(--accent, #6366f1); font-size: 13px;"></i> Add to Collection / List
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 11.5px; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.8px; padding: 2px 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <i class="fas fa-folder-plus" style="color: #ffffff; font-size: 14px;"></i> Add to Collection / List
         </div>
         
-        <div style="display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; padding-right: 2px;">
-          <button class="search-list-opt ${isWl ? 'active' : ''}" data-type="watchlist" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: ${isWl ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(99, 102, 241, 0.1))' : 'rgba(255, 255, 255, 0.04)'}; border: 1px solid ${isWl ? 'rgba(99, 102, 241, 0.5)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; transition: all 0.2s ease;">
-            <span style="display: flex; align-items: center; gap: 10px;"><i class="fas fa-bookmark" style="color: ${isWl ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.5)'}"></i> My List</span>
-            <i class="fas fa-${isWl ? 'check-circle' : 'circle'}" style="font-size: 13px; color: ${isWl ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.2)'}"></i>
+        <div style="display: flex; flex-direction: column; gap: 8px; max-height: 230px; overflow-y: auto; padding-right: 2px;">
+          <button class="search-list-opt ${isWl ? 'active' : ''}" data-type="watchlist" style="display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-radius: 14px; background: ${isWl ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${isWl ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: ${isWl ? '800' : '600'}; text-align: left; transition: all 0.2s ease;">
+            <span style="display: flex; align-items: center; gap: 10px;"><i class="fas fa-bookmark" style="color: #ffffff; opacity: ${isWl ? '1' : '0.55'};"></i> My List</span>
+            <i class="fas ${isWl ? 'fa-check-circle' : 'fa-circle'}" style="font-size: 13px; color: ${isWl ? '#ffffff' : 'rgba(255,255,255,0.2)'};"></i>
           </button>
 
-          <button class="search-list-opt ${isWatched ? 'active' : ''}" data-type="watched" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: ${isWatched ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(16, 185, 129, 0.1))' : 'rgba(255, 255, 255, 0.04)'}; border: 1px solid ${isWatched ? 'rgba(16, 185, 129, 0.5)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; transition: all 0.2s ease;">
-            <span style="display: flex; align-items: center; gap: 10px;"><i class="fas fa-eye" style="color: ${isWatched ? '#10b981' : 'rgba(255,255,255,0.5)'}"></i> Watched</span>
-            <i class="fas fa-${isWatched ? 'check-circle' : 'circle'}" style="font-size: 13px; color: ${isWatched ? '#10b981' : 'rgba(255,255,255,0.2)'}"></i>
+          <button class="search-list-opt ${isWatched ? 'active' : ''}" data-type="watched" style="display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-radius: 14px; background: ${isWatched ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${isWatched ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: ${isWatched ? '800' : '600'}; text-align: left; transition: all 0.2s ease;">
+            <span style="display: flex; align-items: center; gap: 10px;"><i class="fas fa-eye" style="color: #ffffff; opacity: ${isWatched ? '1' : '0.55'};"></i> Watched</span>
+            <i class="fas ${isWatched ? 'fa-check-circle' : 'fa-circle'}" style="font-size: 13px; color: ${isWatched ? '#ffffff' : 'rgba(255,255,255,0.2)'};"></i>
           </button>
       `;
 
       if (customLists.length > 0) {
-        html += `<div style="font-size: 10.5px; font-weight: 800; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; letter-spacing: 0.6px; padding: 6px 4px 2px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;">Custom Collections</div>`;
+        html += `<div style="font-size: 10.5px; font-weight: 800; color: rgba(255, 255, 255, 0.45); text-transform: uppercase; letter-spacing: 0.8px; padding: 6px 4px 2px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;">Custom Collections</div>`;
         customLists.forEach(cl => {
           const inCl = (cl.items || []).some(ci => isSameItem(ci, item));
           html += `
-            <button class="search-list-opt ${inCl ? 'active' : ''}" data-type="custom" data-list-id="${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: ${inCl ? 'linear-gradient(135deg, rgba(0, 173, 181, 0.25), rgba(0, 173, 181, 0.1))' : 'rgba(255, 255, 255, 0.04)'}; border: 1px solid ${inCl ? 'rgba(0, 173, 181, 0.5)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; transition: all 0.2s ease;">
-              <span style="display: flex; align-items: center; gap: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="fas fa-layer-group" style="color: ${inCl ? '#00adb5' : 'rgba(255,255,255,0.5)'}"></i> ${escapeHTML(cl.name)}</span>
-              <i class="fas fa-${inCl ? 'check-circle' : 'circle'}" style="font-size: 13px; color: ${inCl ? '#00adb5' : 'rgba(255,255,255,0.2)'}"></i>
+            <button class="search-list-opt ${inCl ? 'active' : ''}" data-type="custom" data-list-id="${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-radius: 14px; background: ${inCl ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${inCl ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: ${inCl ? '800' : '600'}; text-align: left; transition: all 0.2s ease;">
+              <span style="display: flex; align-items: center; gap: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="fas fa-layer-group" style="color: #ffffff; opacity: ${inCl ? '1' : '0.55'};"></i> ${escapeHTML(cl.name)}</span>
+              <i class="fas ${inCl ? 'fa-check-circle' : 'fa-circle'}" style="font-size: 13px; color: ${inCl ? '#ffffff' : 'rgba(255,255,255,0.2)'};"></i>
             </button>
           `;
         });
@@ -18998,9 +19021,9 @@ function performUnifiedSearch(q) {
 
       html += `
         </div>
-        <div style="display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-          <input type="text" id="search-new-list-name" placeholder="New collection name..." style="flex: 1; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px; color: #fff; padding: 8px 12px; font-size: 12px; outline: none;">
-          <button id="search-create-list-btn" style="background: var(--accent, #6366f1); border: none; color: #ffffff; border-radius: 10px; padding: 8px 14px; font-size: 12px; font-weight: 800; cursor: pointer; transition: transform 0.15s; flex-shrink: 0;">Add</button>
+        <div style="display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+          <input type="text" id="search-new-list-name" placeholder="New collection name..." style="flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px; color: #fff; padding: 9px 12px; font-size: 12px; font-weight: 600; outline: none;">
+          <button id="search-create-list-btn" style="background: #ffffff !important; border: none; color: #000000 !important; border-radius: 12px; padding: 9px 16px; font-size: 12px; font-weight: 800; cursor: pointer; transition: all 0.15s; flex-shrink: 0; box-shadow: 0 2px 10px rgba(255,255,255,0.2);">Add</button>
         </div>
       `;
 
@@ -19008,6 +19031,19 @@ function performUnifiedSearch(q) {
 
       // Bind events
       menu.querySelectorAll('.search-list-opt').forEach(btn => {
+        btn.onmouseenter = () => {
+          if (!btn.classList.contains('active')) {
+            btn.style.background = 'rgba(255, 255, 255, 0.07)';
+            btn.style.borderColor = 'rgba(255, 255, 255, 0.18)';
+          }
+        };
+        btn.onmouseleave = () => {
+          if (!btn.classList.contains('active')) {
+            btn.style.background = 'rgba(255, 255, 255, 0.03)';
+            btn.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+          }
+        };
+
         btn.onclick = async (e) => {
           e.stopPropagation();
           const type = btn.dataset.type;
@@ -19243,7 +19279,7 @@ function performUnifiedSearch(q) {
       if (wlBtn) {
         wlBtn.onclick = (e) => {
           e.stopPropagation();
-          openSearchItemListsMenu(item, wlBtn);
+          window.showAddToListModal(item);
         };
       }
     };

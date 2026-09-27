@@ -1750,19 +1750,20 @@
 }
 
 .panel-collection-card.active {
-  border-color: #00adb5 !important;
-  background: rgba(0, 173, 181, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
 }
 
 .panel-collection-card:hover {
   transform: translateY(-2px) !important;
-  border-color: #00adb5 !important;
-  background: rgba(255, 255, 255, 0.05) !important;
-  box-shadow: 0 6px 20px rgba(0, 173, 181, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.08) !important;
 }
 
 .panel-collection-card.active:hover {
-  background: rgba(0, 173, 181, 0.12) !important;
+  background: rgba(255, 255, 255, 0.16) !important;
 }
 
 
@@ -1783,8 +1784,9 @@
 }
 
 .panel-collection-card.active .card-checkbox {
-  border-color: #00adb5 !important;
-  background: #00adb5 !important;
+  border-color: #ffffff !important;
+  background: #ffffff !important;
+  color: #000000 !important;
 }
 
 
