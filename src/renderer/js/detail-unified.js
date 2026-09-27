@@ -300,7 +300,7 @@ window.renderUnifiedDetail = async function(item) {
             anilist = await window.api.invoke('anilist-media-detailed', { title: item.title_english || item.title || item.name }).catch(() => null);
         } else {
             // Western Media: Cinemeta metadata + Fanart.tv enhancement + Direct TMDB (for guaranteed 4K backdrops & official logos)
-            const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+            const tmdbKey = window.appData?.tmdbKey || null;
             const fetchTmdbDetails = async () => {
                 try {
                     let tid = item.tmdbId || item.tmdb_id || (cinemetaId && /^\d+$/.test(String(cinemetaId)) ? cinemetaId : null);
@@ -1563,8 +1563,8 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         if (_tmdbStillCache[cacheKey]) return _tmdbStillCache[cacheKey]; // already fetched
         _tmdbStillCache[cacheKey] = {}; // mark as fetching (empty map prevents duplicate requests)
         try {
-            const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
-            if (!showId) return {};
+            const tmdbKey = window.appData?.tmdbKey || null;
+            if (!tmdbKey || !showId) return {};
             // Resolve TMDB TV ID from IMDB ID if needed
             let tvId = null;
             if (String(showId).startsWith('tt')) {

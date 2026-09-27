@@ -3736,8 +3736,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
       } else if (isBannerMode) {
         // ─── BANNER MODE: Multi-source search (TMDB + Cinemeta) ───
-        const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
-        if (hasTmdb || tmdbKey) {
+        const tmdbKey = appData.tmdbKey || null;
+        if (tmdbKey) {
           try {
             const searchRes = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(q)}`).then(r => r.json());
             if (Array.isArray(searchRes?.results)) {
@@ -4228,7 +4228,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
 
       // 4. Fetch ALL backdrops from TMDB with active key fallback
-      const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+      const tmdbKey = appData.tmdbKey || null;
       if (tmdbKey) {
         try {
           let tmdbId = item.tmdbId;

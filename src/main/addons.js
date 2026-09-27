@@ -92,7 +92,8 @@ async function resolveTmdbToImdb(rawId, type, customTmdbKey = null) {
     const isSeries = type === 'series' || type === 'tv';
     const tmdbType = isSeries ? 'tv' : 'movie';
     const stremioType = isSeries ? 'series' : 'movie';
-    const tmdbKey = customTmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+    const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
+    const tmdbKey = customTmdbKey || appData.tmdbKey || null;
 
     // 1. Direct TMDB API v3 lookup (Fast & Highly Reliable, <200ms)
     if (tmdbKey) {
@@ -554,7 +555,7 @@ function initAddonsIpc(ipcMain, store) {
             const q = encodeURIComponent(query.trim());
             const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
             const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
-            const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+            const tmdbKey = appData.tmdbKey || null;
 
             // Cinemeta is the universal default catalog unless specifically disabled
             const cinemetaDisabled = installed.some(a => {

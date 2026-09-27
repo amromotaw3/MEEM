@@ -17,7 +17,7 @@
       if (!imdbId || !String(imdbId).startsWith('tt')) return null;
       if (tmdbShowIdCache[imdbId]) return tmdbShowIdCache[imdbId];
 
-      const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+      const tmdbKey = appData.tmdbKey || null;
       if (!tmdbKey) return null;
 
       try {
@@ -39,7 +39,7 @@
 
     // Fetch specific episode still/metadata from TMDB
     async fetchTmdbStill(imdbId, episodeNum, seasonNum = 1) {
-      const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+      const tmdbKey = appData.tmdbKey || null;
       if (!tmdbKey) return null;
 
       try {
@@ -1255,7 +1255,7 @@
       const isAnime = item.type === 'anime' || item.source === 'jikan' || item.source === 'kitsu' || item.source === 'mal' || item.source === 'anilist';
       const heroType = isAnime ? 'tv' : (item.media_type || item.type || (item.title ? 'movie' : 'tv'));
       const normalizedType = (heroType === 'series' || heroType === 'tv') ? 'tv' : 'movie';
-      const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+      const tmdbKey = window.appData?.tmdbKey || null;
 
       if (isAnime) {
         const queryTitle = item.title_english || item.title || item.name || '';
@@ -1718,7 +1718,8 @@
     
     const fetchTmdbShelfAndRender = async (selector, endpoint, defaultType = 'movie', isTop10 = false, fallbackCinemetaId = null) => {
       if (!hasCatalog) return;
-      const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+      const tmdbKey = window.appData?.tmdbKey || null;
+      if (!tmdbKey) return;
       try {
         const url = `https://api.themoviedb.org/3/${endpoint}${endpoint.includes('?') ? '&' : '?'}api_key=${tmdbKey}`;
         const resp = await fetch(url, { signal: AbortSignal.timeout(6500) });
@@ -3103,7 +3104,7 @@
       container.appendChild(el);
     });
 
-    const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+    const tmdbKey = appData.tmdbKey || null;
     const overrideEnabled = appData.tmdbEnabled !== false;
     const imdbId = meta.imdb_id || meta.id || '';
 

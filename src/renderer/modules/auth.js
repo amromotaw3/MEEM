@@ -4002,7 +4002,7 @@
 
         // E. TMDB Backdrops (using verified active API key fallback)
         const tmdbEnabled = appData.tmdbEnabled !== false;
-        const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+        const tmdbKey = appData.tmdbKey || null;
         if (tmdbEnabled && tmdbKey) {
           try {
             let actualTmdbId = tmdbId;
