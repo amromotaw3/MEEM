@@ -107,9 +107,9 @@
 
   // Primary Ultra-Fast Groq Models
   const GROQ_MODELS = [
-    'openai/gpt-oss-120b',
-    'qwen/qwen3.8-27b',
-    'openai/gpt-oss-20b'
+    'llama-3.3-70b-versatile',
+    'qwen-2.5-coder-32b',
+    'llama-3.1-8b-instant'
   ];
 
   // Secondary Gemini Models
@@ -1429,16 +1429,19 @@ CRITICAL RULES FOR DEEP EMOTIONAL DISCUSSIONS & REACTION:
   1. EMPATHIZE & ENGAGE WITH DEEP PASSION: Talk warmly and deeply about that specific work! Discuss iconic character arcs, emotional climaxes, soundtrack themes, or key scenes (e.g., for Clannad: After Story, the flower field scene with Tomoya & Ushio, Nagisa's journey; for Breaking Bad: Ozymandias, Walter's evolution).
   2. ASK INSIGHTFUL QUESTIONS: Ask the user about their personal reaction to specific moments or characters (e.g. "مين أكتر شخصية أثرت فيك؟", "إيه رأيك في مشهد كذا؟").
   3. PROACTIVE PROFILE INTELLIGENCE: Ask or offer to record it in their Watched history (\`mark_as_watched\`) or remove it from Watchlist!
-  4. ADAPTIVE LANGUAGE & DIALECT MATCHING: Match the user's dialect (Egyptian, Saudi/Gulf, Levantine, Modern Standard Arabic, English) organically.
+CRITICAL RULES FOR LANGUAGE MATCHING:
+- STRICT MULTILINGUAL & DIALECT ADAPTATION: YOU MUST ALWAYS RESPOND IN THE EXACT SAME LANGUAGE AND DIALECT USED BY THE USER IN THEIR MESSAGE.
+  * If the user speaks Egyptian Arabic (e.g. "اقترح لي 100 انمي", "عاوز افلام كوميدي", "شغلي اغنية"): Respond ONLY in natural Egyptian Arabic.
+  * If the user speaks Gulf / Saudi / Levantine / Standard Arabic: Respond ONLY in that matching Arabic dialect.
+  * If the user speaks English, French, Spanish, German, Japanese, Russian, etc.: Respond ONLY in that exact language.
+  * NEVER default to English or switch languages unless the user explicitly switches languages!
 
-CRITICAL RULES FOR USER PREFERENCES & MEMORY:
-- When the user tells you a preference, favorite actor/genre/director, or habit:
-  Call \`remember_user_preference(preference="...")\` to store it in their long-term memory matrix.
-- If user asks to forget a preference, call \`forget_user_preference(preference="...")\`.
-
-CRITICAL RULES FOR NO-SPOILER EPISODE COMPANION:
-- When the user asks about a show or episode they are currently watching (e.g. "أنا عند الحلقة 5 سيزون 1 في Attack on Titan"):
-  ALWAYS answer questions, clarify plot points, or describe characters strictly up to that episode with 0 spoilers for any future episodes or seasons!
+CRITICAL RULES FOR LARGE QUANTITY REQUESTS & LIST LIMITS:
+- HANDLING LARGE REQUESTS (e.g. "suggest 100 anime", "100 movies", "50 series"):
+  * High-count requests (like 50 or 100 items) exceed model token limits and cause timeouts/crashes if outputting all at once.
+  * When asked for a huge list (>15 items), present a top curated selection of 10-15 outstanding masterpieces right away with posters (\`recommend_media\`).
+  * Explain politely in the user's exact language that you are presenting the top 10-15 best picks first to keep recommendations high quality and avoid truncating, and invite them to ask for the next batch (e.g., "أنا كشفتلك عن أروع 10-15 أنمي، حابب أستمر وأجبلك المجموعة اللي بعدها؟").
+  * Limit the \`recommend_media\` tool call array to a maximum of 15 items per request.
 
 CRITICAL RULES FOR LIST MANAGEMENT & BATCH OPERATIONS:
 - BATCH OPERATIONS FOR LISTS: When creating a list with multiple movies/shows or adding multiple items to a list/watchlist, ALWAYS use the batch \`items: [...]\` array inside \`create_custom_list\` or \`add_to_custom_list\`.
@@ -1564,7 +1567,7 @@ IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Goog
       messages: messages,
       tools: tools,
       temperature: geminiBody.generationConfig?.temperature || 0.5,
-      max_tokens: geminiBody.generationConfig?.maxOutputTokens || 1500
+      max_tokens: geminiBody.generationConfig?.maxOutputTokens || 4096
     };
   }
 
@@ -2066,7 +2069,7 @@ Output ONLY the clean 2-4 word title, no quotes, no extra punctuation.`;
       tools: AI_TOOLS,
       generationConfig: {
         temperature: 0.5,
-        maxOutputTokens: 1500
+        maxOutputTokens: 4096
       }
     };
 
@@ -2169,7 +2172,7 @@ Output ONLY the clean 2-4 word title, no quotes, no extra punctuation.`;
         contents: conversationHistory,
         generationConfig: {
           temperature: 0.65,
-          maxOutputTokens: 1500
+          maxOutputTokens: 4096
         }
       };
 
