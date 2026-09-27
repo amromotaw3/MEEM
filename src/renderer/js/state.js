@@ -350,7 +350,7 @@ async function requestNativePlayback(item, show, extra = {}) {
         showTitle: showTitle,
         duration_ms: (typeof ep.duration === 'number') ? ep.duration * 1000 : 0
       };
-    }).filter(p => p.path); // keep only playable items
+    }); // keep all show episodes in playlist
 
     // Determine the index of the currently requested episode in the playlist
     const foundIdx = playlist.findIndex(p => {

@@ -118,7 +118,28 @@
     let playlistSource = [];
     let headerText = 'Playlist';
 
-    if (currentItem) {
+    if (currentItem && currentItem.type !== 'music' && !currentItem.isVideoMusic) {
+      headerText = 'Playlist';
+      if (currentItem.torrentFiles && currentItem.torrentFiles.length > 0) {
+        playlistSource = currentItem.torrentFiles.map((file, i) => ({
+          title: file.name || `File ${i + 1}`,
+          artist: (file.size / 1024 / 1024 / 1024).toFixed(2) + ' GB',
+          cover: currentItem.poster || currentItem.backdrop_path || null,
+          isVideoFile: true,
+          torrentFile: file,
+          idx: file.idx
+        }));
+      } else if (Array.isArray(window.currentPlaylist) && window.currentPlaylist.length > 0) {
+        playlistSource = window.currentPlaylist.map(p => ({
+          title: p.title || `Episode ${p.episode}`,
+          artist: p.showTitle || `S${p.season}E${p.episode}`,
+          cover: p.thumbnail || null,
+          playlistItem: p
+        }));
+      } else {
+        playlistSource = [currentItem];
+      }
+    } else if (currentItem) {
       if (currentItem.isSocial || currentItem.type === 'social') {
         playlistSource = [...(appData.socialVideos || [])];
         headerText = 'Social Media';
@@ -138,19 +159,20 @@
     }
 
     if (playlistSource.length === 0) {
-      container.innerHTML = `<div style="color:rgba(255,255,255,0.5);text-align:center;padding:40px 0;">No other songs available</div>`;
+      container.innerHTML = `<div style="color:rgba(255,255,255,0.5);text-align:center;padding:40px 0;">No items in playlist</div>`;
       return;
     }
 
     let html = `<div class="music-playlist-header"><i class="fas fa-list-ul" style="color:var(--accent)"></i> ${headerText} (${playlistSource.length})</div>`;
 
     playlistSource.forEach(item => {
-      const { title, artist, cover } = getMusicMeta(item);
-      const isActive = currentItem && (currentItem.id === item.id || currentItem.path === item.path);
-      const imgHtml = cover ? `<img src="${localImg(cover)}" class="music-playlist-item-img">` : `<div class="music-playlist-item-img" style="background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.5);"><i class="fas fa-music"></i></div>`;
+      const { title, artist, cover } = (item.playlistItem || item.torrentFile) ? item : getMusicMeta(item);
+      const isActive = currentItem && (currentItem.id === item.id || currentItem.path === item.path || (item.torrentFile && item.idx === currentItem.fileIdx));
+      const rawCover = cover || 'imgs/no-backdrop.png';
+      const imgHtml = `<img src="${localImg(rawCover)}" class="music-playlist-item-img" onerror="this.onerror=null; this.src='imgs/no-backdrop.png';">`;
 
       html += `
-        <div class="music-playlist-item ${isActive ? 'active' : ''}" data-id="${item.id || item.path}" data-path="${item.path}">
+        <div class="music-playlist-item ${isActive ? 'active' : ''}" data-id="${item.id || item.path || (item.torrentFile ? item.idx : '')}" data-path="${item.path || ''}">
           ${imgHtml}
           <div class="music-playlist-item-info">
             <div class="music-playlist-item-title">${escapeHTML(title)}</div>
@@ -163,13 +185,33 @@
 
     container.innerHTML = html;
 
-    container.querySelectorAll('.music-playlist-item').forEach(el => {
-      el.onclick = (e) => {
+    container.querySelectorAll('.music-playlist-item').forEach((el, index) => {
+      el.onclick = async (e) => {
         e.stopPropagation();
-        const targetId = el.dataset.id;
-        const targetPath = el.dataset.path;
-        const targetItem = playlistSource.find(m => m.id === targetId || m.path === targetPath);
-        if (targetItem) {
+        const targetItem = playlistSource[index];
+        if (targetItem?.torrentFile) {
+          showToast('Switching to: ' + targetItem.torrentFile.name);
+          const magnetToStart = currentItem?.torrentMagnet || null;
+          const idxToStart = targetItem.torrentFile.idx;
+          if (currentItem) await exitPlayer(false, true);
+          const res = await window.api.invoke('start-torrent-stream', magnetToStart, idxToStart);
+          if (res && res.success) {
+            const newUrl = (window.api.isElectron) ? (res.localUrl || res.url) : res.url;
+            playVideo({
+              ...(currentItem || {}),
+              path: newUrl,
+              url: newUrl,
+              title: targetItem.torrentFile.name || currentItem?.title || '',
+              fileIdx: idxToStart,
+              torrentFiles: res.files,
+              torrentMagnet: magnetToStart
+            }, currentShow);
+          } else {
+            showToast(res?.error || 'Failed to switch file');
+          }
+        } else if (targetItem?.playlistItem) {
+          playVideo(targetItem.playlistItem, currentShow);
+        } else if (targetItem) {
           playMusic(targetItem);
         }
       };
