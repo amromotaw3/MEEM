@@ -2173,10 +2173,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     const ll = $('#ctx-lock-label');
     if (ll) ll.textContent = (currentProfile?.lockedItems || []).includes(item.id) ? 'Unlock Item' : 'Lock Item';
 
-    // Group 1: Play & Pin
+    // Group 1: Play, Pin & Add to List
     let showDiv1 = false;
     if ($('#ctx-play')) { $('#ctx-play').style.setProperty('display', 'flex', 'important'); showDiv1 = true; }
     if ($('#ctx-pin')) { $('#ctx-pin').style.setProperty('display', 'flex', 'important'); showDiv1 = true; }
+    if ($('#ctx-add-list')) { $('#ctx-add-list').style.setProperty('display', 'flex', 'important'); showDiv1 = true; }
 
     // Group 2: Metadata / Customization (ONLY FOR LOCAL FILES & MUSIC)
     let showDiv2 = false;
@@ -8629,10 +8630,169 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Sleep Timer Removal requested by user
 
+  window.showAddToListModal = (item) => {
+    if (!item || !currentProfile) return;
+    
+    const existing = document.getElementById('add-to-list-modal-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'add-to-list-modal-overlay';
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = `
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      z-index: 10000; display: flex; align-items: center; justify-content: center;
+      padding: 20px; animation: fadeIn 0.2s ease;
+    `;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.cssText = `
+      width: 420px; max-width: 95vw; background: var(--bg-card, #14141f);
+      border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px;
+      padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+      display: flex; flex-direction: column; gap: 16px; color: #fff;
+    `;
+
+    const title = item.title || item.name || item.original_title || 'Item';
+
+    const renderContent = () => {
+      const isWl = (currentProfile.watchlist || []).some(w => isSameItem(w, item));
+      const isW = typeof isItemWatched === 'function' ? isItemWatched(item, currentProfile) : false;
+      const customLists = (currentProfile.custom_lists || []).filter(l => l.type !== 'music');
+
+      modal.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px;">
+          <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+            <i class="fas fa-folder-plus" style="color: var(--accent, #6366f1); font-size: 1.2rem; flex-shrink: 0;"></i>
+            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800;">Add to List / Collection</h3>
+              <p style="margin: 2px 0 0; font-size: 0.8rem; color: var(--text-muted, rgba(255,255,255,0.6)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(title)}</p>
+            </div>
+          </div>
+          <button id="add-to-list-close" style="background: rgba(255,255,255,0.1); border: none; color: #fff; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 4px;">
+          <!-- My List -->
+          <div class="list-modal-row" data-type="watchlist" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: ${isWl ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.04)'}; border: 1px solid ${isWl ? 'rgba(99, 102, 241, 0.5)' : 'rgba(255,255,255,0.08)'}; cursor: pointer; transition: all 0.2s;">
+            <span style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.9rem;">
+              <i class="fas fa-bookmark" style="color: ${isWl ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.5)'}"></i> My List (Watching)
+            </span>
+            <i class="fas fa-${isWl ? 'check-circle' : 'circle'}" style="font-size: 1.1rem; color: ${isWl ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.2)'}"></i>
+          </div>
+
+          <!-- Watched -->
+          <div class="list-modal-row" data-type="watched" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: ${isW ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.04)'}; border: 1px solid ${isW ? 'rgba(16, 185, 129, 0.5)' : 'rgba(255,255,255,0.08)'}; cursor: pointer; transition: all 0.2s;">
+            <span style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.9rem;">
+              <i class="fas fa-eye" style="color: ${isW ? '#10b981' : 'rgba(255,255,255,0.5)'}"></i> Watched
+            </span>
+            <i class="fas fa-${isW ? 'check-circle' : 'circle'}" style="font-size: 1.1rem; color: ${isW ? '#10b981' : 'rgba(255,255,255,0.2)'}"></i>
+          </div>
+
+          <!-- Custom Collections -->
+          ${customLists.length > 0 ? `<div style="font-size: 0.72rem; font-weight: 800; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px; padding: 0 4px;">My Collections</div>` : ''}
+          ${customLists.map(cl => {
+            const inCl = (cl.items || []).some(ci => isSameItem(ci, item));
+            return `
+              <div class="list-modal-row" data-type="custom" data-list-id="${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: ${inCl ? 'rgba(0, 173, 181, 0.2)' : 'rgba(255,255,255,0.04)'}; border: 1px solid ${inCl ? 'rgba(0, 173, 181, 0.5)' : 'rgba(255,255,255,0.08)'}; cursor: pointer; transition: all 0.2s;">
+                <span style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <i class="fas fa-layer-group" style="color: ${inCl ? '#00adb5' : 'rgba(255,255,255,0.5)'}"></i> ${escapeHTML(cl.name)}
+                  <span style="font-size: 0.75rem; color: rgba(255,255,255,0.4); font-weight: 600;">(${(cl.items || []).length})</span>
+                </span>
+                <i class="fas fa-${inCl ? 'check-circle' : 'circle'}" style="font-size: 1.1rem; color: ${inCl ? '#00adb5' : 'rgba(255,255,255,0.2)'}"></i>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Create New List Form -->
+        <div style="display: flex; gap: 8px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 14px;">
+          <input type="text" id="modal-new-list-name" placeholder="Create new collection..." style="flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; color: #fff; padding: 10px 14px; font-size: 0.85rem; outline: none;">
+          <button id="modal-create-list-btn" style="background: var(--accent, #6366f1); border: none; color: #fff; border-radius: 10px; padding: 10px 16px; font-size: 0.85rem; font-weight: 800; cursor: pointer; flex-shrink: 0;">+ Create</button>
+        </div>
+      `;
+
+      modal.querySelector('#add-to-list-close').onclick = () => overlay.remove();
+
+      modal.querySelectorAll('.list-modal-row').forEach(row => {
+        row.onclick = () => {
+          const type = row.dataset.type;
+          if (type === 'watchlist') {
+            toggleWatchlist(item);
+          } else if (type === 'watched') {
+            window.toggleUnifiedWatched(item);
+          } else if (type === 'custom') {
+            const listId = row.dataset.listId;
+            const cl = currentProfile.custom_lists?.find(l => l.id === listId);
+            if (cl) {
+              if (!cl.items) cl.items = [];
+              const idx = cl.items.findIndex(ci => isSameItem(ci, item));
+              if (idx >= 0) {
+                cl.items.splice(idx, 1);
+                showToast(`Removed from "${cl.name}"`);
+              } else {
+                cl.items.push(item);
+                showToast(`Added to "${cl.name}"`);
+              }
+              persist(true);
+              if (currentView === 'custom-list-detail' && activeCustomListId === listId) {
+                renderCustomListDetail(listId, true);
+              }
+            }
+          }
+          renderContent();
+        };
+      });
+
+      const newListNameInput = modal.querySelector('#modal-new-list-name');
+      const createBtn = modal.querySelector('#modal-create-list-btn');
+
+      const handleCreate = () => {
+        const name = newListNameInput.value.trim();
+        if (!name) return;
+        if (!currentProfile.custom_lists) currentProfile.custom_lists = [];
+        const exists = currentProfile.custom_lists.some(l => l.name.toLowerCase() === name.toLowerCase());
+        if (exists) {
+          showToast('A list with this name already exists');
+          return;
+        }
+        const newList = {
+          id: 'list_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+          name: name,
+          items: [item],
+          createdAt: Date.now()
+        };
+        currentProfile.custom_lists.push(newList);
+        persist(true);
+        showToast(`Created collection "${name}" and added item!`);
+        renderContent();
+      };
+
+      createBtn.onclick = handleCreate;
+      newListNameInput.onkeydown = (e) => {
+        if (e.key === 'Enter') handleCreate();
+      };
+    };
+
+    renderContent();
+    overlay.appendChild(modal);
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+  };
+
   // Context menu
   document.addEventListener('click', e => { if (!$('#context-menu').contains(e.target)) $('#context-menu').style.display = 'none'; });
   $('#ctx-play').onclick = () => { $('#context-menu').style.display = 'none'; if (!contextTarget) return; if (contextTarget.type === 'show') openShowDetail(contextTarget); else playVideo(contextTarget, currentShow); };
   $('#ctx-pin').onclick = () => { $('#context-menu').style.display = 'none'; if (!contextTarget) return; const p = appData.pinned || []; const i = p.indexOf(contextTarget.id); if (i >= 0) p.splice(i, 1); else p.push(contextTarget.id); appData.pinned = p; persist(); showToast(i >= 0 ? 'Unpinned' : 'Pinned'); };
+  $('#ctx-add-list').onclick = () => {
+    $('#context-menu').style.display = 'none';
+    if (!contextTarget) return;
+    window.showAddToListModal(contextTarget);
+  };
   $('#ctx-watched').onclick = () => {
     $('#context-menu').style.display = 'none';
     if (!contextTarget) return;
