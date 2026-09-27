@@ -551,8 +551,62 @@ function initAddonsIpc(ipcMain, store) {
                 }
             }
 
-            console.log('[Unified Search] Searching for:', query);
-            const q = encodeURIComponent(query.trim());
+            const trimmedQuery = query.trim();
+            const ARABIC_ANIME_ALIASES = {
+                'بليتش': 'Bleach',
+                'ناروتو': 'Naruto',
+                'ون بيس': 'One Piece',
+                'ونبيس': 'One Piece',
+                'هنتر': 'Hunter x Hunter',
+                'القناص': 'Hunter x Hunter',
+                'هجوم العمالقة': 'Attack on Titan',
+                'اتاك': 'Attack on Titan',
+                'ديث نوت': 'Death Note',
+                'مذكرة الموت': 'Death Note',
+                'دراغون بول': 'Dragon Ball',
+                'دراغونبول': 'Dragon Ball',
+                'قاتل الشياطين': 'Demon Slayer',
+                'كيميتسو': 'Demon Slayer',
+                'جوجوتسو': 'Jujutsu Kaisen',
+                'جوجوتسو كايسن': 'Jujutsu Kaisen',
+                'فول ميتال': 'Fullmetal Alchemist',
+                'الكيميائي المعدني': 'Fullmetal Alchemist',
+                'طوكيو غول': 'Tokyo Ghoul',
+                'كونان': 'Detective Conan',
+                'المحقق كونان': 'Detective Conan',
+                'بيرسيرك': 'Berserk',
+                'كود غياس': 'Code Geass',
+                'فينلاند': 'Vinland Saga',
+                'سولو ليفلينج': 'Solo Leveling',
+                'سولو لفلنج': 'Solo Leveling',
+                'جينتاما': 'Gintama',
+                'بلاك كلوفر': 'Black Clover',
+                'فيري تيل': 'Fairy Tail',
+                'هايكيو': 'Haikyuu!!',
+                'مونستر': 'Monster',
+                'كايجو': 'Kaiju No. 8',
+                'فريرين': 'Frieren',
+                'فريرن': 'Frieren',
+                'شتاينز جيت': 'Steins;Gate',
+                'موب سايكو': 'Mob Psycho 100',
+                'بوكو نو هيرو': 'My Hero Academia',
+                'اكاديمية بطلي': 'My Hero Academia',
+                'تشينسو مان': 'Chainsaw Man',
+                'رجل المنشار': 'Chainsaw Man',
+                'نيفرلاند': 'The Promised Neverland',
+                'سباي اكس فاميلي': 'Spy x Family',
+                'عائلة الجاسوس': 'Spy x Family',
+                'بلو لوك': 'Blue Lock',
+                'سلام دانك': 'Slam Dunk'
+            };
+
+            const aliasEn = ARABIC_ANIME_ALIASES[trimmedQuery.toLowerCase()] || ARABIC_ANIME_ALIASES[trimmedQuery];
+            const searchQueries = [trimmedQuery];
+            if (aliasEn && !searchQueries.includes(aliasEn)) {
+                searchQueries.push(aliasEn);
+            }
+
+            console.log('[Unified Search] Searching for:', searchQueries.join(', '));
             const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
             const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
             const tmdbKey = appData.tmdbKey || null;
@@ -570,122 +624,107 @@ function initAddonsIpc(ipcMain, store) {
                 return id.includes('tmdb');
             });
 
-            // 1. Search Stremio TMDB Addon (only if installed)
-            const tmdbMoviesPromise = hasTmdbAddon ? axios.get(`https://tmdb.elfhosted.com/catalog/movie/top/search=${q}.json`, { timeout: 2500 })
-                .then(resp => {
-                    const items = resp.data?.metas || [];
-                    return items.map(movie => ({
-                        id: movie.id,
-                        title: movie.name,
-                        poster: movie.poster || '',
-                        backdrop: movie.background || '',
-                        type: 'movie',
-                        source: 'tmdb',
-                        rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
-                        releaseYear: movie.year ? parseInt(movie.year) : 0,
-                        synopsis: movie.description || ''
-                    }));
-                })
-                .catch(err => []) : Promise.resolve([]);
+            const allFetchPromises = [];
 
-            const tmdbTvPromise = hasTmdbAddon ? axios.get(`https://tmdb.elfhosted.com/catalog/series/top/search=${q}.json`, { timeout: 2500 })
-                .then(resp => {
-                    const items = resp.data?.metas || [];
-                    return items.map(tv => ({
-                        id: tv.id,
-                        title: tv.name,
-                        poster: tv.poster || '',
-                        backdrop: tv.background || '',
-                        type: 'tv',
-                        source: 'tmdb',
-                        rating: tv.imdbRating ? parseFloat(tv.imdbRating) : 0,
-                        releaseYear: tv.year ? parseInt(tv.year) : 0,
-                        synopsis: tv.description || ''
-                    }));
-                })
-                .catch(err => []) : Promise.resolve([]);
+            for (const singleQ of searchQueries) {
+                const q = encodeURIComponent(singleQ);
 
-            // 2. Search Cinemeta (only if installed)
-            const cinemetaMoviesPromise = hasCinemeta ? fetchCinemeta(`/catalog/movie/top/search=${q}.json`, 2500)
-                .then(data => {
-                    const items = data?.metas || [];
-                    return items.map(movie => ({
-                        id: movie.id,
-                        title: movie.name,
-                        poster: movie.poster ? (movie.poster.startsWith('http') ? movie.poster : `https://images.metahub.space/poster/medium/${movie.id}/img`) : (movie.id ? `https://images.metahub.space/poster/medium/${movie.id}/img` : ''),
-                        type: 'movie',
-                        source: 'cinemeta',
-                        rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
-                        releaseYear: movie.releaseInfo ? parseInt(movie.releaseInfo.substring(0, 4)) : 0,
-                        synopsis: movie.description || ''
-                    }));
-                })
-                .catch(err => []) : Promise.resolve([]);
+                // 1. Search Stremio TMDB Addon (only if installed)
+                if (hasTmdbAddon) {
+                    allFetchPromises.push(
+                        axios.get(`https://tmdb.elfhosted.com/catalog/movie/top/search=${q}.json`, { timeout: 2500 })
+                            .then(resp => (resp.data?.metas || []).map(movie => ({
+                                id: movie.id,
+                                title: movie.name,
+                                poster: movie.poster || '',
+                                backdrop: movie.background || '',
+                                type: 'movie',
+                                source: 'tmdb',
+                                rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
+                                releaseYear: movie.year ? parseInt(movie.year) : 0,
+                                synopsis: movie.description || ''
+                            }))).catch(() => [])
+                    );
+                    allFetchPromises.push(
+                        axios.get(`https://tmdb.elfhosted.com/catalog/series/top/search=${q}.json`, { timeout: 2500 })
+                            .then(resp => (resp.data?.metas || []).map(tv => ({
+                                id: tv.id,
+                                title: tv.name,
+                                poster: tv.poster || '',
+                                backdrop: tv.background || '',
+                                type: 'tv',
+                                source: 'tmdb',
+                                rating: tv.imdbRating ? parseFloat(tv.imdbRating) : 0,
+                                releaseYear: tv.year ? parseInt(tv.year) : 0,
+                                synopsis: tv.description || ''
+                            }))).catch(() => [])
+                    );
+                }
 
-            const cinemetaTvPromise = hasCinemeta ? fetchCinemeta(`/catalog/series/top/search=${q}.json`, 2500)
-                .then(data => {
-                    const items = data?.metas || [];
-                    return items.map(tv => ({
-                        id: tv.id,
-                        title: tv.name,
-                        poster: tv.poster ? (tv.poster.startsWith('http') ? tv.poster : `https://images.metahub.space/poster/medium/${tv.id}/img`) : (tv.id ? `https://images.metahub.space/poster/medium/${tv.id}/img` : ''),
-                        type: 'tv',
-                        source: 'cinemeta',
-                        rating: tv.imdbRating ? parseFloat(tv.imdbRating) : 0,
-                        releaseYear: tv.releaseInfo ? parseInt(tv.releaseInfo.substring(0, 4)) : 0,
-                        synopsis: tv.description || ''
-                    }));
-                })
-                .catch(err => []) : Promise.resolve([]);
+                // 2. Search Cinemeta (only if installed)
+                if (hasCinemeta) {
+                    allFetchPromises.push(
+                        fetchCinemeta(`/catalog/movie/top/search=${q}.json`, 2500)
+                            .then(data => (data?.metas || []).map(movie => ({
+                                id: movie.id,
+                                title: movie.name,
+                                poster: movie.poster ? (movie.poster.startsWith('http') ? movie.poster : `https://images.metahub.space/poster/medium/${movie.id}/img`) : (movie.id ? `https://images.metahub.space/poster/medium/${movie.id}/img` : ''),
+                                type: 'movie',
+                                source: 'cinemeta',
+                                rating: movie.imdbRating ? parseFloat(movie.imdbRating) : 0,
+                                releaseYear: movie.releaseInfo ? parseInt(movie.releaseInfo.substring(0, 4)) : 0,
+                                synopsis: movie.description || ''
+                            }))).catch(() => [])
+                    );
+                    allFetchPromises.push(
+                        fetchCinemeta(`/catalog/series/top/search=${q}.json`, 2500)
+                            .then(data => (data?.metas || []).map(tv => ({
+                                id: tv.id,
+                                title: tv.name,
+                                poster: tv.poster ? (tv.poster.startsWith('http') ? tv.poster : `https://images.metahub.space/poster/medium/${tv.id}/img`) : (tv.id ? `https://images.metahub.space/poster/medium/${tv.id}/img` : ''),
+                                type: 'tv',
+                                source: 'cinemeta',
+                                rating: tv.imdbRating ? parseFloat(tv.imdbRating) : 0,
+                                releaseYear: tv.releaseInfo ? parseInt(tv.releaseInfo.substring(0, 4)) : 0,
+                                synopsis: tv.description || ''
+                            }))).catch(() => [])
+                    );
+                }
 
-            // 3. Search Official TMDB API if tmdbKey is active
-            let officialTmdbMoviesPromise = Promise.resolve([]);
-            let officialTmdbTvPromise = Promise.resolve([]);
-
-            if (tmdbKey) {
-                officialTmdbMoviesPromise = axios.get(`https://api.themoviedb.org/3/search/movie?api_key=${tmdbKey}&query=${q}`, { timeout: 2500 })
-                    .then(resp => {
-                        const items = resp.data?.results || [];
-                        return items.map(movie => ({
-                            id: `tmdb:${movie.id}`,
-                            title: movie.title,
-                            poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '',
-                            backdrop: movie.backdrop_path ? `https://image.tmdb.org/t/p/w1280${movie.backdrop_path}` : '',
-                            type: 'movie',
-                            source: 'tmdb',
-                            rating: movie.vote_average ? parseFloat(movie.vote_average.toFixed(1)) : 0,
-                            releaseYear: movie.release_date ? parseInt(movie.release_date.substring(0, 4)) : 0,
-                            synopsis: movie.overview || ''
-                        }));
-                    })
-                    .catch(() => []);
-
-                officialTmdbTvPromise = axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${q}`, { timeout: 2500 })
-                    .then(resp => {
-                        const items = resp.data?.results || [];
-                        return items.map(tv => ({
-                            id: `tmdb:${tv.id}`,
-                            title: tv.name,
-                            poster: tv.poster_path ? `https://image.tmdb.org/t/p/w500${tv.poster_path}` : '',
-                            backdrop: tv.backdrop_path ? `https://image.tmdb.org/t/p/w1280${tv.backdrop_path}` : '',
-                            type: 'tv',
-                            source: 'tmdb',
-                            rating: tv.vote_average ? parseFloat(tv.vote_average.toFixed(1)) : 0,
-                            releaseYear: tv.first_air_date ? parseInt(tv.first_air_date.substring(0, 4)) : 0,
-                            synopsis: tv.overview || ''
-                        }));
-                    })
-                    .catch(() => []);
+                // 3. Search Official TMDB API if tmdbKey is active
+                if (tmdbKey) {
+                    allFetchPromises.push(
+                        axios.get(`https://api.themoviedb.org/3/search/movie?api_key=${tmdbKey}&query=${q}`, { timeout: 2500 })
+                            .then(resp => (resp.data?.results || []).map(movie => ({
+                                id: `tmdb:${movie.id}`,
+                                title: movie.title,
+                                poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '',
+                                backdrop: movie.backdrop_path ? `https://image.tmdb.org/t/p/w1280${movie.backdrop_path}` : '',
+                                type: 'movie',
+                                source: 'tmdb',
+                                rating: movie.vote_average ? parseFloat(movie.vote_average.toFixed(1)) : 0,
+                                releaseYear: movie.release_date ? parseInt(movie.release_date.substring(0, 4)) : 0,
+                                synopsis: movie.overview || ''
+                            }))).catch(() => [])
+                    );
+                    allFetchPromises.push(
+                        axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${q}`, { timeout: 2500 })
+                            .then(resp => (resp.data?.results || []).map(tv => ({
+                                id: `tmdb:${tv.id}`,
+                                title: tv.name,
+                                poster: tv.poster_path ? `https://image.tmdb.org/t/p/w500${tv.poster_path}` : '',
+                                backdrop: tv.backdrop_path ? `https://image.tmdb.org/t/p/w1280${tv.backdrop_path}` : '',
+                                type: 'tv',
+                                source: 'tmdb',
+                                rating: tv.vote_average ? parseFloat(tv.vote_average.toFixed(1)) : 0,
+                                releaseYear: tv.first_air_date ? parseInt(tv.first_air_date.substring(0, 4)) : 0,
+                                synopsis: tv.overview || ''
+                            }))).catch(() => [])
+                    );
+                }
             }
 
-            const [tmdbMovies, tmdbTv, cinemetaMovies, cinemetaTv, officialTmdbMovies, officialTmdbTv] = await Promise.all([
-                tmdbMoviesPromise,
-                tmdbTvPromise,
-                cinemetaMoviesPromise,
-                cinemetaTvPromise,
-                officialTmdbMoviesPromise,
-                officialTmdbTvPromise
-            ]);
+            const fetchResults = await Promise.all(allFetchPromises);
 
             // Merge and deduplicate results
             const merged = [];
