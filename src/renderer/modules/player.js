@@ -2367,7 +2367,7 @@
               displayTitle = foundEp.name;
               metaStr = `S${foundEp.season_number}E${foundEp.episode_number} · ${metaStr}`;
               const still = foundEp.local_still ? `local-file:///${foundEp.local_still.replace(/\\/g, '/')}` : (foundEp.still_path ? localImg(foundEp.still_path) : '');
-              if (still) thumbHTML = `<img class="panel-ep-thumb" src="${still}" loading="lazy" onerror="this.style.display='none'">`;
+              if (still) thumbHTML = `<img class="panel-ep-thumb" src="${still}" loading="lazy" onerror="this.onerror=null; this.src='imgs/no-backdrop.png';">`;
             }
           } else if (showId && !currentItem.metaFetched) {
             console.log('[SIDE-PANEL] Metadata missing, fetching for show:', showId);
@@ -2479,7 +2479,7 @@
       d.className = 'panel-ep-item' + (i === currentEpisodeIndex ? ' active' : '');
 
       const thumbHTML = still
-        ? `<img class="panel-ep-thumb" src="${still}" loading="lazy" onerror="this.style.display='none'">`
+        ? `<img class="panel-ep-thumb" src="${still}" loading="lazy" onerror="this.onerror=null; this.src='imgs/no-backdrop.png';">`
         : `<div class="panel-ep-thumb-ph">${ep.episode}</div>`;
 
       d.innerHTML = `<div class="panel-ep-thumb-wrap">${thumbHTML}<div class="panel-ep-play-overlay"><svg viewBox="0 0 24 24"><polygon points="8 5 20 12 8 19"/></svg></div></div><div class="panel-ep-info"><div class="panel-ep-title">${escapeHTML(epTitle)}</div><div class="panel-ep-meta">S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}</div></div>`;

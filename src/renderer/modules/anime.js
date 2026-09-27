@@ -17,7 +17,7 @@
       if (!imdbId || !String(imdbId).startsWith('tt')) return null;
       if (tmdbShowIdCache[imdbId]) return tmdbShowIdCache[imdbId];
 
-      const tmdbKey = appData.tmdbKey;
+      const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
       if (!tmdbKey) return null;
 
       try {
@@ -39,7 +39,7 @@
 
     // Fetch specific episode still/metadata from TMDB
     async fetchTmdbStill(imdbId, episodeNum, seasonNum = 1) {
-      const tmdbKey = appData.tmdbKey;
+      const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
       if (!tmdbKey) return null;
 
       try {
@@ -3090,7 +3090,8 @@
       const el = document.createElement('div'); el.className = 'episode-item';
       el.dataset.episodeNum = ep.episode;
       const thumb = ep.thumbnail || meta.poster_path || meta.poster || 'imgs/no-backdrop.png';
-      el.innerHTML = `<div class="ep-thumb-wrap"><img src="${thumb}" class="ep-thumb"><div class="ep-number-overlay">${ep.episode}</div><div class="ep-play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div></div><div class="episode-info"><div class="episode-title">${escapeHTML(ep.name || ep.title || `Episode ${ep.episode}`)}</div><div class="episode-desc">${escapeHTML(ep.overview || ep.description || 'No description.')}</div></div>`;
+      const fallbackImg = meta.backdrop_path || meta.background || meta.poster_path || meta.poster || 'imgs/no-backdrop.png';
+      el.innerHTML = `<div class="ep-thumb-wrap"><img src="${thumb}" class="ep-thumb" onerror="this.onerror=null; this.src='${escapeHTML(fallbackImg)}';"><div class="ep-number-overlay">${ep.episode}</div><div class="ep-play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div></div><div class="episode-info"><div class="episode-title">${escapeHTML(ep.name || ep.title || `Episode ${ep.episode}`)}</div><div class="episode-desc">${escapeHTML(ep.overview || ep.description || 'No description.')}</div></div>`;
       el.onclick = () => {
         document.querySelectorAll('.episode-item').forEach(i => i.classList.remove('active'));
         el.classList.add('active');
@@ -3102,7 +3103,7 @@
       container.appendChild(el);
     });
 
-    const tmdbKey = appData.tmdbKey;
+    const tmdbKey = appData.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
     const overrideEnabled = appData.tmdbEnabled !== false;
     const imdbId = meta.imdb_id || meta.id || '';
 

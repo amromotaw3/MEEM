@@ -1563,8 +1563,8 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         if (_tmdbStillCache[cacheKey]) return _tmdbStillCache[cacheKey]; // already fetched
         _tmdbStillCache[cacheKey] = {}; // mark as fetching (empty map prevents duplicate requests)
         try {
-            const tmdbKey = window.appData?.tmdbKey;
-            if (!tmdbKey || !showId) return {};
+            const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+            if (!showId) return {};
             // Resolve TMDB TV ID from IMDB ID if needed
             let tvId = null;
             if (String(showId).startsWith('tt')) {
@@ -1596,8 +1596,12 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
             if (!stillUrl) return;
             const img = card.querySelector('img');
             if (img && img.isConnected) {
-                img.onerror = null;
-                img.src = stillUrl;
+                const fullStill = stillUrl.startsWith('http') ? stillUrl : `https://image.tmdb.org/t/p/w500${stillUrl}`;
+                img.onerror = () => {
+                    img.onerror = null;
+                    img.src = currentItem.backdrop_path || currentItem.poster_path || 'imgs/no-backdrop.png';
+                };
+                img.src = fullStill;
             }
         });
     };
@@ -1720,8 +1724,12 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                                 }
                             });
                             applyTmdbStillsToCards(listEl, map, seasonNum);
+                        } else {
+                            fetchTmdbSeasonStills(sid, seasonNum).then(stillsMap => applyTmdbStillsToCards(listEl, stillsMap, seasonNum));
                         }
-                    }).catch(() => null);
+                    }).catch(() => {
+                        fetchTmdbSeasonStills(sid, seasonNum).then(stillsMap => applyTmdbStillsToCards(listEl, stillsMap, seasonNum));
+                    });
                 }
             }
         };
