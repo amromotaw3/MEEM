@@ -18700,55 +18700,55 @@ function performUnifiedSearch(q) {
     menu.id = 'search-lists-dropdown-menu';
     menu.style.cssText = `
       position: absolute;
-      bottom: calc(100% + 8px);
+      bottom: calc(100% + 10px);
       right: 0;
-      width: 260px;
-      max-height: 340px;
-      background: rgba(18, 20, 26, 0.98);
-      backdrop-filter: blur(28px) saturate(180%);
-      -webkit-backdrop-filter: blur(28px) saturate(180%);
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      border-radius: 16px;
-      padding: 10px;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      width: 280px;
+      max-height: 380px;
+      background: rgba(18, 18, 28, 0.94);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 18px;
+      padding: 14px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 25px rgba(99, 102, 241, 0.15);
       z-index: 1000;
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      animation: ddMenuFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      gap: 10px;
+      animation: ddMenuFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     `;
 
     const renderListOptions = () => {
       const isWl = (profile.watchlist || []).some(w => isSameItem(w, item));
       const pbKey = (typeof getPlaybackKey === 'function') ? getPlaybackKey(item) : (item.id || item.path);
-      const isWatched = !!(pbKey && profile.playback && profile.playback[pbKey]?.watched);
+      const isWatched = typeof isItemWatched === 'function' ? isItemWatched(item, profile) : !!(pbKey && profile.playback && profile.playback[pbKey]?.watched);
       const customLists = (profile.custom_lists || []).filter(l => l.type !== 'music');
 
       let html = `
-        <div style="font-size: 11px; font-weight: 800; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 6px;">
-          Add to Collection / List
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.8px; padding: 2px 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <i class="fas fa-folder-plus" style="color: var(--accent, #6366f1); font-size: 13px;"></i> Add to Collection / List
         </div>
         
-        <div style="display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow-y: auto; padding-right: 2px;">
-          <button class="search-list-opt ${isWl ? 'active' : ''}" data-type="watchlist" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: ${isWl ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${isWl ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.06)'}; color: #fff; cursor: pointer; font-size: 12.5px; font-weight: 600; text-align: left; transition: all 0.15s;">
-            <span style="display: flex; align-items: center; gap: 8px;"><i class="fas fa-bookmark" style="color: ${isWl ? '#fff' : 'rgba(255,255,255,0.6)'}"></i> My List</span>
-            <i class="fas fa-${isWl ? 'check-circle' : 'circle'}" style="font-size: 11px; color: ${isWl ? '#fff' : 'rgba(255,255,255,0.2)'}"></i>
+        <div style="display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; padding-right: 2px;">
+          <button class="search-list-opt ${isWl ? 'active' : ''}" data-type="watchlist" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: ${isWl ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(99, 102, 241, 0.1))' : 'rgba(255, 255, 255, 0.04)'}; border: 1px solid ${isWl ? 'rgba(99, 102, 241, 0.5)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; transition: all 0.2s ease;">
+            <span style="display: flex; align-items: center; gap: 10px;"><i class="fas fa-bookmark" style="color: ${isWl ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.5)'}"></i> My List</span>
+            <i class="fas fa-${isWl ? 'check-circle' : 'circle'}" style="font-size: 13px; color: ${isWl ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.2)'}"></i>
           </button>
 
-          <button class="search-list-opt ${isWatched ? 'active' : ''}" data-type="watched" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: ${isWatched ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${isWatched ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.06)'}; color: #fff; cursor: pointer; font-size: 12.5px; font-weight: 600; text-align: left; transition: all 0.15s;">
-            <span style="display: flex; align-items: center; gap: 8px;"><i class="fas fa-eye" style="color: ${isWatched ? '#fff' : 'rgba(255,255,255,0.6)'}"></i> Watched</span>
-            <i class="fas fa-${isWatched ? 'check-circle' : 'circle'}" style="font-size: 11px; color: ${isWatched ? '#fff' : 'rgba(255,255,255,0.2)'}"></i>
+          <button class="search-list-opt ${isWatched ? 'active' : ''}" data-type="watched" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: ${isWatched ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(16, 185, 129, 0.1))' : 'rgba(255, 255, 255, 0.04)'}; border: 1px solid ${isWatched ? 'rgba(16, 185, 129, 0.5)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; transition: all 0.2s ease;">
+            <span style="display: flex; align-items: center; gap: 10px;"><i class="fas fa-eye" style="color: ${isWatched ? '#10b981' : 'rgba(255,255,255,0.5)'}"></i> Watched</span>
+            <i class="fas fa-${isWatched ? 'check-circle' : 'circle'}" style="font-size: 13px; color: ${isWatched ? '#10b981' : 'rgba(255,255,255,0.2)'}"></i>
           </button>
       `;
 
       if (customLists.length > 0) {
-        html += `<div style="font-size: 10px; font-weight: 800; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 6px 2px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 2px;">Custom Collections</div>`;
+        html += `<div style="font-size: 10.5px; font-weight: 800; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; letter-spacing: 0.6px; padding: 6px 4px 2px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;">Custom Collections</div>`;
         customLists.forEach(cl => {
           const inCl = (cl.items || []).some(ci => isSameItem(ci, item));
           html += `
-            <button class="search-list-opt ${inCl ? 'active' : ''}" data-type="custom" data-list-id="${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: ${inCl ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)'}; border: 1px solid ${inCl ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.06)'}; color: #fff; cursor: pointer; font-size: 12.5px; font-weight: 600; text-align: left; transition: all 0.15s;">
-              <span style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="fas fa-folder" style="color: ${inCl ? '#fff' : 'rgba(255,255,255,0.6)'}"></i> ${escapeHTML(cl.name)}</span>
-              <i class="fas fa-${inCl ? 'check-circle' : 'circle'}" style="font-size: 11px; color: ${inCl ? '#fff' : 'rgba(255,255,255,0.2)'}"></i>
+            <button class="search-list-opt ${inCl ? 'active' : ''}" data-type="custom" data-list-id="${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: ${inCl ? 'linear-gradient(135deg, rgba(0, 173, 181, 0.25), rgba(0, 173, 181, 0.1))' : 'rgba(255, 255, 255, 0.04)'}; border: 1px solid ${inCl ? 'rgba(0, 173, 181, 0.5)' : 'rgba(255, 255, 255, 0.08)'}; color: #fff; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; transition: all 0.2s ease;">
+              <span style="display: flex; align-items: center; gap: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="fas fa-layer-group" style="color: ${inCl ? '#00adb5' : 'rgba(255,255,255,0.5)'}"></i> ${escapeHTML(cl.name)}</span>
+              <i class="fas fa-${inCl ? 'check-circle' : 'circle'}" style="font-size: 13px; color: ${inCl ? '#00adb5' : 'rgba(255,255,255,0.2)'}"></i>
             </button>
           `;
         });
@@ -18756,9 +18756,9 @@ function performUnifiedSearch(q) {
 
       html += `
         </div>
-        <div style="display: flex; gap: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-          <input type="text" id="search-new-list-name" placeholder="New list name..." style="flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; color: #fff; padding: 6px 10px; font-size: 12px; outline: none;">
-          <button id="search-create-list-btn" style="background: #ffffff; border: none; color: #000; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;">Add</button>
+        <div style="display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+          <input type="text" id="search-new-list-name" placeholder="New collection name..." style="flex: 1; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px; color: #fff; padding: 8px 12px; font-size: 12px; outline: none;">
+          <button id="search-create-list-btn" style="background: var(--accent, #6366f1); border: none; color: #ffffff; border-radius: 10px; padding: 8px 14px; font-size: 12px; font-weight: 800; cursor: pointer; transition: transform 0.15s; flex-shrink: 0;">Add</button>
         </div>
       `;
 
