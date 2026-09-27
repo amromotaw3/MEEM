@@ -278,11 +278,15 @@
       }
     }
 
+    // Resolve torrentMagnet and fileIdx if passed inside item.meta or item properties
+    if (!item.torrentMagnet && item.meta?.torrentMagnet) item.torrentMagnet = item.meta.torrentMagnet;
+    if (item.fileIdx == null && item.meta?.fileIdx != null) item.fileIdx = item.meta.fileIdx;
+
     // Refresh stale torrent stream URLs before playing (Electron only)
     const hasValidLocalStream = item.path && /^https?:\/\/(127\.0\.0\.1|localhost):1147\d\//i.test(item.path);
     if (hasValidLocalStream) {
       window._activeStreamUrl = item.path;
-    } else if (window.api?.isElectron && item?.torrentMagnet && (!item.path || isStaleStreamUrl(item.path))) {
+    } else if (window.api?.isElectron && item?.torrentMagnet && (!item.path || isStaleStreamUrl(item.path) || item.source === 'torrent')) {
       try {
         showToast('Resuming torrent stream...');
         const res = await window.api.invoke('start-torrent-stream', item.torrentMagnet, item.fileIdx ?? null);
@@ -2877,11 +2881,32 @@
     showToast(`Playing: ${title}`);
   }
 
+  let musicRepeatMode = 'off';
+
+  const btnMusicRepeat = $('#music-btn-repeat');
+  if (btnMusicRepeat) {
+    btnMusicRepeat.onclick = () => {
+      if (musicRepeatMode === 'off') musicRepeatMode = 'all';
+      else if (musicRepeatMode === 'all') musicRepeatMode = 'one';
+      else musicRepeatMode = 'off';
+
+      btnMusicRepeat.classList.toggle('active', musicRepeatMode !== 'off');
+      btnMusicRepeat.innerHTML = musicRepeatMode === 'one' ? '<i class="fas fa-repeat-1"></i>' : '<i class="fas fa-repeat"></i>';
+      if (typeof showToast === 'function') showToast(`Repeat: ${musicRepeatMode.toUpperCase()}`);
+    };
+  }
+
   function playNextMusic() {
+    if (musicRepeatMode === 'one' && currentItem) {
+      playMusic(currentItem);
+      return;
+    }
     if (!appData.music || !currentItem) return;
     const idx = appData.music.findIndex(m => m.id === currentItem.id);
     if (idx !== -1 && idx < appData.music.length - 1) {
       playMusic(appData.music[idx + 1]);
+    } else if (musicRepeatMode === 'all' && appData.music.length > 0) {
+      playMusic(appData.music[0]);
     }
   }
 
