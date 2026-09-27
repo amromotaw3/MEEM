@@ -1588,58 +1588,16 @@
 
     toggleFavorite(track) {
       if (!track) return;
-      const item = {
-        id: track.id,
-        type: 'music',
-        media_type: 'music',
-        title: track.title,
-        name: track.title,
-        artist: track.artist || '',
-        album: track.album || '',
-        poster_path: track.cover || 'imgs/appicon-w.png',
-        posterPath: track.cover || 'imgs/appicon-w.png',
-        backdrop_path: track.cover || 'imgs/appicon-w.png',
-        streamUrl: track.url || '',
-        url: track.url || '',
-        duration: track.duration || 0
-      };
-      if (typeof window.toggleWatchlist === 'function') {
-        window.toggleWatchlist(item);
-      }
-      this.updateLikeUI();
-      // Update any matching cards rendered in the feed
-      const trackId = track.id;
-      const isFav = (window.currentProfile?.watchlist || []).some(w => w.id === trackId || w.id === `music_${trackId}`);
-      document.querySelectorAll(`.spotify-card-add-btn[data-add-id="${trackId}"]`).forEach(btn => {
-        btn.classList.toggle('active', isFav);
-        const icon = btn.querySelector('i');
-        if (icon) {
-          icon.className = `${isFav ? 'fas' : 'far'} fa-heart`;
-          icon.style.color = isFav ? '#ef4444' : '';
-        }
-      });
+      this.openAddToPlaylistModal(track);
     }
 
     updateLikeUI() {
       if (!this.currentTrack) return;
-      const currentProfile = window.currentProfile;
-      const trackId = this.currentTrack.id;
-      const isFav = (currentProfile?.watchlist || []).some(w => w.id === trackId || w.id === `music_${trackId}`);
       ['music-bar-heart-btn', 'fs-bar-heart-btn', 'fs-lyrics-heart-btn'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
-          btn.classList.toggle('active', isFav);
-          btn.innerHTML = `<i class="${isFav ? 'fas' : 'far'} fa-heart" ${isFav ? 'style="color:#ef4444;"' : ''}></i>`;
-          btn.title = isFav ? 'Remove from Favorites' : 'Add to Favorites';
-        }
-      });
-      // Also sync active cards in the feed
-      document.querySelectorAll(`.spotify-card-add-btn[data-add-id="${trackId}"]`).forEach(btn => {
-        btn.classList.toggle('active', isFav);
-        const icon = btn.querySelector('i');
-        if (icon) {
-          icon.className = `${isFav ? 'fas' : 'far'} fa-heart`;
-          icon.style.color = isFav ? '#ef4444' : '';
+          btn.innerHTML = `<i class="fas fa-plus"></i>`;
+          btn.title = 'Add to Playlist';
         }
       });
     }
@@ -1924,7 +1882,6 @@
         <div class="${query || activeFilter === 'offline' ? 'spotify-grid' : 'music-carousel-track'}" id="trending-track-row">
           ${tracks.map(track => {
             const isOffline = offlineTracks.some(o => o.id === track.id);
-            const isFav = (window.currentProfile?.watchlist || []).some(w => w.id === track.id || w.id === `music_${track.id}`);
             const cardThumb = resolveTrackThumbnail(track);
             return `
             <div class="spotify-card" data-id="${track.id}" title="${escapeHTML(track.title)}">
@@ -1934,8 +1891,8 @@
                 <button class="spotify-card-queue-btn" data-queue-id="${track.id}" title="Add to Queue">
                   <i class="fas fa-list-ul"></i>
                 </button>
-                <button class="spotify-card-add-btn ${isFav ? 'active' : ''}" data-add-id="${track.id}" title="${isFav ? 'Remove from Favorites' : 'Add to Favorites'}">
-                  <i class="${isFav ? 'fas' : 'far'} fa-heart" ${isFav ? 'style="color:#ef4444;"' : ''}></i>
+                <button class="spotify-card-add-btn" data-add-id="${track.id}" title="Add to Playlist">
+                  <i class="fas fa-plus"></i>
                 </button>
                 <button class="spotify-card-dl-btn ${isOffline ? 'downloaded' : ''}" data-dl-id="${track.id}" title="${isOffline ? 'Downloaded (Click to delete)' : 'Download for Offline'}">
                   <i class="${isOffline ? 'fas fa-check-circle' : 'fas fa-download'}"></i>
