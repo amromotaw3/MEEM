@@ -4839,16 +4839,16 @@
     style="display: flex; z-index: 1000001; opacity: 1 !important; flex-direction: column; align-items: center; justify-content: center; gap: 40px; -webkit-app-region: drag;">
     
     <!-- Top Drag & Window Controls for Profile Screen -->
-    <div class="profile-top-controls hide-on-mobile" style="position: absolute; top: 0; left: 0; right: 0; height: 48px; display: flex; align-items: center; justify-content: flex-end; padding: 0 14px; -webkit-app-region: drag; z-index: 1000005; pointer-events: auto;">
-      <div style="display: flex; align-items: center; gap: 6px; -webkit-app-region: no-drag;">
-        <button onclick="window.api?.minimizeWindow ? window.api.minimizeWindow() : null" title="Minimize" style="width: 36px; height: 28px; border: none; background: rgba(0,0,0,0.4); backdrop-filter: blur(12px); color: rgba(255,255,255,0.85); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-          <svg viewBox="0 0 24 24" width="14" height="14"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <div class="profile-top-controls hide-on-mobile" style="position: absolute; top: 0; left: 0; right: 0; height: var(--titlebar-h, 32px); display: flex; align-items: center; justify-content: flex-end; padding: 0 10px; -webkit-app-region: drag; z-index: 1000005; pointer-events: auto;">
+      <div class="title-bar-controls" style="gap: 10px;">
+        <button onclick="window.api?.minimizeWindow ? window.api.minimizeWindow() : null" title="Minimize">
+          <svg viewBox="0 0 24 24" width="14" height="14"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
         </button>
-        <button onclick="window.api?.maximizeWindow ? window.api.maximizeWindow() : null" title="Maximize" style="width: 36px; height: 28px; border: none; background: rgba(0,0,0,0.4); backdrop-filter: blur(12px); color: rgba(255,255,255,0.85); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-          <svg viewBox="0 0 24 24" width="13" height="13"><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+        <button onclick="window.api?.maximizeWindow ? window.api.maximizeWindow() : null" title="Maximize">
+          <svg viewBox="0 0 24 24" width="13" height="13"><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="2" fill="none" /></svg>
         </button>
-        <button onclick="window.api?.closeWindow ? window.api.closeWindow() : null" title="Close" style="width: 36px; height: 28px; border: none; background: rgba(0,0,0,0.4); backdrop-filter: blur(12px); color: rgba(255,255,255,0.85); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.background='#EF4444'; this.style.color='#fff';" onmouseout="this.style.background='rgba(0,0,0,0.4)'; this.style.color='rgba(255,255,255,0.85)';">
-          <svg viewBox="0 0 24 24" width="14" height="14"><line x1="5" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="19" y1="5" x2="5" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <button id="btn-close" onclick="window.api?.closeWindow ? window.api.closeWindow() : null" title="Close">
+          <svg viewBox="0 0 24 24" width="14" height="14"><line x1="5" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="19" y1="5" x2="5" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
         </button>
       </div>
     </div>
