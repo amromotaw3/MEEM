@@ -270,6 +270,14 @@ async function openInMeemPlayer(args) {
   const subdlApiKey = localData?.subdlConfig?.apiKey || localData?.subdlKey || '';
   const subdlLanguages = Array.isArray(localData?.subdlConfig?.languages) ? localData.subdlConfig.languages.join(',') : 'AR,EN';
 
+  const originalMagnet = (opts.torrentMagnet && (opts.torrentMagnet.startsWith('magnet:') || opts.torrentMagnet.endsWith('.torrent')))
+    ? opts.torrentMagnet
+    : (opts.item?.torrentMagnet && (opts.item.torrentMagnet.startsWith('magnet:') || opts.item.torrentMagnet.endsWith('.torrent')))
+      ? opts.item.torrentMagnet
+      : (raw && (raw.startsWith('magnet:') || raw.endsWith('.torrent')))
+        ? raw
+        : null;
+
   // If magnet or torrent file, resolve stream URL
   if (raw && (raw.startsWith('magnet:') || raw.endsWith('.torrent'))) {
     const res = await startStreaming(raw, opts.fileIdx).catch(e => {
@@ -281,6 +289,19 @@ async function openInMeemPlayer(args) {
       if (Array.isArray(res.files) && res.files.length > 0) {
         torrentFiles = res.files;
         torrentSelectedIdx = res.fileIdx ?? 0;
+      }
+    }
+  } else if (originalMagnet && (!raw || /^https?:\/\/(127\.0\.0\.1|localhost):1147\d\//i.test(raw))) {
+    // If raw was a stale local torrent server URL from a past session, restart with original magnet
+    const res = await startStreaming(originalMagnet, opts.fileIdx ?? opts.item?.fileIdx).catch(e => {
+      console.warn('[Streamer] startStreaming error:', e.message);
+      return null;
+    });
+    if (res && res.url) {
+      raw = res.url;
+      if (Array.isArray(res.files) && res.files.length > 0) {
+        torrentFiles = res.files;
+        torrentSelectedIdx = res.fileIdx ?? opts.item?.fileIdx ?? 0;
       }
     }
   }
@@ -593,8 +614,16 @@ async function openInMeemPlayer(args) {
     poster,
     subTitle,
     raw,
+    originalMagnet,
+    torrentMagnet: originalMagnet || opts.torrentMagnet || opts.item?.torrentMagnet || null,
+    fileIdx: opts.fileIdx ?? opts.item?.fileIdx ?? torrentSelectedIdx,
+    season: season != null ? Number(season) : (opts.season ?? opts.item?.season),
+    episode: episode != null ? Number(episode) : (opts.episode ?? opts.item?.episode),
+    showTitle: showTitle,
+    tmdbId: resolvedTmdbId,
+    imdbId: resolvedImdbId,
+    thumbnail: poster,
     type: opts.type,
-    fileIdx: opts.fileIdx,
     syncFilePath,
     startTime: opts.startTime || 0,
     lastReportedTime: opts.startTime || 0,
@@ -706,10 +735,19 @@ async function handleExternalPlayerProgress(data, context = null) {
 
     const watched = Boolean(data.watched || (duration > 0 && (time / duration) >= 0.90));
 
-    let meta = ctx?.item || null;
-    if (ctx?.show && meta && !meta.show) {
-      meta = { ...meta, show: ctx.show, showTitle: ctx.show.title || ctx.show.name };
+    let meta = ctx?.item ? { ...ctx.item } : {};
+    if (ctx?.show && !meta.show) {
+      meta.show = ctx.show;
+      meta.showTitle = ctx.show.title || ctx.show.name;
     }
+
+    if (!meta.id) meta.id = key;
+    if (ctx?.title && (!meta.title || meta.title === 'Playback' || meta.title === 'Media')) meta.title = ctx.title;
+    if (ctx?.showTitle && !meta.showTitle) meta.showTitle = ctx.showTitle;
+    if (ctx?.season != null && meta.season == null) meta.season = ctx.season;
+    if (ctx?.episode != null && meta.episode == null) meta.episode = ctx.episode;
+    if (ctx?.imdbId && !meta.imdb_id) meta.imdb_id = String(ctx.imdbId);
+    if (ctx?.tmdbId && !meta.tmdbId) meta.tmdbId = String(ctx.tmdbId);
 
     const isYt = Boolean(
       ctx?.type === 'youtube' ||
@@ -721,7 +759,6 @@ async function handleExternalPlayerProgress(data, context = null) {
     if (isYt) {
       const vId = (typeof key === 'string' && (key.startsWith('yt:') || key.startsWith('yt_'))) ? key.replace(/^yt[:_]/, '') : key;
       const ytThumb = `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
-      meta = meta || {};
       meta.id = vId;
       meta.videoId = vId;
       meta.type = 'youtube';
@@ -734,23 +771,26 @@ async function handleExternalPlayerProgress(data, context = null) {
       meta.backdrop_path = meta.backdrop_path || ytThumb;
       meta.backdrop = meta.backdrop || ytThumb;
       if (ctx?.item?.author) meta.author = ctx.item.author;
-    } else if (!meta) {
-      meta = {
-        id: key,
-        title: ctx?.title || 'Playback',
-        poster: ctx?.poster || null,
-        backdrop_path: ctx?.poster || null,
-        type: ctx?.type || (key.includes('_S') ? 'tv' : 'movie')
-      };
     } else {
-      if (!meta.title && ctx?.title) meta.title = ctx.title;
-      if (!meta.poster && ctx?.poster) meta.poster = ctx.poster;
-      if (!meta.backdrop_path && ctx?.poster) meta.backdrop_path = ctx.poster;
+      const effImg = ctx?.poster || ctx?.thumbnail || meta.thumbnail || meta.still || meta.poster;
+      if (effImg) {
+        if (!meta.poster) meta.poster = effImg;
+        if (!meta.thumbnail) meta.thumbnail = effImg;
+        if (!meta.still) meta.still = effImg;
+        if (!meta.backdrop_path) meta.backdrop_path = effImg;
+        if (!meta.backdrop) meta.backdrop = effImg;
+      }
+      if (!meta.type) {
+        meta.type = ctx?.type || (key.includes('_S') ? 'tv' : 'movie');
+      }
     }
 
-    if (ctx?.raw && (ctx.raw.startsWith('magnet:') || ctx.raw.endsWith('.torrent'))) {
-      meta.torrentMagnet = ctx.raw;
-      if (ctx.fileIdx != null) meta.fileIdx = ctx.fileIdx;
+    const resolvedMagnet = ctx?.torrentMagnet || ctx?.originalMagnet || ctx?.item?.torrentMagnet ||
+      (ctx?.raw && (ctx.raw.startsWith('magnet:') || ctx.raw.endsWith('.torrent')) ? ctx.raw : null);
+    if (resolvedMagnet) {
+      meta.torrentMagnet = resolvedMagnet;
+      const fIdx = ctx?.fileIdx ?? ctx?.item?.fileIdx;
+      if (fIdx != null) meta.fileIdx = fIdx;
     }
 
     // Always attach exact file path if available
@@ -764,6 +804,8 @@ async function handleExternalPlayerProgress(data, context = null) {
       duration: Math.floor(duration),
       lastWatched: Date.now(),
       watched,
+      torrentMagnet: meta.torrentMagnet || null,
+      fileIdx: meta.fileIdx != null ? meta.fileIdx : null,
       meta
     };
 

@@ -7,6 +7,9 @@
     if (!item) return '';
     // Stable identifier so Torrents/Streams (which change path URL) don't lose progress
     let baseKey = item.tmdbId || item.id;
+    if (baseKey && typeof baseKey === 'string' && (baseKey.startsWith('http://127.0.0.1:1147') || baseKey.startsWith('http://localhost:1147') || (typeof isStaleStreamUrl === 'function' && isStaleStreamUrl(baseKey)))) {
+      baseKey = null;
+    }
     if (!baseKey && item.torrentMagnet) {
       const match = item.torrentMagnet.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
       baseKey = match ? `magnet_${match[1].toLowerCase()}` : item.torrentMagnet;
@@ -281,9 +284,23 @@
     // Resolve torrentMagnet and fileIdx if passed inside item.meta or item properties
     if (!item.torrentMagnet && item.meta?.torrentMagnet) item.torrentMagnet = item.meta.torrentMagnet;
     if (item.fileIdx == null && item.meta?.fileIdx != null) item.fileIdx = item.meta.fileIdx;
+    if (!item.torrentMagnet) {
+      const pbKey = (typeof getPlaybackKey === 'function') ? getPlaybackKey(item) : (item.id || item.path);
+      const pb = currentProfile?.playback?.[pbKey] || (item.id ? currentProfile?.playback?.[item.id] : null);
+      if (pb?.torrentMagnet) item.torrentMagnet = pb.torrentMagnet;
+      if (pb?.meta?.torrentMagnet) item.torrentMagnet = pb.meta.torrentMagnet;
+      if (item.fileIdx == null && (pb?.fileIdx != null || pb?.meta?.fileIdx != null)) {
+        item.fileIdx = pb?.fileIdx ?? pb?.meta?.fileIdx;
+      }
+      if (!item.torrentMagnet && typeof pbKey === 'string' && pbKey.startsWith('magnet_')) {
+        const hashMatch = pbKey.match(/^magnet_([a-zA-Z0-9]{32,40})/i);
+        if (hashMatch) item.torrentMagnet = `magnet:?xt=urn:btih:${hashMatch[1]}`;
+      }
+    }
 
     // Refresh stale torrent stream URLs before playing (Electron only)
-    const hasValidLocalStream = item.path && /^https?:\/\/(127\.0\.0\.1|localhost):1147\d\//i.test(item.path);
+    const isCurrentlyActiveStream = item.path && window._activeStreamUrl && window._activeStreamUrl === item.path;
+    const hasValidLocalStream = isCurrentlyActiveStream;
     if (hasValidLocalStream) {
       window._activeStreamUrl = item.path;
     } else if (window.api?.isElectron && item?.torrentMagnet && (!item.path || isStaleStreamUrl(item.path) || item.source === 'torrent')) {

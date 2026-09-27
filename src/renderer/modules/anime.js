@@ -453,8 +453,16 @@
           const candidateKeys = [
             showObj?.id, showObj?.imdb_id, showObj?.imdbId, showObj?.tmdbId, showObj?.tmdb_id, showObj?.cinemetaId,
             showObj?.cleanTitle, showObj?.title, showObj?.path,
-            item.showId, item.imdb_id, item.imdbId, item.tmdbId, item.tmdb_id, item.id, item.showName, item.showTitle
+            item.showId, item.imdb_id, item.imdbId, item.tmdbId, item.tmdb_id, item.id, item.showName, item.showTitle,
+            pb.key
           ].filter(Boolean);
+
+          for (const k of [...candidateKeys]) {
+            const ttMatch = String(k).match(/(tt\d+)/i);
+            if (ttMatch && !candidateKeys.includes(ttMatch[1])) {
+              candidateKeys.push(ttMatch[1]);
+            }
+          }
 
           for (const k of candidateKeys) {
             if (tmdbCache[k] && (tmdbCache[k].seasons || tmdbCache[k].backdropPath || tmdbCache[k].posterPath || tmdbCache[k].poster)) {
@@ -489,7 +497,24 @@
         metaCache = metaCache || {};
 
         let bPath = item.backdrop_path || item.backdropPath || metaCache.backdropPath || metaCache.backdrop_path || metaCache.backdrop;
+        function toCleanImg(p) {
+          if (!p || typeof p !== 'string') return null;
+          const clean = p.trim();
+          if (!clean || clean === 'null' || clean === 'undefined' || clean.endsWith('/null')) return null;
+          if (clean.startsWith('data:') || clean.startsWith('blob:')) return clean;
+          if (clean.startsWith('//')) return 'https:' + clean;
+          if (clean.startsWith('http://') || clean.startsWith('https://')) return clean;
+          if (clean.startsWith('local-file://') || clean.startsWith('media://')) return clean;
+          if (clean.startsWith('file:///')) return `local-file:///${clean.replace('file:///', '')}`;
+          if (clean.startsWith('/')) return `https://image.tmdb.org/t/p/w500${clean}`;
+          if (clean.includes(':\\') || clean.includes(':/') || clean.startsWith('\\\\')) {
+            return `local-file:///${clean.replace(/\\/g, '/')}`;
+          }
+          return `https://image.tmdb.org/t/p/w500/${clean}`;
+        }
+
         let episodeStill = null;
+        let targetImdbId = null;
 
         if (isEpisode) {
           const sn = parseInt(item.season, 10);
@@ -507,12 +532,22 @@
 
           // Also check metaCache.videos (Cinemeta format: videos: [{ season: 1, episode: 1, title: "...", thumbnail: "..." }])
           if (!epData && Array.isArray(metaCache.videos)) {
-            epData = metaCache.videos.find(v => parseInt(v.season, 10) === sn && parseInt(v.episode, 10) === en);
+            epData = metaCache.videos.find(v => parseInt(v.season != null ? v.season : v.seasonNumber, 10) === sn && parseInt(v.episode != null ? v.episode : (v.number != null ? v.number : v.episodeNumber), 10) === en);
           }
 
           // Also check showObj.episodes if local episode had cached meta
           if (!epData && showObj?.episodes) {
             epData = showObj.episodes.find(e => parseInt(e.season, 10) === sn && parseInt(e.episode, 10) === en);
+          }
+
+          // Extract clean IMDB ID if present
+          for (const k of [item.imdb_id, item.imdbId, item.id, item.showId, pb.key, showObj?.id, showObj?.imdb_id]) {
+            const m = String(k || '').match(/(tt\d+)/i);
+            if (m) { targetImdbId = m[1]; break; }
+          }
+
+          if (!epData && targetImdbId && cinemetaCache[targetImdbId]?.videos) {
+            epData = cinemetaCache[targetImdbId].videos.find(v => parseInt(v.season != null ? v.season : v.seasonNumber, 10) === sn && parseInt(v.episode != null ? v.episode : (v.number != null ? v.number : v.episodeNumber), 10) === en);
           }
 
           if (epData) {
@@ -532,21 +567,9 @@
                            (appData.thumbnails ? (appData.thumbnails[item.id] || appData.thumbnails[item.path]) : null);
 
           if (rawStill) {
-            if (rawStill.startsWith('data:') || rawStill.startsWith('http://') || rawStill.startsWith('https://') || rawStill.startsWith('local-file://')) {
-              episodeStill = rawStill;
-            } else if (rawStill.startsWith('file:///')) {
-              episodeStill = `local-file:///${rawStill.replace('file:///', '')}`;
-            } else if (rawStill.startsWith('/')) {
-              episodeStill = `https://image.tmdb.org/t/p/w500${rawStill}`;
-            } else if (rawStill.includes(':\\') || rawStill.includes(':/') || rawStill.startsWith('\\\\')) {
-              episodeStill = `local-file:///${rawStill.replace(/\\/g, "/")}`;
-            } else {
-              episodeStill = `https://image.tmdb.org/t/p/w500/${rawStill}`;
-            }
+            episodeStill = toCleanImg(rawStill);
           }
         }
-
-        const pPath = item.poster_path || item.posterPath || metaCache.posterPath || metaCache.poster_path;
 
         let backdropUrl = 'imgs/no-backdrop.png';
         if (isYtItem) {
@@ -558,20 +581,17 @@
         } else {
           const sId = showObj?.id || item.showId;
           const localBanner = appData.banners ? (appData.banners[item.id] || (sId ? appData.banners[sId] : null)) : null;
-          if (localBanner) {
-            backdropUrl = `local-file:///${localBanner.replace(/\\/g, "/")}`;
-          } else if (bPath) {
-            backdropUrl = (bPath.startsWith('http') || bPath.startsWith('local-file')) ? bPath : `https://image.tmdb.org/t/p/w500${bPath}`;
-          } else if (item.cover) {
-            backdropUrl = (item.cover.startsWith('data:') || item.cover.startsWith('http') || item.cover.startsWith('local-file'))
-              ? item.cover
-              : `local-file:///${item.cover.replace(/\\/g, "/")}`;
-          } else if (item.poster) {
-            backdropUrl = `local-file:///${item.poster.replace(/\\/g, "/")}`;
-          } else if (item.image) {
-            backdropUrl = localImg(item.image);
-          } else if (pPath) {
-            backdropUrl = (pPath.startsWith('http') || pPath.startsWith('local-file')) ? pPath : `https://image.tmdb.org/t/p/w500${pPath}`;
+          const candidateImg = localBanner ||
+            item.backdrop_path || item.backdropPath || item.backdrop ||
+            metaCache.backdropPath || metaCache.backdrop_path || metaCache.backdrop ||
+            item.poster_path || item.posterPath || item.poster ||
+            metaCache.posterPath || metaCache.poster_path || metaCache.poster ||
+            item.cover || item.image ||
+            showObj?.backdrop || showObj?.backdrop_path || showObj?.poster || showObj?.poster_path || showObj?.cover;
+
+          const resolvedImg = toCleanImg(candidateImg);
+          if (resolvedImg) {
+            backdropUrl = resolvedImg;
           }
         }
 
@@ -617,6 +637,33 @@
           }
         }
 
+        if (isEpisode && !episodeStill && targetImdbId) {
+          const sn = parseInt(item.season, 10);
+          const en = parseInt(item.episode, 10);
+          fetch(`https://v3-cinemeta.strem.io/meta/series/${targetImdbId}.json`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (data?.meta?.videos && Array.isArray(data.meta.videos)) {
+                window.appData = window.appData || {};
+                window.appData.cinemetaCache = window.appData.cinemetaCache || {};
+                window.appData.cinemetaCache[targetImdbId] = data.meta;
+                const v = data.meta.videos.find(x => (x.season == sn || x.seasonNumber == sn) && (x.episode == en || x.number == en || x.episodeNumber == en));
+                if (v) {
+                  const fetchedThumb = toCleanImg(v.thumbnail || v.still);
+                  if (fetchedThumb) {
+                    const imgEl = card.querySelector('.continue-card-img');
+                    if (imgEl) imgEl.src = fetchedThumb;
+                  }
+                  if (v.title || v.name) {
+                    const tEl = card.querySelector('.continue-card-title');
+                    if (tEl) tEl.textContent = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} • ${v.title || v.name}`;
+                  }
+                }
+              }
+            })
+            .catch(() => {});
+        }
+
         card.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -645,9 +692,25 @@
             }
             return;
           }
-          const magnet = item.torrentMagnet || pb?.torrentMagnet || pb?.meta?.torrentMagnet;
-          const fIdx = item.fileIdx ?? pb?.fileIdx ?? pb?.meta?.fileIdx ?? null;
+          // 1. Detect Torrent Magnet
+          let magnet = item.torrentMagnet || pb?.torrentMagnet || pb?.meta?.torrentMagnet;
+          let fIdx = item.fileIdx ?? pb?.fileIdx ?? pb?.meta?.fileIdx ?? null;
+
+          if (!magnet) {
+            const pbKeyStr = String(pb?.key || item?.id || '');
+            const magnetMatch = pbKeyStr.match(/magnet_([a-zA-Z0-9]{32,40})/i);
+            if (magnetMatch) {
+              magnet = `magnet:?xt=urn:btih:${magnetMatch[1]}`;
+              const fMatch = pbKeyStr.match(/_f(\d+)/i);
+              if (fMatch && fIdx == null) fIdx = parseInt(fMatch[1], 10);
+            }
+          }
+
+          // 2. Resolve raw local path, but explicitly discard stale localhost/streamer ports
           let rawPath = item.path || pb?.path || pb?.meta?.path || item.url || pb?.meta?.url;
+          if (rawPath && typeof isStaleStreamUrl === 'function' && isStaleStreamUrl(rawPath)) {
+            rawPath = null;
+          }
 
           if (!rawPath && typeof pb?.key === 'string' && (pb.key.includes(':\\') || pb.key.includes(':/') || pb.key.startsWith('/'))) {
             rawPath = pb.key;
@@ -683,7 +746,11 @@
 
           // If rawPath is a series directory, find the target episode inside showObj
           const VIDEO_EXTS = ['.mkv', '.mp4', '.avi', '.mov', '.webm', '.ts', '.m4v', '.flv'];
-          let isDirectVideoFile = rawPath && (rawPath.startsWith('http://') || rawPath.startsWith('https://') || VIDEO_EXTS.some(ext => rawPath.toLowerCase().endsWith(ext)));
+          let isDirectVideoFile = rawPath && (VIDEO_EXTS.some(ext => rawPath.toLowerCase().endsWith(ext)) || rawPath.startsWith('http://') || rawPath.startsWith('https://'));
+          if (rawPath && typeof isStaleStreamUrl === 'function' && isStaleStreamUrl(rawPath)) {
+            isDirectVideoFile = false;
+            rawPath = null;
+          }
 
           if (!isDirectVideoFile && showObj && Array.isArray(showObj.episodes) && showObj.episodes.length > 0) {
             const targetEp = (item.season != null && item.episode != null)
@@ -695,14 +762,17 @@
             }
           }
 
-          const isValidLocal = isDirectVideoFile && (rawPath.startsWith('http://') || rawPath.startsWith('https://') || rawPath.includes(':\\') || rawPath.includes(':/') || rawPath.startsWith('\\\\'));
+          const isValidLocal = isDirectVideoFile && (rawPath.includes(':\\') || rawPath.includes(':/') || rawPath.startsWith('\\\\') || (rawPath.startsWith('http') && (!isStaleStreamUrl || !isStaleStreamUrl(rawPath))));
 
           if (magnet) {
             if (typeof playVideo === 'function') {
               playVideo({
                 ...item,
+                path: null,
+                url: null,
                 torrentMagnet: magnet,
                 fileIdx: fIdx,
+                source: 'torrent',
                 startTime: resumeTime
               }, showObj, { startTime: resumeTime });
             }
@@ -714,21 +784,37 @@
                 startTime: resumeTime
               }, showObj, { startTime: resumeTime });
             }
-          } else if (item.isStream) {
+          } else if (item.isStream && rawPath) {
             if (typeof playVideo === 'function') {
               playVideo({
                 ...item,
+                path: rawPath,
                 startTime: resumeTime
               }, item.showName ? { title: item.showName, id: item.showId } : null, { startTime: resumeTime });
             }
-          } else if (isEpisode && item.season != null && item.episode != null && typeof window.selectUnifiedEpisode === 'function') {
-            // MATCH EPISODES PAGE EXACTLY: Stream & auto-play episode with resume time
+          } else if (isEpisode && item.season != null && item.episode != null) {
+            const resolvedImdb = item.imdb_id || item.imdbId || (showObj && (showObj.imdb_id || showObj.imdbId)) || (String(item.id || pb?.key || '').match(/(tt\d+)/)?.[1]) || null;
+            const streamType = (item.source === 'jikan' || item.source === 'mal' || item.source === 'kitsu' || item.kitsuId) ? 'anime' : 'tv';
             const epThumb = episodeStill || backdropUrl || '';
             const epTitle = displayTitle || `Episode ${item.episode}`;
-            window.selectUnifiedEpisode(item.season, item.episode, epTitle, epThumb, rawPath || '');
+            const payload = {
+              ...item,
+              imdb_id: resolvedImdb,
+              imdbId: resolvedImdb,
+              season: parseInt(item.season, 10),
+              episode: parseInt(item.episode, 10),
+              epTitle: epTitle,
+              thumbnail: epThumb,
+              media_type: 'tv',
+              startTime: resumeTime
+            };
+            if (typeof window.loadStreams === 'function') {
+              window.loadStreams(payload, streamType);
+            } else if (typeof window.openDiscoverDetail === 'function') {
+              window.openDiscoverDetail(showObj || item);
+            }
           } else if (typeof window.loadStreams === 'function') {
-            // Load streams for movie/show with auto-play
-            const resolvedImdb = item.imdb_id || item.imdbId || (showObj && (showObj.imdb_id || showObj.imdbId)) || (String(item.id).startsWith('tt') ? item.id : null);
+            const resolvedImdb = item.imdb_id || item.imdbId || (showObj && (showObj.imdb_id || showObj.imdbId)) || (String(item.id || pb?.key || '').match(/(tt\d+)/)?.[1]) || null;
             const streamType = (item.source === 'jikan' || item.source === 'mal' || item.source === 'kitsu' || item.kitsuId) ? 'anime' : (isEpisode ? 'tv' : (item.type === 'show' ? 'tv' : 'movie'));
             const payload = {
               ...item,
@@ -742,7 +828,6 @@
             };
             window.loadStreams(payload, streamType);
           } else {
-            // Online item without a direct path: open detail page
             const targetObj = showObj || item;
             if (typeof openDiscoverDetail === 'function') {
               openDiscoverDetail(targetObj);

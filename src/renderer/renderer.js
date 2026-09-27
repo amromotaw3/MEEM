@@ -9371,6 +9371,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         if (!item && meta) item = { ...meta, id: key, path: meta.path || (key.includes(':\\') || key.includes(':/') ? key : null) };
         if (item) {
           continueItems.push({
+            key,
             item,
             pb,
             lastWatched: pb.lastWatched || 0
@@ -9386,11 +9387,13 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const existing = continueItems.find(x => x.item.id === show.id);
           if (existing) {
             if ((pb.lastWatched || 0) > existing.lastWatched) {
+              existing.key = key;
               existing.pb = pb;
               existing.lastWatched = pb.lastWatched || 0;
             }
           } else {
             continueItems.push({
+              key,
               item: show,
               pb,
               lastWatched: pb.lastWatched || 0
@@ -9407,8 +9410,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (displayItems.length) {
       section.style.display = 'block';
       row.innerHTML = '';
-      displayItems.forEach(({ item, pb }) => {
-        const card = createMediaCard(item);
+      displayItems.forEach(({ key, item, pb }) => {
+        const mediaItem = {
+          ...item,
+          poster: pb.meta?.thumbnail || pb.meta?.still || pb.meta?.poster || pb.meta?.backdrop || item.poster,
+          posterPath: pb.meta?.thumbnail || pb.meta?.still || pb.meta?.poster || pb.meta?.backdrop || item.posterPath,
+          thumbnail: pb.meta?.thumbnail || pb.meta?.still || item.thumbnail
+        };
+        const card = createMediaCard(mediaItem);
         const progress = (pb.time / pb.duration) * 100;
 
         // Show episode tag (e.g. S1:E2) for shows
@@ -9427,19 +9436,48 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         // Clicking the card in Continue Watching plays/opens the specific episode directly
         card.onclick = () => {
           const resumeTime = (pb && pb.time > 2 && !pb.watched) ? pb.time : 0;
+          let magnet = item.torrentMagnet || pb.torrentMagnet || pb.meta?.torrentMagnet;
+          let fIdx = item.fileIdx ?? pb.fileIdx ?? pb.meta?.fileIdx ?? null;
+
+          if (!magnet && typeof key === 'string') {
+            const magnetMatch = key.match(/magnet_([a-zA-Z0-9]{32,40})/i);
+            if (magnetMatch) {
+              magnet = `magnet:?xt=urn:btih:${magnetMatch[1]}`;
+              const fMatch = key.match(/_f(\d+)/i);
+              if (fMatch && fIdx == null) fIdx = parseInt(fMatch[1], 10);
+            }
+          }
+
           let rawPath = item.path || pb.path || pb.meta?.path || item.url || pb.meta?.url;
+          if (rawPath && typeof isStaleStreamUrl === 'function' && isStaleStreamUrl(rawPath)) {
+            rawPath = null;
+          }
+
+          if (magnet && typeof playVideo === 'function') {
+            playVideo({
+              ...item,
+              path: null,
+              url: null,
+              torrentMagnet: magnet,
+              fileIdx: fIdx,
+              source: 'torrent',
+              startTime: resumeTime
+            }, null, { startTime: resumeTime });
+            return;
+          }
+
           if (!rawPath && typeof key === 'string' && (key.includes(':\\') || key.includes(':/') || key.startsWith('/'))) {
             rawPath = key;
           }
           if (!rawPath && window.appData) {
             if (Array.isArray(appData.shows)) {
               for (const s of appData.shows) {
-                const ep = (s.episodes || []).find(e => e.path && (e.path === item.path || e.path === key || key.includes(e.path)));
+                const ep = (s.episodes || []).find(e => e.path && (e.path === item.path || e.path === key || (key && key.includes(e.path))));
                 if (ep && ep.path) { rawPath = ep.path; break; }
               }
             }
             if (!rawPath && Array.isArray(appData.movies)) {
-              const m = appData.movies.find(mv => mv.path && (mv.path === item.path || mv.path === key || key.includes(mv.path)));
+              const m = appData.movies.find(mv => mv.path && (mv.path === item.path || mv.path === key || (key && key.includes(mv.path))));
               if (m && m.path) rawPath = m.path;
             }
           }
@@ -9452,7 +9490,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           if (pb.meta && (pb.meta.type === 'tv' || pb.meta.type === 'series' || pb.meta.season != null) && pb.meta.season != null && pb.meta.episode != null && typeof window.selectUnifiedEpisode === 'function') {
             window.selectUnifiedEpisode(pb.meta.season, pb.meta.episode, pb.meta.title || `Episode ${pb.meta.episode}`, pb.meta.thumbnail || '', pb.meta.path || '');
           } else if (typeof window.loadStreams === 'function') {
-            const resolvedImdb = pb.meta?.imdb_id || pb.meta?.imdbId || (String(pb.meta?.id).startsWith('tt') ? pb.meta.id : null);
+            const resolvedImdb = pb.meta?.imdb_id || pb.meta?.imdbId || (String(pb.meta?.id || key).match(/(tt\d+)/)?.[1]) || null;
             const streamType = (pb.meta?.source === 'jikan' || pb.meta?.source === 'mal' || pb.meta?.source === 'kitsu' || pb.meta?.kitsuId) ? 'anime' : ((pb.meta?.type === 'tv' || pb.meta?.type === 'series') ? 'tv' : 'movie');
             const payload = {
               ...pb.meta,

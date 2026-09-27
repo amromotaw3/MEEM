@@ -192,7 +192,7 @@ function isStaleStreamUrl(p) {
   if (!p || !/^https?:\/\//i.test(p)) return false;
   // If the stream URL is currently active in the running session, it's not stale
   if (window._activeStreamUrl && window._activeStreamUrl === p) return false;
-  return /\/stream\?path=/i.test(p);
+  return /\/stream\?path=/i.test(p) || /^https?:\/\/(127\.0\.0\.1|localhost):1147\d\//i.test(p);
 }
 
 function toMediaPlayUrl(filePath) {
@@ -228,6 +228,7 @@ async function requestNativePlayback(item, show, extra = {}) {
   
   // Prefer active stream URL if available, fallback to torrentMagnet or media path
   let pathUrl = item.path || item.url || item.torrentMagnet || item.streamUrl || item.mediaUrl || item.sourceUrl;
+  if (pathUrl && isStaleStreamUrl(pathUrl) && item.torrentMagnet) pathUrl = item.torrentMagnet;
   if (!pathUrl && item.id && (item.id.startsWith('http') || item.id.includes(':\\') || item.id.includes(':/') || item.id.startsWith('\\\\'))) {
     pathUrl = item.id;
   }
@@ -377,6 +378,7 @@ async function requestNativePlayback(item, show, extra = {}) {
   return window.api.playMedia({
     path: pathUrl,
     url: pathUrl,
+    torrentMagnet: item.torrentMagnet || (extra && extra.torrentMagnet) || null,
     audio: extraAudioUrl,
     audioUrl: extraAudioUrl,
     title: item.displayTitle || item.title || item.epTitle || item.name || 'Playback',
