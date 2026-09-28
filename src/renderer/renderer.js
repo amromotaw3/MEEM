@@ -13907,6 +13907,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const card = document.createElement('div');
       card.className = 'discover-card';
       const title = item.title || item.name || 'Unknown';
+      const inLib = localTitles.has(title.toLowerCase());
       let posterUrl = item.poster || item.poster_path || item.bannerPath || item.banner || item.customPoster || item.cover || '';
       if (posterUrl && typeof posterUrl === 'string' && posterUrl.startsWith('/') && !posterUrl.startsWith('//') && !posterUrl.match(/^\/[a-zA-Z]:/)) {
         posterUrl = `https://image.tmdb.org/t/p/w500${posterUrl}`;
@@ -13919,8 +13920,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (!posterUrl && !inLib && !item.isLocal && item.type !== 'iptv' && item.type !== 'channel' && item.type !== 'radio') {
         return; // Hide items with no poster
       }
-
-      const inLib = localTitles.has(title.toLowerCase());
       const label = item.media_type === 'tv' ? 'SERIES' : 'MOVIE';
       const year = (item.release_date || item.first_air_date || '').slice(0, 4);
       const rating = parseFloat(item.vote_average) || 0;
@@ -18553,10 +18552,7 @@ function performUnifiedSearch(q) {
             return;
           }
 
-          items.slice(0, 36).forEach((item, idx) => {
-            const card = document.createElement('div');
-            card.className = 'discover-card search-result-card stagger-card';
-            card.style.setProperty('--stagger-i', Math.min(idx, 30));
+          items.slice(0, 48).forEach((item, idx) => {
             const itemTitle = item.title || item.name || 'Unknown';
 
             let posterUrl = '';
@@ -18564,6 +18560,9 @@ function performUnifiedSearch(q) {
 
             if (item.poster) posterUrl = localImg(item.poster);
             else if (item.poster_path) posterUrl = localImg(item.poster_path);
+            else if (item.cover) posterUrl = localImg(item.cover);
+            else if (item.thumbnail) posterUrl = localImg(item.thumbnail);
+            else if (item.image) posterUrl = localImg(item.image);
 
             const localItem = localMap.get(itemTitle.toLowerCase());
             const inLib = !!localItem;
@@ -18575,21 +18574,26 @@ function performUnifiedSearch(q) {
               else if (localItem.banner) posterUrl = localImg(localItem.banner);
             }
 
-            const tmdbKey = appData.tmdbKey;
-            const overrideEnabled = appData.tmdbEnabled !== false && appData.tmdbImageOverride !== false;
-            const scope = appData.tmdbImageScope || 'both';
-            const hasTmdbOverride = overrideEnabled && tmdbKey && resolvedImdb && String(resolvedImdb).startsWith('tt') && (scope === 'both' || scope === 'posters');
-            if (!posterUrl && !inLib && !item.isLocal && !hasTmdbOverride) {
+            if (!posterUrl && (resolvedImdb && String(resolvedImdb).startsWith('tt'))) {
+              const cleanImdb = String(resolvedImdb).startsWith('tt') ? resolvedImdb : `tt${resolvedImdb}`;
+              posterUrl = `https://images.metahub.space/poster/medium/${cleanImdb}/img`;
+            }
+
+            // Strictly filter out any items with no poster URL or placeholder
+            if (!posterUrl || posterUrl === 'imgs/no-backdrop.png') {
               return; // Hide search results with no poster
             }
+
+            const card = document.createElement('div');
+            card.className = 'discover-card search-result-card stagger-card';
+            card.style.setProperty('--stagger-i', Math.min(idx, 30));
 
             const year = (item.release_date || item.first_air_date || item.seasonYear || item.releaseYear || item.year || '').toString().slice(0, 4);
             const rating = item.vote_average || item.score || item.rating || 0;
 
             card.innerHTML = `
               <div class="discover-poster-wrap">
-                <div class="discover-poster-placeholder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:var(--bg-surface-2); ${posterUrl ? 'display:none;' : ''}"><i class="fas fa-image fa-2x" style="opacity: 0.3;"></i></div>
-                ${posterUrl ? `<img src="${posterUrl}" class="discover-poster search-poster-img" loading="lazy" onerror="this.src='imgs/no-backdrop.png'; this.onerror=null;">` : ''}
+                <img src="${posterUrl}" class="discover-poster search-poster-img" loading="lazy">
                 ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
               </div>
               <div class="discover-info">
@@ -18664,13 +18668,23 @@ function performUnifiedSearch(q) {
             if (imgEl) {
               imgEl.onerror = () => {
                 imgEl.onerror = null;
-                imgEl.style.display = 'none';
-                const ph = imgEl.parentElement?.querySelector('.discover-poster-placeholder') || imgEl.parentElement?.querySelector('.card-poster-placeholder');
-                if (ph) ph.style.display = 'flex';
-                if (resolvedImdb && String(resolvedImdb).startsWith('tt')) getTraktOrImdbPoster(item, imgEl, card);
+                // If the poster image fails to load (404/broken), try backup or completely remove the card
+                if (resolvedImdb && String(resolvedImdb).startsWith('tt')) {
+                  getTraktOrImdbPoster(item, imgEl, card, () => {
+                    card.remove();
+                  });
+                } else {
+                  card.remove();
+                }
               };
             }
-            if (resolvedImdb && String(resolvedImdb).startsWith('tt')) getTraktOrImdbPoster(item, null, card);
+            if (resolvedImdb && String(resolvedImdb).startsWith('tt')) {
+              getTraktOrImdbPoster(item, null, card, () => {
+                if (!card.querySelector('.search-poster-img')?.src) {
+                  card.remove();
+                }
+              });
+            }
           });
         };
 
