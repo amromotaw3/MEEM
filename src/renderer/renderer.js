@@ -17681,11 +17681,24 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // ── Main Search View Setup & Event Listeners ──
   const mainSearchInput = $('#search-input-main');
+  let mainSearchDebounceTimer = null;
   if (mainSearchInput) {
     mainSearchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
+        clearTimeout(mainSearchDebounceTimer);
         performUnifiedSearch(mainSearchInput.value);
       }
+    });
+    mainSearchInput.addEventListener('input', () => {
+      clearTimeout(mainSearchDebounceTimer);
+      const val = (mainSearchInput.value || '').trim();
+      if (!val) {
+        renderEmptySearchState();
+        return;
+      }
+      mainSearchDebounceTimer = setTimeout(() => {
+        performUnifiedSearch(mainSearchInput.value);
+      }, 350);
     });
   }
 
@@ -18665,14 +18678,25 @@ function performUnifiedSearch(q) {
           });
         };
 
-        // ─── PHASE 1: fire enabled search providers ────
+        // ─── Fire all enabled search providers concurrently ────
         const canCatalog = window.AppCapabilities?.can('catalog');
         const canYT = window.AppCapabilities?.can('youtube');
 
         const catalogPromise = canCatalog ? window.api.invoke('unified-search', qClean).catch(() => null) : Promise.resolve(null);
         const ytPromise = canYT ? window.api.invoke('youtube-search', { query: qClean, filter: 'video' }).catch(() => null) : Promise.resolve(null);
+        const traktMoviesPromise = canCatalog ? window.api.invoke('trakt-search', { query: qClean, type: 'movie' }).catch(() => null) : Promise.resolve(null);
+        const traktShowsPromise = canCatalog ? window.api.invoke('trakt-search', { query: qClean, type: 'series' }).catch(() => null) : Promise.resolve(null);
 
-        const [unifiedRes, ytSearchRes] = await Promise.all([catalogPromise, ytPromise]);
+        // Minimum visual duration (280ms) ensures smooth shimmer transition and prevents instant jarring flash
+        const minDisplayPromise = new Promise(r => setTimeout(r, 280));
+
+        const [unifiedRes, ytSearchRes, traktMoviesRes, traktShowsRes] = await Promise.all([
+          catalogPromise,
+          ytPromise,
+          traktMoviesPromise,
+          traktShowsPromise,
+          minDisplayPromise
+        ]);
 
         // Bail if a newer search was started
         if (searchId !== performUnifiedSearch._searchId) return;
@@ -18683,8 +18707,11 @@ function performUnifiedSearch(q) {
         const localMatchesShows = (appData.shows || []).filter(s => (s.title || s.name || '').toLowerCase().includes(localQ)).map(s => ({ ...s, type: 'series', isLocal: true, inLib: true }));
 
         const allUnified = unifiedRes?.results || [];
-        const unifiedMovies = mergeDedup([...localMatchesMovies, ...allUnified.filter(r => r.type === 'movie')]).filter(isAgeAllowed);
-        const unifiedSeries = mergeDedup([...localMatchesShows, ...allUnified.filter(r => r.type === 'series' || r.type === 'tv')]).filter(isAgeAllowed);
+        const traktMovies = (traktMoviesRes?.results || []).map(r => ({ ...r, type: 'movie' }));
+        const traktShows = (traktShowsRes?.results || []).map(r => ({ ...r, type: 'tv' }));
+
+        const unifiedMovies = mergeDedup([...localMatchesMovies, ...allUnified.filter(r => r.type === 'movie'), ...traktMovies]).filter(isAgeAllowed);
+        const unifiedSeries = mergeDedup([...localMatchesShows, ...allUnified.filter(r => r.type === 'series' || r.type === 'tv'), ...traktShows]).filter(isAgeAllowed);
         const ytVideos = (ytSearchRes && ytSearchRes.success && ytSearchRes.results) ? ytSearchRes.results : [];
 
         // Show results now (clear skeleton)
@@ -18712,32 +18739,6 @@ function performUnifiedSearch(q) {
               </div>
             </div>
           `;
-        }
-
-        // ─── PHASE 2: Trakt enrichment in background (only if catalog is enabled) ───────────────────────
-        if (canCatalog) {
-          const [traktMoviesRes, traktShowsRes] = await Promise.all([
-            window.api.invoke('trakt-search', { query: qClean, type: 'movie' }).catch(() => null),
-            window.api.invoke('trakt-search', { query: qClean, type: 'series' }).catch(() => null)
-          ]);
-
-          if (searchId !== performUnifiedSearch._searchId) return;
-
-          const traktMovies = (traktMoviesRes?.results || []).map(r => ({ ...r, type: 'movie' }));
-          const traktShows = (traktShowsRes?.results || []).map(r => ({ ...r, type: 'tv' }));
-
-          const allMovieItems = mergeDedup([...unifiedMovies, ...traktMovies]).filter(isAgeAllowed);
-          const allSeriesItems = mergeDedup([...unifiedSeries, ...traktShows]).filter(isAgeAllowed);
-
-          const newMovieCount = allMovieItems.length - unifiedMovies.length;
-          const newSeriesCount = allSeriesItems.length - unifiedSeries.length;
-
-          if (newMovieCount > 0 || newSeriesCount > 0) {
-            grid.innerHTML = '';
-            if (allMovieItems.length) renderSearchSection('Movies', allMovieItems, 'movies');
-            if (allSeriesItems.length) renderSearchSection('Series', allSeriesItems, 'series');
-            if (ytVideos.length) renderSearchSection('YouTube Videos', ytVideos, 'youtube');
-          }
         }
 
       } catch (err) {

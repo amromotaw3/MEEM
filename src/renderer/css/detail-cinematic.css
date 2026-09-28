@@ -563,28 +563,41 @@
     transform: scale(1.05);
 }
 
+@keyframes searchShimmerSweep {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
 /* Skeleton Loading Cards */
 .dd-ep-skeleton-card {
     display: flex;
     align-items: center;
     gap: 12px;
-    background: #000000 !important;
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.07) !important;
     border-radius: 12px;
     padding: 8px 10px;
     margin-bottom: 0px;
     position: relative;
     overflow: hidden;
-    animation: ddEpCardIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    pointer-events: none;
+}
+
+.dd-ep-skeleton-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255, 255, 255, 0.06) 50%, rgba(255,255,255,0) 100%);
+    background-size: 200% 100%;
+    animation: searchShimmerSweep 1.5s infinite ease-in-out;
+    pointer-events: none;
 }
 
 .dd-ep-skeleton-thumb {
     width: 100px;
     height: 58px;
     border-radius: 8px;
-    background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
-    background-size: 200% 100%;
-    animation: ddEpImgShimmer 1.5s infinite linear;
+    background: rgba(255, 255, 255, 0.06);
     flex-shrink: 0;
 }
 
@@ -598,20 +611,16 @@
 
 .dd-ep-skeleton-title {
     width: 65%;
-    height: 13px;
-    border-radius: 4px;
-    background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
-    background-size: 200% 100%;
-    animation: ddEpImgShimmer 1.5s infinite linear;
+    height: 14px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
 }
 
 .dd-ep-skeleton-date {
-    width: 30%;
+    width: 35%;
     height: 10px;
-    border-radius: 3px;
-    background: linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.02) 100%);
-    background-size: 200% 100%;
-    animation: ddEpImgShimmer 1.5s infinite linear;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .dd-ep-number {
