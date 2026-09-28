@@ -1581,7 +1581,7 @@
             console.log('[AUTH] Mobile/Web direct signInWithPassword...');
             const { data, error } = await withTimeout(
               client.auth.signInWithPassword({ email, password }),
-              15000,
+              30000,
               'Sign in request timed out'
             );
             if (error) {
@@ -1737,7 +1737,7 @@
                 password,
                 options: { data: { username: username || email.split('@')[0] } }
               }),
-              15000,
+              30000,
               'Sign up request timed out'
             );
             if (error) {
