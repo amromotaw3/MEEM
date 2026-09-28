@@ -2496,13 +2496,55 @@
                 return { success: false, error: 'Invalid YouTube ID' };
             }
 
+            // 1. Try Piped API instances first (Fastest & direct stream URLs)
+            const pipedInstances = [
+                'https://pipedapi.kavin.rocks',
+                'https://api.piped.privacydev.net',
+                'https://pipedapi.tokhmi.xyz',
+                'https://piped-api.garudalinux.org'
+            ];
+            for (const piped of pipedInstances) {
+                try {
+                    const fetchUrl = `${piped}/streams/${vidId}`;
+                    let data = null;
+                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
+                        data = res.data;
+                    } else {
+                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(4500) });
+                        data = await res.json();
+                    }
+                    if (data && (data.videoStreams || data.audioStreams || data.title)) {
+                        const vidStreams = (data.videoStreams || []).filter(s => s.videoOnly === false);
+                        const bestVid = (vidStreams.length > 0 ? vidStreams : (data.videoStreams || [])).sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))[0];
+                        const bestAud = (data.audioStreams || []).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+                        const streamUrl = bestVid?.url || bestAud?.url;
+                        if (streamUrl) {
+                            return {
+                                success: true,
+                                details: {
+                                    id: vidId,
+                                    videoId: vidId,
+                                    title: data.title || 'YouTube Video',
+                                    author: data.uploader || 'YouTube',
+                                    duration: data.duration || 0,
+                                    thumbnail: data.thumbnailUrl || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`,
+                                    streamUrl: streamUrl
+                                }
+                            };
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            // 2. Try Healthy Invidious instances
             const invidiousInstances = [
-                'https://inv.tux.im',
-                'https://invidious.nerdvpn.de',
                 'https://yewtu.be',
                 'https://invidious.flokinet.to',
-                'https://invidious.projectsegfau.lt',
-                'https://invidious.no-logs.com'
+                'https://iv.ggtyler.dev',
+                'https://invidious.drgns.space',
+                'https://invidious.private.coffee',
+                'https://inv.nadeko.net'
             ];
             for (const inst of invidiousInstances) {
                 try {
@@ -2512,7 +2554,7 @@
                         const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
                         data = res.data;
                     } else {
-                        const res = await fetch(fetchUrl);
+                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(4500) });
                         data = await res.json();
                     }
                     if (data && (data.formatStreams || data.adaptiveFormats || data.title)) {
@@ -2522,21 +2564,23 @@
                             streamUrl = sorted[0]?.url;
                         }
                         if (!streamUrl && data.adaptiveFormats && data.adaptiveFormats.length > 0) {
-                            const audioOrVideo = data.adaptiveFormats.find(f => f.type?.includes('audio') || f.type?.includes('video'));
+                            const audioOrVideo = data.adaptiveFormats.find(f => f.type?.includes('video') || f.type?.includes('audio'));
                             streamUrl = audioOrVideo?.url;
                         }
-                        return {
-                            success: true,
-                            details: {
-                                id: vidId,
-                                videoId: vidId,
-                                title: data.title || 'YouTube Video',
-                                author: data.author || 'YouTube',
-                                duration: data.lengthSeconds || 0,
-                                thumbnail: data.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`,
-                                streamUrl: streamUrl || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`
-                            }
-                        };
+                        if (streamUrl) {
+                            return {
+                                success: true,
+                                details: {
+                                    id: vidId,
+                                    videoId: vidId,
+                                    title: data.title || 'YouTube Video',
+                                    author: data.author || 'YouTube',
+                                    duration: data.lengthSeconds || 0,
+                                    thumbnail: data.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`,
+                                    streamUrl: streamUrl
+                                }
+                            };
+                        }
                     }
                 } catch (_) {}
             }
@@ -2555,6 +2599,117 @@
             };
         },
 
+        getMusicStreamUrl: async (videoId) => {
+            const cleanId = String(videoId || '').replace(/^(yt:|youtube:)/, '').trim();
+            if (!cleanId) return { success: false, error: 'Track ID required' };
+
+            // 1. Try Piped audio streams first
+            const pipedInstances = [
+                'https://pipedapi.kavin.rocks',
+                'https://api.piped.privacydev.net',
+                'https://pipedapi.tokhmi.xyz',
+                'https://piped-api.garudalinux.org'
+            ];
+            for (const piped of pipedInstances) {
+                try {
+                    const fetchUrl = `${piped}/streams/${cleanId}`;
+                    let data = null;
+                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
+                        data = res.data;
+                    } else {
+                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(4500) });
+                        data = await res.json();
+                    }
+                    if (data?.audioStreams && data.audioStreams.length > 0) {
+                        const bestAud = [...data.audioStreams].sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+                        if (bestAud?.url) {
+                            return { success: true, streamUrl: bestAud.url };
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            // 2. Try Invidious adaptive formats
+            const invidiousInstances = [
+                'https://yewtu.be',
+                'https://invidious.flokinet.to',
+                'https://iv.ggtyler.dev',
+                'https://invidious.drgns.space',
+                'https://invidious.private.coffee'
+            ];
+            for (const inst of invidiousInstances) {
+                try {
+                    const fetchUrl = `${inst}/api/v1/videos/${cleanId}`;
+                    let data = null;
+                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
+                        data = res.data;
+                    } else {
+                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(4500) });
+                        data = await res.json();
+                    }
+                    if (data?.adaptiveFormats) {
+                        const audFormats = data.adaptiveFormats.filter(f => f.type?.includes('audio'));
+                        const best = audFormats.sort((a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0))[0];
+                        if (best?.url) {
+                            return { success: true, streamUrl: best.url };
+                        }
+                    }
+                    if (data?.formatStreams && data.formatStreams.length > 0) {
+                        return { success: true, streamUrl: data.formatStreams[0].url };
+                    }
+                } catch (_) {}
+            }
+
+            return { success: false, error: 'Could not resolve audio stream URL' };
+        },
+
+        getMusicLyrics: async (title, artist, duration, videoId) => {
+            const rawTitle = title || '';
+            const rawArtist = artist || '';
+            
+            // Check Quran
+            const isQuran = ['سورة', 'سوره', 'surah', 'sourate', 'surat', 'تلاوة', 'تلاوه', 'مصحف', 'قرآن', 'قران', 'quran'].some(k => (rawTitle + ' ' + rawArtist).toLowerCase().includes(k));
+            if (isQuran) {
+                return {
+                    success: true,
+                    isQuran: true,
+                    surahNameAr: 'القرآن الكريم',
+                    surahNameEn: 'Holy Quran Recitation'
+                };
+            }
+
+            let cleanTitle = rawTitle.replace(/\[[^\]]*\]/g, ' ').replace(/\([^)]*\)/g, ' ').replace(/official\s+(music\s+)?(video|audio|lyrics?)/gi, ' ').replace(/[|#@!~_]/g, ' ').trim();
+            let cleanArtist = rawArtist.replace(/\s*-\s*Topic/i, '').trim();
+
+            try {
+                let u = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(cleanArtist)}`;
+                if (duration) u += `&duration=${Math.round(duration)}`;
+                const r = await fetch(u);
+                if (r.ok) {
+                    const d = await r.json();
+                    if (d.syncedLyrics || d.plainLyrics) {
+                        return { success: true, syncedLyrics: d.syncedLyrics, plainLyrics: d.plainLyrics };
+                    }
+                }
+            } catch (_) {}
+
+            try {
+                const sUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + cleanArtist)}`;
+                const sr = await fetch(sUrl);
+                if (sr.ok) {
+                    const list = await sr.json();
+                    if (Array.isArray(list) && list.length > 0) {
+                        const top = list[0];
+                        return { success: true, syncedLyrics: top.syncedLyrics, plainLyrics: top.plainLyrics };
+                    }
+                }
+            } catch (_) {}
+
+            return { success: false, error: 'Lyrics not found' };
+        },
+
         resolveTrailerStream: async (youtubeUrl) => {
             if (!youtubeUrl) return null;
             const res = await window.api.resolveYouTubeVideo(youtubeUrl);
@@ -2564,7 +2719,36 @@
         searchYouTube: async (args) => {
             const query = typeof args === 'string' ? args : (args?.query || '');
             if (!query) return [];
-            const invidiousInstances = ['https://inv.tux.im', 'https://invidious.nerdvpn.de', 'https://yewtu.be', 'https://invidious.flokinet.to'];
+
+            // 1. Try Piped search
+            const pipedInstances = ['https://pipedapi.kavin.rocks', 'https://api.piped.privacydev.net', 'https://pipedapi.tokhmi.xyz'];
+            for (const piped of pipedInstances) {
+                try {
+                    const url = `${piped}/search?q=${encodeURIComponent(query)}&filter=videos`;
+                    let data = null;
+                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url });
+                        data = res.data;
+                    } else {
+                        const res = await fetch(url, { signal: AbortSignal.timeout(4500) });
+                        data = await res.json();
+                    }
+                    if (data?.items && Array.isArray(data.items)) {
+                        return data.items.map(item => ({
+                            id: (item.url || '').replace('/watch?v=', ''),
+                            videoId: (item.url || '').replace('/watch?v=', ''),
+                            title: item.title,
+                            author: item.uploaderName,
+                            duration: item.duration,
+                            thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${(item.url || '').replace('/watch?v=', '')}/hqdefault.jpg`,
+                            published: item.uploadedDate
+                        }));
+                    }
+                } catch (_) {}
+            }
+
+            // 2. Try Invidious search
+            const invidiousInstances = ['https://yewtu.be', 'https://invidious.flokinet.to', 'https://iv.ggtyler.dev'];
             for (const inst of invidiousInstances) {
                 try {
                     const url = `${inst}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
@@ -2573,7 +2757,7 @@
                         const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url });
                         data = res.data;
                     } else {
-                        const res = await fetch(url);
+                        const res = await fetch(url, { signal: AbortSignal.timeout(4500) });
                         data = await res.json();
                     }
                     if (Array.isArray(data)) {
@@ -3042,25 +3226,26 @@
         // --- Filesystem & Folders (Capacitor) ---
 
         ensureProfileFolders: async (profileName) => {
-            if (!isAndroid) return true;
+            if (!isAndroid || !profileName) return true;
             try {
-                const folders = ['Movies', 'Series', 'Social', 'Music', 'Downloads', 'Subtitles', 'Banners'];
-                for (const folder of folders) {
-                    try {
+                const fs = window.Capacitor?.Plugins?.Filesystem;
+                if (fs) {
+                    const folders = ['Movies', 'Series', 'Social', 'Music', 'Downloads', 'Subtitles', 'Banners'];
+                    for (const folder of folders) {
                         const path = `MEEM/${profileName}/${folder}`;
-                        await Filesystem.mkdir({
-                            path: path,
-                            directory: 'DOCUMENTS',
-                            recursive: true
-                        });
-                        console.log(`[Bridge] Folder created: ${path}`);
-                    } catch (e) {
-                        // Already exists or permission error
+                        try {
+                            await fs.stat({ path, directory: 'DOCUMENTS' });
+                        } catch (_) {
+                            await fs.mkdir({
+                                path: path,
+                                directory: 'DOCUMENTS',
+                                recursive: true
+                            }).catch(() => {});
+                        }
                     }
                 }
                 return true;
             } catch (err) {
-                console.error('[Bridge] Filesystem setup failed:', err);
                 return false;
             }
         },
@@ -3144,6 +3329,8 @@
             if (channel === 'youtube-get-video-info') return window.api.resolveYouTubeVideo(args[0]);
             if (channel === 'resolve-trailer-stream') return window.api.resolveTrailerStream(args[0]);
             if (channel === 'youtube-search') return window.api.searchYouTube(args[0]);
+            if (channel === 'music-get-stream-url') return window.api.getMusicStreamUrl(args[0]);
+            if (channel === 'music-get-lyrics') return window.api.getMusicLyrics(args[0]?.title || args[0], args[0]?.artist || args[1], args[0]?.duration || args[2], args[0]?.videoId || args[3]);
             if (channel === 'mal-details') return window.api.malDetails(typeof args[0] === 'object' ? args[0]?.id : args[0]);
             if (channel === 'kitsu-details') return window.api.kitsuDetails(typeof args[0] === 'object' ? args[0]?.id : args[0]);
             if (channel === 'kitsu-trending') return window.api.kitsuTrending();
@@ -3984,21 +4171,24 @@
             return isAndroid ? 'MEEM' : 'C:/MEEM';
         },
         ensureProfileFolders: async (profileName) => {
-            if (!profileName) return true;
-            if (isAndroid) {
-                try {
-                    const fs = window.Capacitor?.Plugins?.Filesystem;
-                    if (fs) {
-                        for (const sub of ['Movies', 'Series', 'Social', 'Music']) {
+            if (!profileName || !isAndroid) return true;
+            try {
+                const fs = window.Capacitor?.Plugins?.Filesystem;
+                if (fs) {
+                    for (const sub of ['Movies', 'Series', 'Social', 'Music', 'Downloads', 'Subtitles', 'Banners']) {
+                        const path = `MEEM/${profileName}/${sub}`;
+                        try {
+                            await fs.stat({ path, directory: 'DOCUMENTS' });
+                        } catch (_) {
                             await fs.mkdir({
-                                path: `MEEM/${profileName}/${sub}`,
+                                path: path,
                                 directory: 'DOCUMENTS',
                                 recursive: true
                             }).catch(() => {});
                         }
                     }
-                } catch (_) {}
-            }
+                }
+            } catch (_) {}
             return true;
         },
         getProfileMediaPaths: async (profileName) => {
@@ -4032,14 +4222,7 @@
 
         getCommonPaths: async () => {
             if (!isAndroid) return [];
-            return [
-                'Movies',
-                'Download',
-                'DCIM/Camera',
-                'MEEM',
-                '/storage/emulated/0/Movies',
-                '/storage/emulated/0/Download'
-            ];
+            return ['MEEM'];
         },
         
         // --- NEW MOBILE HANDLERS ---
