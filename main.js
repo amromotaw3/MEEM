@@ -129,13 +129,15 @@ app.whenReady().then(() => {
   const { createMediaProtocolHandler } = require('./src/main/mediaProtocol');
   protocol.handle('media', createMediaProtocolHandler());
 
-  protocol.handle('local-file', (request) => {
+  protocol.handle('local-file', async (request) => {
     try {
       const url = new URL(request.url);
-      
-      // On Windows, if the URL is local-file://C:/path, 'C:' is the host and '/path' is the pathname.
-      // If it's local-file:///C:/path, host is empty and '/C:/path' is the pathname.
       let rawPath = decodeURIComponent(url.pathname);
+      
+      // Strip any accidental nested media-img prefix
+      if (rawPath.includes('media-img:///') || rawPath.includes('media-img//') || rawPath.includes('media-img/')) {
+        rawPath = rawPath.replace(/^.*media-img:\/\/\//i, '').replace(/^.*media-img:\/\//i, '').replace(/^.*media-img\/\/\//i, '').replace(/^.*media-img\/\//i, '').replace(/^.*media-img\//i, '');
+      }
       
       if (process.platform === 'win32') {
         if (url.host && url.host.match(/^[a-zA-Z]:$/)) {
@@ -154,8 +156,51 @@ app.whenReady().then(() => {
 
       // Check if file exists
       if (!fs.existsSync(rawPath)) {
-        console.warn('[PROTOCOL] File not found:', rawPath);
-        return new Response('File not found', { status: 404 });
+        const { BANNERS_DIR } = require('./src/main/store');
+        const base = path.basename(rawPath);
+        const alt = path.join(BANNERS_DIR, base);
+        if (fs.existsSync(alt)) {
+          rawPath = alt;
+        } else {
+          // Attempt base64 decoding for on-the-fly fetch
+          const basenameNoExt = base.replace(/\.[^/.]+$/, "");
+          const decodeBase64Safe = (str) => {
+            try {
+              const normalizedB64 = str.replace(/_/g, '=').replace(/-/g, '+');
+              const padded = normalizedB64.padEnd(normalizedB64.length + (4 - normalizedB64.length % 4) % 4, '=');
+              return Buffer.from(padded, 'base64').toString('utf8');
+            } catch (e) {
+              return null;
+            }
+          };
+          let remoteUrl = null;
+          const d1 = decodeBase64Safe(basenameNoExt);
+          if (d1) {
+            if (/^https?:\/\//i.test(d1)) remoteUrl = d1;
+            else if (/^tt\d+$/i.test(d1)) remoteUrl = `https://images.metahub.space/poster/medium/${d1}/img`;
+            else {
+              const d2 = decodeBase64Safe(d1);
+              if (d2) {
+                if (/^https?:\/\//i.test(d2)) remoteUrl = d2;
+                else if (/^tt\d+$/i.test(d2)) remoteUrl = `https://images.metahub.space/poster/medium/${d2}/img`;
+              }
+            }
+          }
+          if (remoteUrl) {
+            try {
+              const fetchRes = await axios.get(remoteUrl, { responseType: 'arraybuffer', timeout: 5000 });
+              if (fetchRes.status === 200 && fetchRes.data) {
+                fs.writeFile(alt, Buffer.from(fetchRes.data), () => {});
+                return new Response(fetchRes.data, {
+                  status: 200,
+                  headers: { 'Content-Type': fetchRes.headers['content-type'] || 'image/jpeg' }
+                });
+              }
+            } catch (err) {}
+          }
+          console.warn('[PROTOCOL] File not found:', rawPath);
+          return new Response('File not found', { status: 404 });
+        }
       }
 
       const stat = fs.statSync(rawPath);
@@ -300,15 +345,22 @@ app.whenReady().then(() => {
           }
 
           if (remoteUrl) {
-            console.log('[PROTOCOL] media-img redirecting to remote URL (non-blocking):', remoteUrl);
-            return new Response(null, {
-              status: 302,
-              headers: { 'Location': remoteUrl }
-            });
-          } else {
-            console.warn('[PROTOCOL] media-img file not found and cannot decode remote URL:', normalized);
-            return new Response('File not found', { status: 404 });
+            console.log('[PROTOCOL] media-img proxying remote image:', remoteUrl);
+            try {
+              const fetchRes = await axios.get(remoteUrl, { responseType: 'arraybuffer', timeout: 5000 });
+              if (fetchRes.status === 200 && fetchRes.data) {
+                fs.writeFile(normalized, Buffer.from(fetchRes.data), () => {});
+                return new Response(fetchRes.data, {
+                  status: 200,
+                  headers: { 'Content-Type': fetchRes.headers['content-type'] || 'image/jpeg' }
+                });
+              }
+            } catch (err) {
+              console.warn('[PROTOCOL] Failed to fetch remote image:', remoteUrl, err.message);
+            }
           }
+          console.warn('[PROTOCOL] media-img file not found and cannot decode remote URL:', normalized);
+          return new Response('File not found', { status: 404 });
         }
       }
 

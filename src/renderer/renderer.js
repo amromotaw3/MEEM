@@ -4,17 +4,21 @@ class TMDBImage extends HTMLElement {
     const type = this.getAttribute('type') || 'poster';
     if (!path || path === 'null' || path === 'undefined' || path.trim() === '') return;
     let src = path;
-    if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('file://')) {
+    if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('file://') || path.startsWith('data:') || path.startsWith('media-img:') || path.startsWith('local-file:')) {
       src = path;
     } else if (path.startsWith('/tt') || path.startsWith('tt')) {
-      const cleanId = path.replace(/^\//, '').split('/')[0];
+      const cleanId = path.replace(/^\//, '').split('/')[0].split('.')[0];
       src = `https://images.metahub.space/poster/medium/${cleanId}/img`;
     } else if (path.startsWith('/')) {
       const size = type === 'still' ? 'w500' : (type === 'backdrop' ? 'w780' : 'w342');
       src = `https://image.tmdb.org/t/p/${size}${path}`;
     } else {
-      const size = type === 'still' ? 'w500' : (type === 'backdrop' ? 'w780' : 'w342');
-      src = `https://image.tmdb.org/t/p/${size}/${path}`;
+      if (path.match(/^[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)$/i) && !path.startsWith('tt')) {
+        const size = type === 'still' ? 'w500' : (type === 'backdrop' ? 'w780' : 'w342');
+        src = `https://image.tmdb.org/t/p/${size}/${path}`;
+      } else if (typeof localImg === 'function') {
+        src = localImg(path);
+      }
     }
     this.innerHTML = `<img src="${src}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;" loading="lazy"
       onload="const wrap=this.closest('.ep-thumb-wrap')||this.closest('.card-poster');if(wrap){const ph=wrap.querySelector('.ep-thumb-placeholder')||wrap.querySelector('.card-poster-placeholder');if(ph)ph.style.display='none';}"
@@ -139,7 +143,14 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
 
     let cleanP = p.trim();
+    
+    // Strip accidental nested protocol prefixes (e.g. local-file://media-img///...)
+    cleanP = cleanP.replace(/^local-file:\/\/\/?media-img:\/\/\//i, 'media-img:///').replace(/^local-file:\/\/\/?media-img:\/\//i, 'media-img://');
+
     if (cleanP.startsWith('data:') || cleanP.startsWith('blob:')) {
+      return cleanP;
+    }
+    if (cleanP.startsWith('media-img:') || cleanP.startsWith('local-file:')) {
       return cleanP;
     }
     if (cleanP.startsWith('//')) {
@@ -158,6 +169,32 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       return 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg==';
     }
 
+    // Direct IMDb ID poster resolution
+    if (cleanP.startsWith('/tt') || cleanP.startsWith('tt')) {
+      const cleanId = cleanP.replace(/^\//, '').split('/')[0].split('.')[0];
+      return `https://images.metahub.space/poster/medium/${cleanId}/img`;
+    }
+
+    // Base64 decoded URL or IMDb ID check for bare hashes/filenames (e.g. dHQ5MzM1NDk4.jpg)
+    const bareBase = cleanP.replace(/\.[^/.]+$/, '');
+    if (!cleanP.includes('/') && !cleanP.includes('\\') && /^[A-Za-z0-9_-]{6,}$/.test(bareBase)) {
+      try {
+        const normalizedB64 = bareBase.replace(/_/g, '=').replace(/-/g, '+');
+        const padded = normalizedB64.padEnd(normalizedB64.length + (4 - normalizedB64.length % 4) % 4, '=');
+        const decoded = atob(padded);
+        if (/^https?:\/\//i.test(decoded)) {
+          return decoded;
+        } else if (/^tt\d+$/i.test(decoded)) {
+          return `https://images.metahub.space/poster/medium/${decoded}/img`;
+        } else {
+          try {
+            const dec2 = atob(decoded);
+            if (/^https?:\/\//i.test(dec2)) return dec2;
+            if (/^tt\d+$/i.test(dec2)) return `https://images.metahub.space/poster/medium/${dec2}/img`;
+          } catch (_) {}
+        }
+      } catch (e) {}
+    }
 
     // Check localStorage cache for remote banners/images
     if (cleanP.startsWith('http')) {
@@ -222,29 +259,24 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       // If it's a relative path fragment (starts with / and doesn't look like a drive letter), assume it's from Cinemeta Metahub
       if (p.startsWith("/") && !p.match(/^\/[a-zA-Z]:/)) {
         if (p.startsWith("/tt")) {
-          const cleanId = p.replace(/^\//, '').split('/')[0];
+          const cleanId = p.replace(/^\//, '').split('/')[0].split('.')[0];
           return `https://images.metahub.space/poster/medium/${cleanId}/img`;
         } else if (p.match(/^\/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)$/i)) {
           // TMDB Image path (e.g. /h5J4W4ceyxUcMs0cxxhYx5F54i1.jpg)
           finalUrl = `https://image.tmdb.org/t/p/w500${p}`;
         }
       } else if (p.startsWith("tt")) {
-        const cleanId = p.split('/')[0];
+        const cleanId = p.split('/')[0].split('.')[0];
         return `https://images.metahub.space/poster/medium/${cleanId}/img`;
       } else if (window.api && window.api.isElectron) {
-
         let safePath = p.replace(/\\/g, "/");
-        // Ensure absolute paths (Windows C: or Unix /) use media-img:///
         const hasSeparators = safePath.includes('/') || safePath.includes('\\');
         if (safePath.match(/^[a-zA-Z]:/) || safePath.startsWith("/") || !hasSeparators) {
-          // For Windows paths with drive letter, format as media-img:///C:/path
           if (safePath.match(/^[a-zA-Z]:/)) {
             finalUrl = "media-img:///" + encodeURI(safePath).replace(/#/g, "%23").replace(/\?/g, "%3F");
           } else if (safePath.startsWith("/")) {
-            // For Unix absolute paths starting with /
             finalUrl = "media-img:///" + encodeURI(safePath.slice(1)).replace(/#/g, "%23").replace(/\?/g, "%3F");
           } else {
-            // For relative bare filenames
             finalUrl = "media-img:///" + encodeURI(safePath).replace(/#/g, "%23").replace(/\?/g, "%3F");
           }
         } else {
