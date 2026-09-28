@@ -1201,6 +1201,22 @@
                             }
                         }
 
+                        // Auto-heal / verify user ID against DB if email exists
+                        if (toSave.user?.email) {
+                            try {
+                                const { data: dbUser } = await client
+                                    .from('users_accounts')
+                                    .select('id')
+                                    .ilike('email', toSave.user.email.trim())
+                                    .maybeSingle();
+                                if (dbUser && dbUser.id && dbUser.id !== toSave.user.id) {
+                                    console.log(`[Bridge] Auto-correcting user ID from ${toSave.user.id} to DB ID: ${dbUser.id}`);
+                                    toSave.user.id = dbUser.id;
+                                    if (window.appState?.user) window.appState.user.id = dbUser.id;
+                                }
+                            } catch (_) {}
+                        }
+
                         // Sync profiles to Supabase
                         if (toSave.profiles && Array.isArray(toSave.profiles)) {
                             for (const profile of toSave.profiles) {
