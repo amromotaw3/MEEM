@@ -1268,7 +1268,7 @@ function initMetadataIpc(ipcMain) {
     try {
       if (!tvId) return { episodes: [] };
       const data = await loadData();
-      const tmdbKey = data.tmdbKey || null;
+      const tmdbKey = data.tmdbKey || 'eb3db2bfcff07c2c05038f4ea48b8c29';
 
       let resolvedTvId = tvId;
       if (tmdbKey && String(tvId).startsWith('tt')) {
@@ -1295,7 +1295,11 @@ function initMetadataIpc(ipcMain) {
                 season_number: ep.season_number,
                 name: ep.name,
                 still_path: ep.still_path ? `https://image.tmdb.org/t/p/w300${ep.still_path}` : null,
-                air_date: ep.air_date
+                air_date: ep.air_date,
+                vote_average: ep.vote_average ? parseFloat(ep.vote_average) : 0,
+                vote_count: ep.vote_count || 0,
+                rating: ep.vote_average ? parseFloat(ep.vote_average) : 0,
+                overview: ep.overview || ''
               }))
             };
           }
@@ -1320,7 +1324,10 @@ function initMetadataIpc(ipcMain) {
                   season_number: v.season,
                   name: v.title || v.name || `Episode ${v.episode}`,
                   still_path: v.thumbnail || v.still || v.still_path || v.image || null,
-                  air_date: v.released || null
+                  air_date: v.released || null,
+                  vote_average: v.rating || v.imdbRating || 0,
+                  rating: v.rating || v.imdbRating || 0,
+                  overview: v.overview || v.description || ''
                 }))
               };
             }
@@ -1345,7 +1352,10 @@ function initMetadataIpc(ipcMain) {
                 season_number: v.season,
                 name: v.title || v.name || `Episode ${v.episode}`,
                 still_path: v.thumbnail || v.still || v.still_path || v.image || null,
-                air_date: v.released || null
+                air_date: v.released || null,
+                vote_average: v.rating || v.imdbRating || 0,
+                rating: v.rating || v.imdbRating || 0,
+                overview: v.overview || v.description || ''
               }))
             };
           }

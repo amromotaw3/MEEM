@@ -16825,6 +16825,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (watchedGrid) watchedGrid.innerHTML = '';
     if (liveGrid) liveGrid.innerHTML = '';
 
+    // Auto-clean any legacy duplicate entries from profile watchlist
+    if (Array.isArray(currentProfile.watchlist) && currentProfile.watchlist.length > 1) {
+      const cleanList = [];
+      for (const it of currentProfile.watchlist) {
+        if (!it) continue;
+        if (!cleanList.some(existing => isSameItem(existing, it))) {
+          cleanList.push(it);
+        }
+      }
+      if (cleanList.length !== currentProfile.watchlist.length) {
+        currentProfile.watchlist = cleanList;
+        persist(true);
+      }
+    }
+
     let watchlist = (currentProfile?.watchlist || []).filter(i => !isLocked(i.id)).filter(isAgeAllowed);
 
     const q = ($('#search-watchlist')?.value || '').toLowerCase();
@@ -17125,25 +17140,79 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     });
   }
 
+  function getCleanIdStr(i) {
+    if (!i) return '';
+    if (typeof i === 'string') return i.trim().toLowerCase();
+    return String(i.id || i.tmdbId || i.tmdb_id || i.imdb_id || i.imdbId || i.kitsuId || i.mal_id || i.path || i.url || '').trim().toLowerCase();
+  }
+
+  function getImdbIdStr(i) {
+    if (!i || typeof i !== 'object') return null;
+    const candidates = [i.imdb_id, i.imdbId, i.id, i.cinemetaId, i.key];
+    for (const c of candidates) {
+      if (c && typeof c === 'string') {
+        const m = c.match(/(tt\d+)/i);
+        if (m) return m[1].toLowerCase();
+      }
+    }
+    return null;
+  }
+
   function getTmdbIdStr(i) {
-    if (!i) return null;
+    if (!i || typeof i !== 'object') return null;
     let tid = i.tmdbId || i.tmdb_id;
     if (i.id && String(i.id).startsWith('tmdb:')) tid = String(i.id).replace('tmdb:', '');
-    if (i.id && String(i.id).startsWith('kitsu:')) tid = null; // Do not mix up kitus IDs
-    return tid ? String(tid) : null;
+    if (tid && /^\d+$/.test(String(tid))) return String(tid);
+    return null;
+  }
+
+  function getNormalizedItemTitle(i) {
+    if (!i || typeof i !== 'object') return '';
+    const t = i.title || i.name || i.original_title || '';
+    return t.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
   }
 
   function isSameItem(a, b) {
     if (!a || !b) return false;
-    const idA = (typeof a === 'object' && a !== null) ? String(a.id) : String(a);
-    const idB = (typeof b === 'object' && b !== null) ? String(b.id) : String(b);
-    if (idA === idB) return true;
-    const tA = (typeof a === 'object' && a !== null) ? getTmdbIdStr(a) : null;
-    const tB = (typeof b === 'object' && b !== null) ? getTmdbIdStr(b) : null;
-    if (tA && tB && tA === tB) return true;
-    // For local files
-    if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null && a.path && b.path && a.path === b.path) return true;
-    if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null && a.radioUrl && b.radioUrl && a.radioUrl === b.radioUrl) return true;
+    const idA = getCleanIdStr(a);
+    const idB = getCleanIdStr(b);
+    if (idA && idB && idA === idB) return true;
+
+    if (typeof a === 'object' && typeof b === 'object') {
+      // 1. Check IMDb ID (e.g. tt15488188)
+      const imA = getImdbIdStr(a);
+      const imB = getImdbIdStr(b);
+      if (imA && imB && imA === imB) return true;
+
+      // 2. Check TMDB ID (e.g. 138502)
+      const tA = getTmdbIdStr(a);
+      const tB = getTmdbIdStr(b);
+      if (tA && tB && tA === tB) return true;
+
+      // 3. Check MAL / Kitsu ID
+      const malA = a.mal_id || a.malId || (a.id && String(a.id).startsWith('mal:') ? String(a.id).replace('mal:', '') : null);
+      const malB = b.mal_id || b.malId || (b.id && String(b.id).startsWith('mal:') ? String(b.id).replace('mal:', '') : null);
+      if (malA && malB && String(malA) === String(malB)) return true;
+
+      const kA = a.kitsuId || (a.id && String(a.id).startsWith('kitsu:') ? String(a.id).replace('kitsu:', '') : null);
+      const kB = b.kitsuId || (b.id && String(b.id).startsWith('kitsu:') ? String(b.id).replace('kitsu:', '') : null);
+      if (kA && kB && String(kA) === String(kB)) return true;
+
+      // 4. Check Local paths / radio / streams
+      if (a.path && b.path && a.path === b.path) return true;
+      if (a.radioUrl && b.radioUrl && a.radioUrl === b.radioUrl) return true;
+      if (a.streamUrl && b.streamUrl && a.streamUrl === b.streamUrl) return true;
+
+      // 5. Title + Release Year Match (e.g. "Call of the Night" (2022) added from Kitsu vs TMDB)
+      const titleA = getNormalizedItemTitle(a);
+      const titleB = getNormalizedItemTitle(b);
+      if (titleA && titleB && titleA === titleB && titleA.length >= 3) {
+        const yearA = (a.release_date || a.first_air_date || a.releaseYear || a.year || '').toString().slice(0, 4);
+        const yearB = (b.release_date || b.first_air_date || b.releaseYear || b.year || '').toString().slice(0, 4);
+        if (yearA && yearB && yearA === yearB) return true;
+        if (!yearA || !yearB) return true; // same distinct title
+      }
+    }
     return false;
   }
 
@@ -19207,19 +19276,24 @@ function performUnifiedSearch(q) {
       
       const isAnimePreview = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || item.isAnime || !!item.mal_id || (genresList && genresList.some(g => String(g.name || g).toLowerCase().includes('anime')));
       
-      const previewImdb = meta.imdbRating || meta.imdb_rating || item.imdbRating || item.imdb_rating || (!isAnimePreview && rating > 0 ? rating : null);
-      const previewMal = isAnimePreview ? (meta.malScore || meta.mal_rating || item.malScore || item.mal_rating || (meta.score && meta.score <= 10 ? meta.score : null) || (item.score && item.score <= 10 ? item.score : null)) : null;
+      const realImdb = meta.imdbRating || meta.imdb_rating || item.imdbRating || item.imdb_rating || (meta.id && String(meta.id).startsWith('tt') && rating > 0 ? rating : null) || (item.id && String(item.id).startsWith('tt') && rating > 0 ? rating : null);
+      const realTmdb = meta.tmdbRating || meta.tmdb_rating || meta.vote_average || item.vote_average || (!realImdb && !isAnimePreview && rating > 0 ? rating : null);
+      const previewMal = isAnimePreview ? (meta.malScore || meta.mal_rating || item.malScore || item.mal_rating || (meta.score && meta.score <= 10 ? meta.score : null) || (item.score && item.score <= 10 ? item.score : null) || (rating > 0 ? rating : null)) : null;
       
       let previewRatingsHtml = '';
-      if (previewImdb && parseFloat(previewImdb) > 0) {
-        previewRatingsHtml += `<span class="dd-rating-badge dd-rating-imdb" title="IMDb Rating"><span class="dd-rating-source">IMDb</span><span class="dd-rating-val">★ ${parseFloat(previewImdb).toFixed(1)}</span></span>`;
+      if (realImdb && parseFloat(realImdb) > 0) {
+        previewRatingsHtml += `<span class="dd-rating-badge dd-rating-imdb" title="IMDb Rating"><span class="dd-rating-source">IMDb</span><span class="dd-rating-val">★ ${parseFloat(realImdb).toFixed(1)}</span></span>`;
+      } else if (realTmdb && parseFloat(realTmdb) > 0) {
+        previewRatingsHtml += `<span class="dd-rating-badge dd-rating-imdb" title="TMDB Community Score"><span class="dd-rating-source">TMDB</span><span class="dd-rating-val">★ ${parseFloat(realTmdb).toFixed(1)}</span></span>`;
       }
+
       if (previewMal && parseFloat(previewMal) > 0) {
         previewRatingsHtml += `<span class="dd-rating-badge dd-rating-mal" title="MyAnimeList Community Score"><span class="dd-rating-source">MAL</span><span class="dd-rating-val">★ ${parseFloat(previewMal).toFixed(1)}</span></span>`;
       }
+      
       if (!previewRatingsHtml && rating > 0) {
         const val = parseFloat(rating).toFixed(1);
-        const sourceName = isAnimePreview ? 'MAL' : 'IMDb';
+        const sourceName = isAnimePreview ? 'MAL' : (item.source === 'tmdb' ? 'TMDB' : 'Rating');
         const sourceCls = isAnimePreview ? 'dd-rating-mal' : 'dd-rating-imdb';
         previewRatingsHtml = `<span class="dd-rating-badge ${sourceCls}"><span class="dd-rating-source">${sourceName}</span><span class="dd-rating-val">★ ${val}</span></span>`;
       }

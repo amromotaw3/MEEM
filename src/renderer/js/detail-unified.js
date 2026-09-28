@@ -1598,28 +1598,55 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         `).join('');
     };
 
-    // Apply fetched stills to already-rendered episode cards
+    // Apply fetched stills and ratings to already-rendered episode cards
     const applyTmdbStillsToCards = (listEl, stillsMap, seasonN) => {
         if (!stillsMap || !Object.keys(stillsMap).length || !listEl) return;
         const cards = listEl.querySelectorAll(`.dd-ep-card[data-season="${seasonN}"]`);
         cards.forEach(card => {
             const epN = parseInt(card.dataset.episode);
-            const stillUrl = stillsMap[epN];
-            if (!stillUrl) return;
-            const img = card.querySelector('img');
-            const epImgDiv = card.querySelector('.dd-ep-img');
-            if (img && img.isConnected) {
-                const fullStill = stillUrl.startsWith('http') ? stillUrl : `https://image.tmdb.org/t/p/w400${stillUrl}`;
-                if (img.src === fullStill) return;
-                const preload = new Image();
-                preload.onload = () => {
-                    if (img && img.isConnected) {
-                        img.src = fullStill;
-                        img.classList.add('is-ready');
-                        if (epImgDiv) epImgDiv.classList.add('img-loaded');
+            const entry = stillsMap[epN];
+            if (!entry) return;
+            const stillUrl = typeof entry === 'object' ? entry.still : entry;
+            const voteAverage = typeof entry === 'object' ? entry.vote_average : null;
+            const epName = typeof entry === 'object' ? entry.name : null;
+
+            if (stillUrl) {
+                const img = card.querySelector('img');
+                const epImgDiv = card.querySelector('.dd-ep-img');
+                if (img && img.isConnected) {
+                    const fullStill = stillUrl.startsWith('http') ? stillUrl : `https://image.tmdb.org/t/p/w400${stillUrl}`;
+                    if (img.src !== fullStill) {
+                        const preload = new Image();
+                        preload.onload = () => {
+                            if (img && img.isConnected) {
+                                img.src = fullStill;
+                                img.classList.add('is-ready');
+                                if (epImgDiv) epImgDiv.classList.add('img-loaded');
+                            }
+                        };
+                        preload.src = fullStill;
                     }
-                };
-                preload.src = fullStill;
+                }
+            }
+
+            if (voteAverage && parseFloat(voteAverage) > 0) {
+                const metaRow = card.querySelector('.dd-ep-meta-row');
+                if (metaRow && !card.querySelector('.dd-ep-rating')) {
+                    const rEl = document.createElement('span');
+                    rEl.className = 'dd-ep-rating';
+                    rEl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.15);color:#F5C518;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:auto;';
+                    rEl.innerHTML = `<i class="fas fa-star" style="font-size:8px;"></i>${parseFloat(voteAverage).toFixed(1)}`;
+                    metaRow.appendChild(rEl);
+                }
+            }
+
+            if (epName && !epName.toLowerCase().startsWith('episode')) {
+                const nameEl = card.querySelector('.dd-ep-name');
+                if (nameEl && !nameEl.textContent.includes(epName)) {
+                    const formatted = `EP ${epN} • ${epName}`;
+                    nameEl.textContent = formatted;
+                    nameEl.title = formatted;
+                }
             }
         });
     };
@@ -2338,7 +2365,11 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                         if (tmdbData && tmdbData.episodes) {
                             const map = {};
                             tmdbData.episodes.forEach(te => {
-                                if (te.still_path) map[te.episode_number] = te.still_path;
+                                map[te.episode_number] = {
+                                    still: te.still_path,
+                                    vote_average: te.vote_average || te.rating,
+                                    name: te.name
+                                };
                             });
                             applyTmdbStillsToCards(listEl, map, 1);
                         }
@@ -2359,7 +2390,8 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                     season_number: v.season,
                     name: v.title || v.name || `Episode ${v.episode}`,
                     still_path: v.thumbnail || v.still || v.still_path || v.image || null,
-                    air_date: v.released || null
+                    air_date: v.released || null,
+                    vote_average: v.rating || v.imdbRating || v.vote_average || 0
                 }));
             }
         }
@@ -2373,7 +2405,11 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                 if (res && res.episodes && res.episodes.length > 0) {
                     const map = {};
                     res.episodes.forEach(ep => {
-                        if (ep.still_path) map[ep.episode_number] = ep.still_path;
+                        map[ep.episode_number] = {
+                            still: ep.still_path,
+                            vote_average: ep.vote_average || ep.rating,
+                            name: ep.name
+                        };
                     });
                     applyTmdbStillsToCards(list, map, seasonNum);
                 }
