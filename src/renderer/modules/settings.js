@@ -8,7 +8,6 @@
     if ($('#update-auto-check')) $('#update-auto-check').checked = appData.autoUpdate !== false;
     if ($('#mobile-internal-downloader')) $('#mobile-internal-downloader').checked = appData.mobileInternalDownloader !== false;
     if ($('#pref-video-trailers')) $('#pref-video-trailers').checked = appData.enableVideoTrailers !== false;
-    if ($('#pref-hide-youtube-trending')) $('#pref-hide-youtube-trending').checked = appData.hideYouTubeTrending === true;
 
     // Dynamically show/hide settings cards and options based on installed Mods/Addons
     if (window.AppCapabilities && typeof window.AppCapabilities.refresh === 'function') {
@@ -60,9 +59,6 @@
     // YouTube Mod-Gated Settings
     const ytQualityRow = $('#setting-row-youtube-quality');
     if (ytQualityRow) ytQualityRow.style.display = hasYoutubeMod ? 'flex' : 'none';
-
-    const ytTrendingRow = $('#setting-row-youtube-trending');
-    if (ytTrendingRow) ytTrendingRow.style.display = hasYoutubeMod ? 'flex' : 'none';
 
     // Stream Mod-Gated Auto-Play Card
     const smartAutoPlayCard = $('#smart-autoplay-settings-card');
@@ -129,18 +125,6 @@
       updateCb.onchange = () => {
         appData.autoUpdate = updateCb.checked;
         persist();
-      };
-    }
-
-    const hideYtTrendingCb = $('#pref-hide-youtube-trending');
-    if (hideYtTrendingCb) {
-      hideYtTrendingCb.onchange = () => {
-        appData.hideYouTubeTrending = hideYtTrendingCb.checked;
-        persist();
-        const sec = $('#discover-youtube-section');
-        if (sec) {
-          sec.style.display = appData.hideYouTubeTrending ? 'none' : 'block';
-        }
       };
     }
 

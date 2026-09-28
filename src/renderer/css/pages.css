@@ -1451,13 +1451,11 @@
 }
 
 /* YouTube & Social 16:9 Landscape Video Thumbnail Style */
-#home-local-youtube-row .discover-card,
 #home-local-social-row .discover-card,
 #home-local-music-row .discover-card,
 #social-videos-row .discover-card,
 #social-music-row .discover-card,
 [id^="yt-row"] .discover-card,
-#youtube-trending-row .discover-card,
 .discover-row.is-youtube-row .discover-card,
 .discover-card.is-video-thumb {
   width: 270px !important;
@@ -1465,13 +1463,11 @@
   max-width: 270px !important;
 }
 
-#home-local-youtube-row .discover-poster-wrap,
 #home-local-social-row .discover-poster-wrap,
 #home-local-music-row .discover-poster-wrap,
 #social-videos-row .discover-poster-wrap,
 #social-music-row .discover-poster-wrap,
 [id^="yt-row"] .discover-poster-wrap,
-#youtube-trending-row .discover-poster-wrap,
 .discover-row.is-youtube-row .discover-poster-wrap,
 .discover-card.is-video-thumb .discover-poster-wrap {
   aspect-ratio: 16 / 9 !important;
@@ -1479,13 +1475,11 @@
 }
 
 @media (max-width: 768px) {
-  #home-local-youtube-row .discover-card,
   #home-local-social-row .discover-card,
   #home-local-music-row .discover-card,
   #social-videos-row .discover-card,
   #social-music-row .discover-card,
-  [id^="yt-row"] .discover-card,
-  #youtube-trending-row .discover-card {
+  [id^="yt-row"] .discover-card {
     width: 210px !important;
     min-width: 210px !important;
     max-width: 210px !important;

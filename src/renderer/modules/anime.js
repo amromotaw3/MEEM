@@ -1532,23 +1532,6 @@
     const hasAnyLocalMedia = (localMovies.length > 0 || localShows.length > 0 || localAnime.length > 0 || watchlist.length > 0 || localSocial.length > 0);
 
     localHomeEl.innerHTML = `
-      ${window.AppCapabilities?.can('youtube') ? `
-      <!-- Section 0: YouTube Trending -->
-      <div class="discover-section" id="home-local-youtube-section">
-        <div class="discover-section-header">
-          <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
-            <i class="fab fa-youtube" style="font-size: 18px; color: #ffffff !important;"></i>
-          </div>
-          <h2>Trending on YouTube</h2>
-          <div class="header-divider"></div>
-          <div class="discover-header-nav">
-            <button class="discover-scroll-btn prev" onclick="scrollRow(this, -1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button>
-            <button class="discover-scroll-btn next" onclick="scrollRow(this, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg></button>
-          </div>
-        </div>
-        <div id="home-local-youtube-row" class="discover-row"></div>
-      </div>` : ''}
-
       <!-- Section: Local Social & Downloads -->
       <div class="discover-section" id="home-local-social-section" style="${localSocial.length ? '' : 'display:none;'}">
         <div class="discover-section-header">
@@ -2053,11 +2036,6 @@
       // If YouTube is installed, load YouTube feeds
       if (hasYoutube) {
         promises.push(
-          fetchYouTubeRecommendedAndRender(),
-          appData.hideYouTubeTrending !== true
-            ? fetchYouTubeCategoryAndRender('#youtube-trending-row', '#discover-youtube-section', 'Trending on YouTube', 'fab fa-youtube', null)
-            : Promise.resolve(),
-          fetchYouTubeSubscriptionsAndRender(),
           fetchYouTubeHistoryAndRender()
         );
 
@@ -2065,7 +2043,7 @@
         if (!hasCatalog) {
           promises.push(
             fetchYouTubeCategoryAndRender('#yt-gaming-row', '#discover-yt-gaming-section', 'Gaming & Live Streams', 'fas fa-gamepad', 'popular gaming videos'),
-            fetchYouTubeCategoryAndRender('#yt-music-row', '#discover-yt-music-section', 'Music & Trending Hits', 'fas fa-music', 'official music videos trending'),
+            fetchYouTubeCategoryAndRender('#yt-music-row', '#discover-yt-music-section', 'Music & Hits', 'fas fa-music', 'official music videos'),
             fetchYouTubeCategoryAndRender('#yt-tech-row', '#discover-yt-tech-section', 'Technology & Science', 'fas fa-microchip', 'technology science news'),
             fetchYouTubeCategoryAndRender('#yt-comedy-row', '#discover-yt-comedy-section', 'Entertainment & Podcasts', 'fas fa-podcast', 'popular podcast episodes entertainment')
           );
@@ -3820,153 +3798,10 @@
 
   // ─── YOUTUBE ADD-ON SETTINGS, AUTH & WATCH HISTORY ─────────────────────
 
-  window.openYouTubeSettingsModal = async function() {
-    const modal = $('#youtube-settings-modal');
-    if (modal) modal.style.display = 'flex';
-    await refreshYouTubeAccountUI();
-  };
+  // ─── YOUTUBE WATCH HISTORY & DOWNLOADS ─────────────────────
 
-  async function refreshYouTubeAccountUI() {
-    try {
-      const res = await window.api.invoke('youtube-get-account');
-      const nameEl = $('#yt-account-name');
-      const emailEl = $('#yt-account-email');
-      const avatarEl = $('#yt-account-avatar');
-      const statusEl = $('#yt-account-status');
-      const btnLabel = $('#yt-auth-btn-label');
-      const authBtn = $('#btn-yt-auth-action');
-      const switchBtn = $('#btn-yt-switch-action');
-      const meemSyncLink = $('#link-yt-meem-sync');
-
-      if (res && res.success && res.signedIn && res.account) {
-        if (nameEl) nameEl.textContent = res.account.name || 'Google Account';
-        if (emailEl) emailEl.textContent = res.account.email || 'Connected to YouTube';
-        if (avatarEl && res.account.avatar) avatarEl.src = res.account.avatar;
-        if (statusEl) {
-          statusEl.style.display = 'block';
-          statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Connected via Google Account';
-        }
-        if (switchBtn) switchBtn.style.display = 'inline-flex';
-        if (meemSyncLink) meemSyncLink.style.display = 'none';
-        if (btnLabel) btnLabel.textContent = 'Sign Out';
-        if (authBtn) {
-          authBtn.style.background = 'rgba(239,68,68,0.18)';
-          authBtn.style.color = '#ef4444';
-          authBtn.style.border = '1px solid rgba(239,68,68,0.35)';
-          authBtn.style.boxShadow = 'none';
-        }
-      } else {
-        if (nameEl) nameEl.textContent = 'Not Signed In';
-        if (emailEl) emailEl.textContent = 'Sign in with any Google account to sync feeds & history';
-        if (avatarEl) avatarEl.src = 'https://lh3.googleusercontent.com/a/default-user=s96-c';
-        if (statusEl) statusEl.style.display = 'none';
-        if (switchBtn) switchBtn.style.display = 'none';
-        if (btnLabel) btnLabel.textContent = 'Sign In';
-        if (authBtn) {
-          authBtn.style.background = '#ffffff';
-          authBtn.style.color = '#000000';
-          authBtn.style.border = 'none';
-          authBtn.style.boxShadow = '0 4px 20px rgba(255,255,255,0.3)';
-        }
-        if (meemSyncLink) {
-          const meemUser = window.state?.user || null;
-          if (meemUser && meemUser.email) {
-            meemSyncLink.style.display = 'inline-block';
-            meemSyncLink.innerHTML = `<i class="fas fa-link" style="margin-right:4px;"></i> Use MEEM Account (${escapeHTML(meemUser.email)})`;
-          } else {
-            meemSyncLink.style.display = 'none';
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[YouTube Settings] Account refresh error:', err);
-    }
-  }
-  window.refreshYouTubeAccountUI = refreshYouTubeAccountUI;
-
-  // Auth & Settings Modal Event Handlers
+  // Watch History & Modal Event Handlers
   document.addEventListener('DOMContentLoaded', () => {
-    const settingsModal = $('#youtube-settings-modal');
-    if (settingsModal) {
-      settingsModal.onclick = (e) => {
-        if (e.target === settingsModal) settingsModal.style.display = 'none';
-      };
-    }
-    const btnCloseSettings = $('#btn-close-yt-settings');
-    if (btnCloseSettings) {
-      btnCloseSettings.onclick = () => {
-        if (settingsModal) settingsModal.style.display = 'none';
-      };
-    }
-
-    const authBtn = $('#btn-yt-auth-action');
-    if (authBtn) {
-      authBtn.onclick = async () => {
-        const res = await window.api.invoke('youtube-get-account');
-        if (res && res.signedIn) {
-          await window.api.invoke('youtube-sign-out');
-          showToast('👋 Signed out of YouTube account');
-          await refreshYouTubeAccountUI();
-          if (typeof window.loadDiscover === 'function') window.loadDiscover(true);
-        } else {
-          const settingsModal = $('#youtube-settings-modal');
-          if (settingsModal) settingsModal.style.display = 'none';
-          if (typeof window.openGoogleAuthModal === 'function') {
-            window.openGoogleAuthModal();
-          } else {
-            showToast('Opening Google Authorization...');
-          }
-        }
-      };
-    }
-
-    const switchBtn = $('#btn-yt-switch-action');
-    if (switchBtn) {
-      switchBtn.onclick = async () => {
-        await window.api.invoke('youtube-sign-out');
-        await refreshYouTubeAccountUI();
-        const settingsModal = $('#youtube-settings-modal');
-        if (settingsModal) settingsModal.style.display = 'none';
-        if (typeof window.openGoogleAuthModal === 'function') {
-          window.openGoogleAuthModal();
-        }
-      };
-    }
-
-    const meemSyncLink = $('#link-yt-meem-sync');
-    if (meemSyncLink) {
-      meemSyncLink.onclick = async (e) => {
-        e.preventDefault();
-        const syncRes = await window.api.invoke('youtube-sync-meem-account').catch(() => null);
-        if (syncRes && syncRes.signedIn && syncRes.account) {
-          showToast(`✅ Connected MEEM Account (${syncRes.account.email})`);
-          await refreshYouTubeAccountUI();
-          if (typeof window.loadDiscover === 'function') window.loadDiscover(true);
-        }
-      };
-    }
-
-    const linkTvAuth = $('#link-yt-device-auth');
-    if (linkTvAuth) {
-      linkTvAuth.onclick = (e) => {
-        e.preventDefault();
-        const settingsModal = $('#youtube-settings-modal');
-        if (settingsModal) settingsModal.style.display = 'none';
-        if (typeof window.openGoogleAuthModal === 'function') {
-          window.openGoogleAuthModal();
-        }
-      };
-    }
-
-    const btnOpenHistory = $('#btn-open-yt-history');
-    if (btnOpenHistory) {
-      btnOpenHistory.onclick = () => {
-        const settingsModal = $('#youtube-settings-modal');
-        if (settingsModal) settingsModal.style.display = 'none';
-        window.openYouTubeHistoryModal();
-      };
-    }
-
     const histModal = $('#youtube-history-modal');
     if (histModal) {
       histModal.onclick = (e) => {

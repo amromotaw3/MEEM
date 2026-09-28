@@ -5731,7 +5731,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       id: 'com.meem.youtube',
       name: 'YouTube',
       version: '1.0.0',
-      description: 'Watch Trending & Recommended YouTube videos, stream with subtitles in player, and download to Social folder.',
+      description: 'Stream YouTube videos in player and download directly to Social folder.',
       url: 'local://addon-youtube',
       manifestUrl: 'local://addon-youtube/manifest.json',
       icon: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/120px-YouTube_full-color_icon_%282017%29.svg.png',
@@ -5945,14 +5945,29 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           iconHtml = `<div class="addon-card-icon" style="font-size: 18px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; flex-shrink: 0; color: #ffffff;"><i class="${iconClass}"></i></div>`;
         }
 
-        // Action Column: Gear button + Install/Uninstall
+        // Helper to determine if addon actually has configurable settings
+        const isConfigurable = (a) => {
+          if (!a) return false;
+          const url = (a.manifestUrl || a.url || '').toLowerCase();
+          const id = (a.id || '').toLowerCase();
+          if (id === 'com.meem.subdl' || id === 'com.mediavault.subdl' || id === 'com.meem.tmdb' || id === 'com.mediavault.tmdb') return true;
+          if (a.behaviorHints?.configurable === true) return true;
+          if (url.startsWith('http') && (url.includes('/configure') || url.includes('configure/'))) return true;
+          return false;
+        };
+
+        // Action Column: Gear button (only for configurable addons) + Install/Uninstall
         let actionColumnHtml = '';
         if (isInstalled) {
+          const configBtnHtml = isConfigurable(addon) ? `
+            <button class="btn-addon-configure" style="width: 34px; height: 34px; border-radius: 10px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14); color: #fff; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" title="Configure Add-on">
+              <i class="fas fa-cog"></i>
+            </button>
+          ` : '';
+
           actionColumnHtml = `
             <div style="display: flex; align-items: center; gap: 8px;">
-              <button class="btn-addon-configure" style="width: 34px; height: 34px; border-radius: 10px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14); color: #fff; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" title="Configure Add-on">
-                <i class="fas fa-cog"></i>
-              </button>
+              ${configBtnHtml}
               <button class="btn-addon-uninstall" data-url="${addon.url}" title="Uninstall Add-on">
                 Uninstall
               </button>
@@ -6006,7 +6021,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         card.querySelector('.btn-addon-configure')?.addEventListener('click', () => {
           let configUrl = (addon.manifestUrl || addon.url || '').replace(/\/manifest\.json$/i, '');
           // Handle built-in local addons
-          if (configUrl.startsWith('local://')) {
+          if (configUrl.startsWith('local://') || configUrl.startsWith('internal://')) {
             if (addon.id === 'com.meem.subdl' || addon.id === 'com.mediavault.subdl') {
               switchView('settings');
               setTimeout(() => {
@@ -6018,16 +6033,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 }
               }, 150);
               showToast('⚙️ SubDL Subtitle Settings');
-            } else if (addon.id === 'com.meem.youtube' || addon.id === 'com.mediavault.youtube') {
-              if (typeof window.openYouTubeSettingsModal === 'function') {
-                window.openYouTubeSettingsModal();
-              } else {
-                switchView('discover');
-                showToast('📺 YouTube Add-on Settings');
-              }
-            } else if (addon.id === 'com.meem.music.player' || addon.id === 'com.mediavault.ytmusic') {
-              switchView('music');
-              showToast('MEEM Music is active');
             }
             return;
           }
@@ -20893,142 +20898,5 @@ function performUnifiedSearch(q) {
   }
   window.initFlyoutMenus = initFlyoutMenus;
 
-  // ─── YOUTUBE OAUTH2 & SETTINGS MODALS ───
-  window.openYouTubeSettingsModal = async () => {
-    const modal = $('#youtube-settings-modal');
-    if (modal) modal.style.display = 'flex';
-    if (typeof window.refreshYouTubeAccountUI === 'function') {
-      await window.refreshYouTubeAccountUI();
-    }
-  };
-
-  window.closeYouTubeSettingsModal = () => {
-    const modal = $('#youtube-settings-modal');
-    if (modal) modal.style.display = 'none';
-  };
-
-  window.updateYouTubeSettingsAccountUI = async () => {
-    if (typeof window.refreshYouTubeAccountUI === 'function') {
-      return window.refreshYouTubeAccountUI();
-    }
-  };
-  setTimeout(() => window.updateYouTubeSettingsAccountUI?.(), 1000);
-
-  window.openGoogleAuthModal = async () => {
-    let modal = $('#google-auth-modal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'google-auth-modal';
-      modal.className = 'modal-overlay fade-in';
-      modal.style.cssText = 'position:fixed; inset:0; background:rgba(5,5,8,0.88); backdrop-filter:blur(35px); -webkit-backdrop-filter:blur(35px); display:flex; align-items:center; justify-content:center; z-index:99999; padding:20px;';
-      modal.innerHTML = `
-        <div style="position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;">
-          <svg style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" viewBox="0 0 1440 900" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="720" cy="450" r="320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="1000" stroke-dashoffset="1000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
-            <path d="M-100 220 C350 420, 750 -20, 1540 320" stroke="#ffffff" stroke-width="1.2" stroke-dasharray="2000" stroke-dashoffset="2000" style="animation: splashDraw 2.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; opacity: 0.18;" />
-          </svg>
-        </div>
-        <div style="background:rgba(255,255,255,0.03); backdrop-filter:blur(40px); -webkit-backdrop-filter:blur(40px); border:1px solid rgba(255,255,255,0.1); border-radius:36px; padding:38px 34px; width:480px; max-width:92vw; text-align:center; box-shadow:0 40px 100px rgba(0,0,0,0.85); position:relative; z-index:2; color:#fff; font-family:var(--font);">
-          <div style="width:52px; height:52px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); border-radius:18px; display:flex; align-items:center; justify-content:center; margin:0 auto 18px auto; color:#ffffff;">
-            <i class="fab fa-youtube" style="font-size:24px; color:#ffffff !important;"></i>
-          </div>
-          <h2 style="font-size:1.45rem; font-weight:800; color:#fff; margin:0 0 6px 0; letter-spacing:-0.4px;">Sign in with Google</h2>
-          <p style="font-size:0.85rem; color:rgba(255,255,255,0.6); margin:0 0 24px 0; line-height:1.5;">Connect your YouTube account to sync Watch History, Subscriptions & Recommendations.</p>
-
-          <div id="yt-auth-loading" style="padding:20px; color:rgba(255,255,255,0.65); font-size:0.9rem;">
-            <i class="fas fa-spinner fa-spin fa-2x" style="color:#ffffff; margin-bottom:12px; display:block;"></i>
-            Generating device authorization code...
-          </div>
-
-          <div id="yt-auth-instructions" style="display:none; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.12); border-radius:18px; padding:20px; margin-bottom:24px; text-align:left;">
-            <div style="font-weight:700; color:#fff; margin-bottom:10px; font-size:0.92rem;">Follow these simple steps:</div>
-            <ol style="margin:0; padding-left:20px; font-size:0.85rem; color:rgba(255,255,255,0.75); line-height:1.9;">
-              <li>Open <a id="yt-auth-url-link" href="#" target="_blank" style="color:#ffffff; font-weight:700; text-decoration:underline;">google.com/device</a> in your browser.</li>
-              <li>Enter code: <strong id="yt-auth-user-code" style="color:#fff; font-size:1.15rem; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.2); padding:3px 10px; border-radius:8px; letter-spacing:2px; font-family:monospace; user-select:all;">---</strong></li>
-              <li>Authorize MEEM on your Google account.</li>
-            </ol>
-            <div style="margin-top:16px; display:flex; gap:10px; align-items:center;">
-              <button id="btn-copy-yt-code" class="btn btn-primary btn-sm" style="flex:1; background:#ffffff !important; color:#000000 !important; border:none; font-weight:800; font-size:0.85rem; padding:10px 16px; border-radius:12px; box-shadow:0 4px 20px rgba(255,255,255,0.25);">
-                <i class="fas fa-copy"></i> Copy Code & Open Browser
-              </button>
-            </div>
-            <div style="margin-top:14px; display:flex; align-items:center; gap:10px; font-size:0.8rem; color:rgba(255,255,255,0.55);">
-              <i class="fas fa-sync-alt fa-spin" style="color:#ffffff;"></i> Waiting for authorization from browser...
-            </div>
-          </div>
-
-          <div style="display:flex; gap:12px; justify-content:center;">
-            <button class="btn btn-secondary" onclick="closeGoogleAuthModal()" style="padding:12px 28px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.18); border-radius:16px; color:rgba(255,255,255,0.85); font-size:0.92rem; font-weight:700; cursor:pointer;">Cancel</button>
-          </div>
-        </div>
-      `;
-      modal.onclick = (e) => {
-        if (e.target === modal) closeGoogleAuthModal();
-      };
-      document.body.appendChild(modal);
-    }
-
-    modal.style.display = 'flex';
-    $('#yt-auth-loading').style.display = 'block';
-    $('#yt-auth-instructions').style.display = 'none';
-
-    try {
-      const unbindPending = window.api.on('youtube-auth-pending', (data) => {
-        if (data && data.userCode) {
-          $('#yt-auth-loading').style.display = 'none';
-          $('#yt-auth-instructions').style.display = 'block';
-          $('#yt-auth-user-code').textContent = data.userCode;
-          const targetUrl = data.verificationUrl || 'https://www.google.com/device';
-          
-          try {
-            navigator.clipboard?.writeText(data.userCode);
-            showToast(`📋 Code "${data.userCode}" copied! Opening browser...`);
-          } catch (e) {}
-
-          if (window.api?.openExternal) {
-            window.api.openExternal(targetUrl);
-          }
-
-          const link = $('#yt-auth-url-link');
-          if (link) {
-            link.href = targetUrl;
-            link.onclick = (e) => {
-              e.preventDefault();
-              window.api.openExternal(targetUrl);
-            };
-          }
-          const copyBtn = $('#btn-copy-yt-code');
-          if (copyBtn) {
-            copyBtn.onclick = () => {
-              navigator.clipboard?.writeText(data.userCode);
-              window.api.openExternal(targetUrl);
-              showToast('📋 Code copied to clipboard!');
-            };
-          }
-        }
-      });
-
-      const res = await window.api.invoke('youtube-auth-start');
-      if (unbindPending) unbindPending();
-
-      if (res && res.success && res.account) {
-        showToast(`✅ Successfully signed in as ${res.account.name}!`);
-        closeGoogleAuthModal();
-        updateYouTubeSettingsAccountUI();
-        if (typeof loadDiscover === 'function') loadDiscover(true);
-      } else {
-        showToast(`❌ Sign in failed or cancelled: ${res?.error || 'Unknown error'}`);
-        closeGoogleAuthModal();
-      }
-    } catch (err) {
-      showToast(`❌ OAuth Error: ${err.message}`);
-      closeGoogleAuthModal();
-    }
-  };
-
-  window.closeGoogleAuthModal = () => {
-    const modal = $('#google-auth-modal');
-    if (modal) modal.style.display = 'none';
-  };
-
 })();
+
