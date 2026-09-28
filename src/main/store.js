@@ -916,6 +916,21 @@ async function saveData(data, session = null) {
     }
 
     try {
+      // Auto-heal / verify user ID against DB if email exists
+      if (data.user?.email) {
+        try {
+          const { data: dbUser } = await client
+            .from('users_accounts')
+            .select('id')
+            .ilike('email', data.user.email.trim())
+            .maybeSingle();
+          if (dbUser && dbUser.id && dbUser.id !== data.user.id) {
+            console.log(`[STORE] Auto-correcting user ID from ${data.user.id} to DB ID: ${dbUser.id}`);
+            data.user.id = dbUser.id;
+            if (inMemorySession?.user) inMemorySession.user.id = dbUser.id;
+          }
+        } catch (_) {}
+      }
       // Sync API Keys and Trakt credentials to public.users_accounts table (with retry)
       const tmdbKeyVal = data.tmdbKey || '';
       const subdlKeyVal = data.subdlConfig?.apiKey || data.subdlKey || '';
