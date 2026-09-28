@@ -28,58 +28,47 @@
   // - Electron: window.api storage
   // - Web: window.localStorage
   const supabaseStorage = {
-    getItem: async (key) => {
+    getItem: (key) => {
+      try {
+        const local = window.localStorage.getItem(key);
+        if (local != null) return local;
+      } catch (_) {}
       try {
         if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
-          const { value } = await window.Capacitor.Plugins.Preferences.get({ key });
-          if (value != null) return value;
+          return window.Capacitor.Plugins.Preferences.get({ key }).then(r => r?.value || null).catch(() => null);
         }
-        if (window.api && typeof window.api.storageGet === 'function') {
-          const val = await window.api.storageGet(key);
-          if (val != null) return val;
-        }
-      } catch (e) {
-        console.warn('[SupabaseStorage] getItem error:', e);
-      }
-      try {
-        return window.localStorage.getItem(key);
-      } catch (_) {
-        return null;
-      }
+      } catch (e) {}
+      return null;
     },
-    setItem: async (key, value) => {
+    setItem: (key, value) => {
       try {
         window.localStorage.setItem(key, String(value));
       } catch (_) {}
       try {
         if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
-          await window.Capacitor.Plugins.Preferences.set({ key, value: String(value) });
+          window.Capacitor.Plugins.Preferences.set({ key, value: String(value) }).catch(() => {});
         }
         if (window.api && typeof window.api.storageSet === 'function') {
-          await window.api.storageSet(key, String(value));
+          window.api.storageSet(key, String(value)).catch(() => {});
         }
-      } catch (e) {
-        console.warn('[SupabaseStorage] setItem error:', e);
-      }
+      } catch (e) {}
     },
-    removeItem: async (key) => {
+    removeItem: (key) => {
       try {
         window.localStorage.removeItem(key);
       } catch (_) {}
       try {
         if (isCapacitorNative() && window.Capacitor?.Plugins?.Preferences) {
-          await window.Capacitor.Plugins.Preferences.remove({ key });
+          window.Capacitor.Plugins.Preferences.remove({ key }).catch(() => {});
         }
         if (window.api && typeof window.api.storageRemove === 'function') {
-          await window.api.storageRemove(key);
+          window.api.storageRemove(key).catch(() => {});
         }
-      } catch (e) {
-        console.warn('[SupabaseStorage] removeItem error:', e);
-      }
+      } catch (e) {}
     }
   };
 
-  function withTimeout(promise, ms = 20000, timeoutMsg = 'Operation timed out') {
+  function withTimeout(promise, ms = 35000, timeoutMsg = 'Operation timed out') {
     return Promise.race([
       promise,
       new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMsg)), ms))
@@ -272,9 +261,6 @@
   }
 
   function getOAuthRedirectUrl(relayId = null) {
-    if (isCapacitorNative()) {
-      return 'meem://auth/callback';
-    }
     const currentOrigin = (window.location.origin && window.location.origin !== 'null') ? window.location.origin : '';
     const baseUrl = 'https://meem-watch.vercel.app/auth/callback';
     const params = new URLSearchParams();
