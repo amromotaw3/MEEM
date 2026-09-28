@@ -630,7 +630,24 @@ function setupUnifiedSkeleton(container, item) {
         return tid ? String(tid) : null;
     };
 
-    const getTmdbIdStr = window.getTmdbIdStr;
+    const checkIsSameMedia = (a, b) => {
+        if (!a || !b) return false;
+        if (typeof window.isSameItem === 'function') return window.isSameItem(a, b);
+        if (String(a.id) === String(b.id)) return true;
+        const aImdb = a.imdb_id || a.imdbId || (String(a.id).startsWith('tt') ? a.id : null);
+        const bImdb = b.imdb_id || b.imdbId || (String(b.id).startsWith('tt') ? b.id : null);
+        if (aImdb && bImdb && aImdb === bImdb) return true;
+        const aT = getTmdbIdStr(a);
+        const bT = getTmdbIdStr(b);
+        if (aT && bT && aT === bT) return true;
+        const aK = a.kitsuId || a.kitsu_id || (String(a.id).startsWith('kitsu:') ? String(a.id).replace('kitsu:', '') : null);
+        const bK = b.kitsuId || b.kitsu_id || (String(b.id).startsWith('kitsu:') ? String(b.id).replace('kitsu:', '') : null);
+        if (aK && bK && String(aK) === String(bK)) return true;
+        const tA = (a.title || a.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const tB = (b.title || b.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (tA && tB && tA === tB && tA.length >= 2) return true;
+        return false;
+    };
 
     const toggleItemInCustomList = (listId, targetItem) => {
         const profile = window.currentProfile || window.appData?.profiles?.find(p => p.id === window.appData.activeProfileId);
@@ -640,12 +657,7 @@ function setupUnifiedSkeleton(container, item) {
         if (!list) return;
 
         list.items = list.items || [];
-        const index = list.items.findIndex(i => {
-            if (String(i.id) === String(targetItem.id)) return true;
-            const tA = getTmdbIdStr(i);
-            const tB = getTmdbIdStr(targetItem);
-            return tA && tB && tA === tB;
-        });
+        const index = list.items.findIndex(i => checkIsSameMedia(i, targetItem));
 
         if (index === -1) {
             const toAdd = {
@@ -686,12 +698,7 @@ function setupUnifiedSkeleton(container, item) {
         const profile = window.currentProfile || window.appData?.profiles?.find(p => p.id === window.appData.activeProfileId);
         
         // Check Watchlist state
-        const isWatchlist = profile?.watchlist?.some(w => {
-            if (String(w.id) === String(item.id)) return true;
-            const wT = getTmdbIdStr(w);
-            const iT = getTmdbIdStr(item);
-            return (wT && iT && wT === iT);
-        });
+        const isWatchlist = (profile?.watchlist || []).some(w => checkIsSameMedia(w, item));
         const watchlistMenuBtn = document.getElementById('dd-menu-add-list');
         if (watchlistMenuBtn) {
             watchlistMenuBtn.innerHTML = `<i class="fas fa-${isWatchlist ? 'check' : 'plus'}"></i> ${isWatchlist ? 'In My List' : 'My List'}`;
@@ -710,12 +717,7 @@ function setupUnifiedSkeleton(container, item) {
         // Check custom lists state
         const customLists = (profile?.custom_lists || []).filter(l => l.type !== 'music');
         const activeCustomLists = customLists.filter(list =>
-            list.items?.some(i => {
-                if (String(i.id) === String(item.id)) return true;
-                const tA = getTmdbIdStr(i);
-                const tB = getTmdbIdStr(item);
-                return tA && tB && tA === tB;
-            })
+            list.items?.some(i => checkIsSameMedia(i, item))
         );
         const isInCustomList = activeCustomLists.length > 0;
 
@@ -757,12 +759,7 @@ function setupUnifiedSkeleton(container, item) {
                 customListsContainer.appendChild(titleDiv);
 
                 customLists.forEach(list => {
-                    const inList = list.items?.some(i => {
-                        if (String(i.id) === String(item.id)) return true;
-                        const tA = getTmdbIdStr(i);
-                        const tB = getTmdbIdStr(item);
-                        return tA && tB && tA === tB;
-                    });
+                    const inList = (list.items || []).some(i => checkIsSameMedia(i, item));
 
                     const btn = document.createElement('button');
                     btn.className = 'dd-dropdown-item custom-list-item-toggle';
@@ -1869,13 +1866,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         // Toggles & list check functions
         let inWatchlist = false;
         try {
-            inWatchlist = (profile.watchlist || []).filter(Boolean).some(w => {
-                if (!w || !item) return false;
-                if (w.id && item.id && String(w.id) === String(item.id)) return true;
-                const wT = getTmdbIdStr(w);
-                const iT = getTmdbIdStr(item);
-                return (wT && iT && wT === iT);
-            });
+            inWatchlist = (profile.watchlist || []).filter(Boolean).some(w => checkIsSameMedia(w, item));
         } catch (e) {
             console.error('[ListsPanel] Error checking inWatchlist:', e);
         }
@@ -1891,13 +1882,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
         const inCustomList = (list) => {
             try {
-                return (list.items || []).filter(Boolean).some(i => {
-                    if (!i || !item) return false;
-                    if (i.id && item.id && String(i.id) === String(item.id)) return true;
-                    const tA = getTmdbIdStr(i);
-                    const tB = getTmdbIdStr(item);
-                    return tA && tB && tA === tB;
-                });
+                return (list.items || []).filter(Boolean).some(i => checkIsSameMedia(i, item));
             } catch (e) {
                 console.error('[ListsPanel] Error checking inCustomList:', e);
                 return false;

@@ -17166,10 +17166,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     return null;
   }
 
-  function getNormalizedItemTitle(i) {
-    if (!i || typeof i !== 'object') return '';
-    const t = i.title || i.name || i.original_title || '';
-    return t.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+  function getAllItemTitles(i) {
+    if (!i || typeof i !== 'object') return [];
+    const list = [
+      i.title, i.name, i.original_title, i.canonicalTitle, i.englishTitle,
+      i.showTitle, i.showName,
+      i.titles?.en, i.titles?.en_jp, i.titles?.ja_jp,
+      i.title_english, i.title_japanese
+    ];
+    if (Array.isArray(i.title_synonyms)) list.push(...i.title_synonyms);
+    if (Array.isArray(i.aliases)) list.push(...i.aliases);
+    return list.filter(Boolean).map(t => String(t).toLowerCase().replace(/[^a-z0-9]/g, '').trim()).filter(t => t.length >= 2);
   }
 
   function isSameItem(a, b) {
@@ -17194,8 +17201,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const malB = b.mal_id || b.malId || (b.id && String(b.id).startsWith('mal:') ? String(b.id).replace('mal:', '') : null);
       if (malA && malB && String(malA) === String(malB)) return true;
 
-      const kA = a.kitsuId || (a.id && String(a.id).startsWith('kitsu:') ? String(a.id).replace('kitsu:', '') : null);
-      const kB = b.kitsuId || (b.id && String(b.id).startsWith('kitsu:') ? String(b.id).replace('kitsu:', '') : null);
+      const kA = a.kitsuId || a.kitsu_id || (a.id && String(a.id).startsWith('kitsu:') ? String(a.id).replace('kitsu:', '') : null);
+      const kB = b.kitsuId || b.kitsu_id || (b.id && String(b.id).startsWith('kitsu:') ? String(b.id).replace('kitsu:', '') : null);
       if (kA && kB && String(kA) === String(kB)) return true;
 
       // 4. Check Local paths / radio / streams
@@ -17203,18 +17210,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (a.radioUrl && b.radioUrl && a.radioUrl === b.radioUrl) return true;
       if (a.streamUrl && b.streamUrl && a.streamUrl === b.streamUrl) return true;
 
-      // 5. Title + Release Year Match (e.g. "Call of the Night" (2022) added from Kitsu vs TMDB)
-      const titleA = getNormalizedItemTitle(a);
-      const titleB = getNormalizedItemTitle(b);
-      if (titleA && titleB && titleA === titleB && titleA.length >= 3) {
+      // 5. Title + Release Year Match across all aliases (e.g. "Call of the Night" vs "Yofukashi no Uta")
+      const titlesA = getAllItemTitles(a);
+      const titlesB = getAllItemTitles(b);
+      const hasCommonTitle = titlesA.some(ta => titlesB.includes(ta));
+      if (hasCommonTitle) {
         const yearA = (a.release_date || a.first_air_date || a.releaseYear || a.year || '').toString().slice(0, 4);
         const yearB = (b.release_date || b.first_air_date || b.releaseYear || b.year || '').toString().slice(0, 4);
-        if (yearA && yearB && yearA === yearB) return true;
-        if (!yearA || !yearB) return true; // same distinct title
+        if (yearA && yearB && Math.abs(parseInt(yearA) - parseInt(yearB)) <= 1) return true;
+        if (!yearA || !yearB) return true; // matching title
       }
     }
     return false;
   }
+  window.isSameItem = isSameItem;
 
   function toggleWatchlist(item) {
     if (!currentProfile) return;
