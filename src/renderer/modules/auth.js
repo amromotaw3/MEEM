@@ -780,13 +780,17 @@
       appData.user = syncResult?.user || user;
       if (syncResult?.profiles && syncResult.profiles.length > 0) {
         appData.profiles = normalizeProfiles(syncResult.profiles);
-      } else if (!appData.profiles || appData.profiles.length === 0) {
-        const username = appData.user.username || appData.user.email?.split('@')[0] || 'User';
-        appData.profiles = [{
-          id: 'default',
-          name: username,
-          avatar: (typeof AVATARS !== 'undefined' && AVATARS[0]) ? AVATARS[0] : ''
-        }];
+      } else {
+        try {
+          const client = getSupabaseRendererClient();
+          const uid = user?.id || syncResult?.user?.id;
+          if (client && uid) {
+            const { data: supaProfs } = await client.from('account_profiles').select('*').eq('user_id', uid);
+            if (supaProfs && supaProfs.length > 0) {
+              appData.profiles = normalizeProfiles(supaProfs);
+            }
+          }
+        } catch (_) {}
       }
       persist();
 
@@ -1674,12 +1678,16 @@
         appData.profiles = normalizeProfiles(result.profiles || []);
       }
       if (!appData.profiles || appData.profiles.length === 0) {
-        const username = appData.user.username || appData.user.email?.split('@')[0] || 'User';
-        appData.profiles = [{
-          id: 'default',
-          name: username,
-          avatar: (typeof AVATARS !== 'undefined' && AVATARS[0]) ? AVATARS[0] : ''
-        }];
+        try {
+          const client = getSupabaseRendererClient();
+          const uid = result.user?.id || syncResult?.user?.id;
+          if (client && uid) {
+            const { data: supaProfs } = await client.from('account_profiles').select('*').eq('user_id', uid);
+            if (supaProfs && supaProfs.length > 0) {
+              appData.profiles = normalizeProfiles(supaProfs);
+            }
+          }
+        } catch (_) {}
       }
       ensureDefaultAddons();
       persist();
@@ -2205,14 +2213,27 @@
             const profileName = p.name;
             const profileId = p.id;
             appData.profiles = appData.profiles.filter(x => x.id !== p.id);
-            if (appData.activeProfileId === p.id) appData.activeProfileId = appData.profiles[0].id;
-
-            await window.api.invoke('delete-profile-data', profileName);
+            if (appData.activeProfileId === p.id) {
+              appData.activeProfileId = appData.profiles[0]?.id || null;
+            }
+            if (currentProfile && currentProfile.id === profileId) {
+              currentProfile = appData.profiles[0] || null;
+            }
 
             try {
-              if (window.supabase) {
-                const client = getSupabaseRendererClient();
-                await client.rpc('delete_profile', { profile_id: profileId });
+              await window.api.invoke('delete-profile-data', profileName);
+            } catch (_) {}
+
+            try {
+              if (window.api && typeof window.api.invoke === 'function') {
+                await window.api.invoke('cloud-delete-profile', profileId);
+              }
+              const client = getSupabaseRendererClient();
+              if (client) {
+                await client.from('playback_history').delete().eq('profile_id', profileId).catch(() => {});
+                await client.from('list_members').delete().eq('profile_id', profileId).catch(() => {});
+                await client.from('custom_lists').delete().eq('profile_id', profileId).catch(() => {});
+                await client.from('account_profiles').delete().eq('id', profileId).catch(() => {});
               }
             } catch (err) {
               console.error('Failed to delete profile from cloud:', err);
@@ -2632,7 +2653,9 @@
     if (confirmBtn) confirmBtn.textContent = id ? 'Save Changes' : 'Create';
     if (nameInput) nameInput.value = profile ? profile.name : '';
 
-    selectedAvatar = profile ? profile.avatar : AVATARS[0];
+    selectedAvatar = (profile && profile.avatar && typeof profile.avatar === 'string' && profile.avatar.trim() !== '') 
+      ? profile.avatar.trim() 
+      : (AVATARS[0] || 'imgs/avatars/default.png');
 
     const picker = document.getElementById('profile-picker');
     if (picker) {
@@ -2651,10 +2674,16 @@
 
     selector.innerHTML = '';
 
+    const isDefaultAvatar = (url) => {
+      if (!url) return false;
+      return url === 'imgs/avatars/default.png' || url.endsWith('/default.png') || url.endsWith('default.png');
+    };
+
     AVATARS.forEach(url => {
       const img = document.createElement('img');
       img.src = url;
-      img.className = 'avatar-opt' + (url === selectedAvatar ? ' selected' : '');
+      const isSelected = (url === selectedAvatar) || (isDefaultAvatar(url) && isDefaultAvatar(selectedAvatar));
+      img.className = 'avatar-opt' + (isSelected ? ' selected' : '');
       img.style.borderRadius = '50%';
       img.style.objectFit = 'cover';
       img.onerror = () => { img.onerror = null; img.src = DEFAULT_AVATAR_SVG; };
@@ -2675,15 +2704,16 @@
       selector.appendChild(img);
     });
 
-    if (selectedAvatar && !AVATARS.includes(selectedAvatar)) {
+    const isCustomAvatar = selectedAvatar && !isDefaultAvatar(selectedAvatar) && !AVATARS.includes(selectedAvatar);
+    if (isCustomAvatar) {
       const img = document.createElement('img');
       img.src = window.localImg(selectedAvatar);
-      img.className = 'avatar-opt selected';
+      img.className = 'avatar-opt selected custom-avatar';
       img.onerror = () => { img.onerror = null; img.src = DEFAULT_AVATAR_SVG; };
       img.onclick = () => {
         selector.querySelectorAll('.avatar-opt').forEach(el => el.classList.remove('selected'));
         img.classList.add('selected');
-        selectedAvatar = profile.avatar;
+        selectedAvatar = profile?.avatar || selectedAvatar;
         const targetId = editingProfileId;
         const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : null;
         if (prof) {
@@ -4527,8 +4557,19 @@
                   await window.api.invoke('cloud-update-profile', {
                     id: profile.id,
                     name: profile.name,
-                    avatar: profile.avatar
+                    avatar: profile.avatar,
+                    max_age_rating: profile.max_age_rating || 18,
+                    avatar_border_color: profile.avatar_border_color || null
                   });
+                }
+                const client = getSupabaseRendererClient();
+                if (client) {
+                  await client.from('account_profiles').update({
+                    name: profile.name,
+                    avatar: profile.avatar,
+                    max_age_rating: profile.max_age_rating || 18,
+                    avatar_border_color: profile.avatar_border_color || null
+                  }).eq('id', profile.id).catch(() => {});
                 }
               } catch (cloudErr) {
                 console.warn('[PROFILES] cloud-update-profile sync warning:', cloudErr);
@@ -4568,6 +4609,17 @@
                   avatar: selectedAvatar,
                   max_age_rating: 18
                 });
+              }
+              const client = getSupabaseRendererClient();
+              const uid = appData.user?.id || (window.cloudSession && window.cloudSession.user?.id);
+              if (client && uid) {
+                await client.from('account_profiles').upsert({
+                  id: newId,
+                  user_id: uid,
+                  name: name,
+                  avatar: selectedAvatar,
+                  max_age_rating: 18
+                }).catch(() => {});
               }
             } catch (cloudErr) {
               console.warn('[PROFILES] cloud-create-profile sync warning:', cloudErr);

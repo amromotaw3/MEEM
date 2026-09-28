@@ -2076,27 +2076,89 @@
 
         // --- Cloud Profile CRUD ---
         cloudCreateProfile: async (profileData) => {
+            const client = getSupabaseClient();
             try {
-                const payload = { ...profileData, user_id: cloudSession?.user?.id };
+                let userId = cloudSession?.user?.id;
+                if (!userId && client) {
+                    const { data: { user } } = await client.auth.getUser().catch(() => ({ data: {} }));
+                    userId = user?.id;
+                }
+                const payload = { ...profileData, user_id: userId };
                 if (payload.pin !== undefined) {
                     payload.profile_pin = payload.pin;
                     delete payload.pin;
                 }
-                return await supabaseRpc('create_profile', payload);
-            } catch (e) { console.error('[Bridge] create_profile RPC error:', e.message); return { error: e.message }; }
+                const rpcRes = await supabaseRpc('create_profile', payload).catch(() => null);
+                if (rpcRes && !rpcRes.error) {
+                    return rpcRes;
+                }
+                if (client && userId) {
+                    const row = {
+                        id: profileData.id || crypto.randomUUID(),
+                        user_id: userId,
+                        name: profileData.name || 'Profile',
+                        avatar: profileData.avatar || '',
+                        max_age_rating: profileData.max_age_rating || 18
+                    };
+                    const { data, error } = await client.from('account_profiles').upsert(row).select().single();
+                    if (error) throw error;
+                    return { success: true, profile: data };
+                }
+                return { success: true };
+            } catch (e) {
+                console.error('[Bridge] create_profile error:', e.message);
+                return { error: e.message };
+            }
         },
         cloudUpdateProfile: async (profileData) => {
+            const client = getSupabaseClient();
             try {
                 const payload = { ...profileData };
                 if (payload.pin !== undefined) {
                     payload.profile_pin = payload.pin;
                     delete payload.pin;
                 }
-                return await supabaseRpc('update_profile', payload);
-            } catch (e) { console.error('[Bridge] update_profile RPC error:', e.message); return { error: e.message }; }
+                const rpcRes = await supabaseRpc('update_profile', payload).catch(() => null);
+                if (rpcRes && !rpcRes.error) {
+                    return rpcRes;
+                }
+                if (client && profileData.id) {
+                    const updateObj = {};
+                    if (profileData.name !== undefined) updateObj.name = profileData.name;
+                    if (profileData.avatar !== undefined) updateObj.avatar = profileData.avatar;
+                    if (profileData.max_age_rating !== undefined) updateObj.max_age_rating = profileData.max_age_rating;
+                    if (profileData.avatar_border_color !== undefined) updateObj.avatar_border_color = profileData.avatar_border_color;
+                    const { data, error } = await client.from('account_profiles').update(updateObj).eq('id', profileData.id);
+                    if (error) throw error;
+                    return { success: true, data };
+                }
+                return { success: true };
+            } catch (e) {
+                console.error('[Bridge] update_profile error:', e.message);
+                return { error: e.message };
+            }
         },
         cloudDeleteProfile: async (id) => {
-            try { return await supabaseRpc('delete_profile', { profile_id: id }); } catch (e) { console.error('[Bridge] delete_profile RPC error:', e.message); return { error: e.message }; }
+            const client = getSupabaseClient();
+            const profId = typeof id === 'object' ? (id?.id || id?.profile_id) : id;
+            try {
+                const rpcRes = await supabaseRpc('delete_profile', { profile_id: profId }).catch(() => null);
+                if (rpcRes && !rpcRes.error) {
+                    return rpcRes;
+                }
+                if (client && profId) {
+                    await client.from('playback_history').delete().eq('profile_id', profId).catch(() => {});
+                    await client.from('list_members').delete().eq('profile_id', profId).catch(() => {});
+                    await client.from('custom_lists').delete().eq('profile_id', profId).catch(() => {});
+                    const { error } = await client.from('account_profiles').delete().eq('id', profId);
+                    if (error) throw error;
+                    return { success: true };
+                }
+                return { success: true };
+            } catch (e) {
+                console.error('[Bridge] delete_profile error:', e.message);
+                return { error: e.message };
+            }
         },
         cloudVerifyProfilePin: async (profile_id, pin) => {
             try {
