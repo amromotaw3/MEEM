@@ -1716,9 +1716,25 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                     epImgDiv.appendChild(overlay);
                 }
 
+                const rawVote = v.vote_average != null ? v.vote_average : (v.rating != null ? v.rating : v.imdbRating);
+                const epRating = parseFloat(rawVote);
+                const ratingHtml = (!isNaN(epRating) && epRating > 0)
+                    ? `<span class="dd-ep-rating" style="display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.15);color:#F5C518;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:auto;"><i class="fas fa-star" style="font-size:8px;"></i>${epRating.toFixed(1)}</span>`
+                    : '';
+
+                const formattedTitle = (finalTitle && !finalTitle.toLowerCase().startsWith('episode') && finalTitle !== String(epNum))
+                    ? `EP ${epNum} • ${finalTitle}`
+                    : (finalTitle || `Episode ${epNum}`);
+
                 const infoDiv = document.createElement('div');
                 infoDiv.className = 'dd-ep-info';
-                infoDiv.innerHTML = `<div class="dd-ep-name">${(window.escapeHTML || (s=>s))(finalTitle)}</div><div class="dd-ep-date">${displayDate}</div>`;
+                infoDiv.innerHTML = `
+                    <div class="dd-ep-name" title="${(window.escapeHTML || (s=>s))(formattedTitle)}">${(window.escapeHTML || (s=>s))(formattedTitle)}</div>
+                    <div class="dd-ep-meta-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
+                        <span class="dd-ep-date" style="font-size:11px;color:rgba(255,255,255,0.5);">${displayDate}</span>
+                        ${ratingHtml}
+                    </div>
+                `;
 
                 card.appendChild(epImgDiv);
                 card.appendChild(infoDiv);

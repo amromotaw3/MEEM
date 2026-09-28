@@ -1776,6 +1776,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       this._video.addEventListener('play', () => {
         this._paused = false;
         this._emit('pausechange', false);
+        // Hide loading HUD when playback actually starts
+        const loadingEl = document.getElementById('player-loading');
+        if (loadingEl) loadingEl.style.display = 'none';
       });
 
       this._video.addEventListener('pause', () => {

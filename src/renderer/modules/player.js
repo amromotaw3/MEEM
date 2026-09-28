@@ -1193,6 +1193,9 @@
       const engineLoaded = await engine.load(finalUrl, { startTime: startTime, paused: false, duration: knownDur });
       window.isTransitioningEpisode = false;
       if (!engineLoaded) throw new Error('Engine failed to load media');
+      // Hide loading HUD on successful load
+      const loadingEl = $('#player-loading');
+      if (loadingEl) loadingEl.style.display = 'none';
     } catch (err) {
       window.isTransitioningEpisode = false;
       console.error('[playVideo] engine.load failed, attempting stream re-resolution fallback:', err);
@@ -2540,21 +2543,26 @@
       const epNum = parseInt(ep.episode);
       const tE = tmdbEps[epNum] || tmdbEps[String(ep.episode)];
 
-      const epTitle = tE?.name || ep.title;
-      const still = tE?.local_still 
-        ? (typeof localImg === 'function' ? localImg(tE.local_still) : window.localImg ? window.localImg(tE.local_still) : tE.local_still) 
-        : (tE?.still_path 
-            ? (tE.still_path.startsWith('http') ? tE.still_path : `https://image.tmdb.org/t/p/w300${tE.still_path}`) 
-            : '');
+      const epTitle = tE?.name || ep.title || '';
+      const epLabel = `S${String(sn).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}`;
+      const displayLabel = epTitle && !epTitle.toLowerCase().startsWith('episode') && epTitle !== String(epNum)
+        ? `${epLabel} · ${epTitle}` : epLabel;
 
+      let still = tE?.local_still
+        ? (typeof localImg === 'function' ? localImg(tE.local_still) : tE.local_still)
+        : (tE?.still_path
+            ? (tE.still_path.startsWith('http') ? tE.still_path : `https://image.tmdb.org/t/p/w300${tE.still_path}`)
+            : (ep.thumbnail || ''));
+
+      const isActive = i === currentEpisodeIndex;
       const d = document.createElement('div');
-      d.className = 'panel-ep-item' + (i === currentEpisodeIndex ? ' active' : '');
+      d.className = 'panel-ep-item' + (isActive ? ' active' : '');
 
       const thumbHTML = still
         ? `<img class="panel-ep-thumb" src="${still}" loading="lazy" onerror="this.onerror=null; this.src='imgs/no-backdrop.png';">`
         : `<div class="panel-ep-thumb-ph">${ep.episode}</div>`;
 
-      d.innerHTML = `<div class="panel-ep-thumb-wrap">${thumbHTML}<div class="panel-ep-play-overlay"><svg viewBox="0 0 24 24"><polygon points="8 5 20 12 8 19"/></svg></div></div><div class="panel-ep-info"><div class="panel-ep-title">${escapeHTML(epTitle)}</div><div class="panel-ep-meta">S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}</div></div>`;
+      d.innerHTML = `<div class="panel-ep-thumb-wrap">${thumbHTML}<div class="panel-ep-play-overlay"><svg viewBox="0 0 24 24"><polygon points="8 5 20 12 8 19"/></svg></div>${isActive ? '<div class="panel-ep-now-badge">▶ NOW</div>' : ''}</div><div class="panel-ep-info"><div class="panel-ep-num">${epLabel}</div><div class="panel-ep-title">${escapeHTML(epTitle || epLabel)}</div></div>`;
       d.onclick = () => { currentEpisodeIndex = i; playVideo(ep, currentShow); };
       pl.appendChild(d);
     });

@@ -609,7 +609,7 @@ function initAddonsIpc(ipcMain, store) {
             console.log('[Unified Search] Searching for:', searchQueries.join(', '));
             const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
             const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
-            const tmdbKey = appData.tmdbKey || null;
+            const tmdbKey = appData.tmdbKey || 'eb3db2bfcff07c2c05038f4ea48b8c29';
 
             // Cinemeta is the universal default catalog unless specifically disabled
             const cinemetaDisabled = installed.some(a => {
@@ -730,40 +730,59 @@ function initAddonsIpc(ipcMain, store) {
             const merged = [];
             const seen = new Set();
 
-            const addResults = (items) => {
-                if (!items || !Array.isArray(items)) return;
-                for (const item of items) {
-                    const key = `${(item.title || '').toLowerCase().trim()}_${item.releaseYear || ''}_${item.type}`;
-                    if (!seen.has(key)) {
-                        seen.add(key);
-                        merged.push(item);
-                    } else {
-                        const existingIdx = merged.findIndex(x => `${(x.title || '').toLowerCase().trim()}_${x.releaseYear || ''}_${x.type}` === key);
-                        if (existingIdx !== -1) {
-                            const existing = merged[existingIdx];
-                            if (item.source === 'tmdb' && existing.source !== 'tmdb') {
-                                merged[existingIdx] = item;
-                            }
-                        }
+            const addResult = (item) => {
+                if (!item || !item.id || !item.title) return;
+                const titleClean = (item.title || '').toLowerCase().trim();
+                const key = `${titleClean}_${item.releaseYear || ''}_${item.type}`;
+                const idKey = String(item.id).toLowerCase();
+
+                if (!seen.has(key) && !seen.has(idKey)) {
+                    seen.add(key);
+                    seen.add(idKey);
+                    merged.push(item);
+                } else {
+                    const existingIdx = merged.findIndex(x => 
+                        String(x.id).toLowerCase() === idKey ||
+                        `${(x.title || '').toLowerCase().trim()}_${x.releaseYear || ''}_${x.type}` === key
+                    );
+                    if (existingIdx !== -1) {
+                        const existing = merged[existingIdx];
+                        if (!existing.backdrop && item.backdrop) existing.backdrop = item.backdrop;
+                        if (!existing.poster && item.poster) existing.poster = item.poster;
+                        if ((!existing.rating || existing.rating === 0) && item.rating > 0) existing.rating = item.rating;
+                        if (!existing.synopsis && item.synopsis) existing.synopsis = item.synopsis;
                     }
                 }
             };
 
-            // Interleave Movies and TV Series so both types appear in results
-            const maxCount = Math.max(
-                officialTmdbMovies.length, officialTmdbTv.length,
-                cinemetaMovies.length, cinemetaTv.length,
-                tmdbMovies.length, tmdbTv.length
-            );
-
-            for (let i = 0; i < maxCount; i++) {
-                if (officialTmdbMovies[i]) addResults([officialTmdbMovies[i]]);
-                if (officialTmdbTv[i]) addResults([officialTmdbTv[i]]);
-                if (cinemetaMovies[i]) addResults([cinemetaMovies[i]]);
-                if (cinemetaTv[i]) addResults([cinemetaTv[i]]);
-                if (tmdbMovies[i]) addResults([tmdbMovies[i]]);
-                if (tmdbTv[i]) addResults([tmdbTv[i]]);
+            // Interleave all result streams evenly so diverse sources and media types appear
+            const maxLen = Math.max(...fetchResults.map(r => (Array.isArray(r) ? r.length : 0)), 0);
+            for (let i = 0; i < maxLen; i++) {
+                for (const list of fetchResults) {
+                    if (Array.isArray(list) && list[i]) {
+                        addResult(list[i]);
+                    }
+                }
             }
+
+            // Priority sorting: Exact title matches first, then prefix matches
+            const cleanTarget = trimmedQuery.toLowerCase();
+            const aliasTarget = (aliasEn || '').toLowerCase();
+            merged.sort((a, b) => {
+                const aTitle = (a.title || '').toLowerCase().trim();
+                const bTitle = (b.title || '').toLowerCase().trim();
+                const aExact = aTitle === cleanTarget || (aliasTarget && aTitle === aliasTarget);
+                const bExact = bTitle === cleanTarget || (aliasTarget && bTitle === aliasTarget);
+                if (aExact && !bExact) return -1;
+                if (!aExact && bExact) return 1;
+
+                const aStarts = aTitle.startsWith(cleanTarget) || (aliasTarget && aTitle.startsWith(aliasTarget));
+                const bStarts = bTitle.startsWith(cleanTarget) || (aliasTarget && bTitle.startsWith(aliasTarget));
+                if (aStarts && !bStarts) return -1;
+                if (!aStarts && bStarts) return 1;
+
+                return 0;
+            });
 
             if (cacheKey && merged.length > 0) {
                 searchCache.set(cacheKey, { data: { results: merged }, timestamp: Date.now() });

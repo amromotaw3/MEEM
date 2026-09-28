@@ -637,31 +637,62 @@
           }
         }
 
-        if (isEpisode && !episodeStill && targetImdbId) {
+        if (isEpisode && !episodeStill) {
           const sn = parseInt(item.season, 10);
           const en = parseInt(item.episode, 10);
-          fetch(`https://v3-cinemeta.strem.io/meta/series/${targetImdbId}.json`)
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-              if (data?.meta?.videos && Array.isArray(data.meta.videos)) {
-                window.appData = window.appData || {};
-                window.appData.cinemetaCache = window.appData.cinemetaCache || {};
-                window.appData.cinemetaCache[targetImdbId] = data.meta;
-                const v = data.meta.videos.find(x => (x.season == sn || x.seasonNumber == sn) && (x.episode == en || x.number == en || x.episodeNumber == en));
-                if (v) {
-                  const fetchedThumb = toCleanImg(v.thumbnail || v.still);
-                  if (fetchedThumb) {
-                    const imgEl = card.querySelector('.continue-card-img');
-                    if (imgEl) imgEl.src = fetchedThumb;
-                  }
-                  if (v.title || v.name) {
-                    const tEl = card.querySelector('.continue-card-title');
-                    if (tEl) tEl.textContent = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} • ${v.title || v.name}`;
+
+          const tryFetchCinemetaStill = (imdbId) => {
+            fetch(`https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`)
+              .then(r => r.ok ? r.json() : null)
+              .then(data => {
+                if (data?.meta?.videos && Array.isArray(data.meta.videos)) {
+                  window.appData = window.appData || {};
+                  window.appData.cinemetaCache = window.appData.cinemetaCache || {};
+                  window.appData.cinemetaCache[imdbId] = data.meta;
+                  const v = data.meta.videos.find(x => (x.season == sn || x.seasonNumber == sn) && (x.episode == en || x.number == en || x.episodeNumber == en));
+                  if (v) {
+                    const fetchedThumb = toCleanImg(v.thumbnail || v.still);
+                    if (fetchedThumb) {
+                      const imgEl = card.querySelector('.continue-card-img');
+                      if (imgEl) imgEl.src = fetchedThumb;
+                    }
+                    if (v.title || v.name) {
+                      const tEl = card.querySelector('.continue-card-title');
+                      if (tEl) tEl.textContent = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} • ${v.title || v.name}`;
+                    }
                   }
                 }
-              }
-            })
-            .catch(() => {});
+              })
+              .catch(() => {});
+          };
+
+          const tryFetchTmdbStill = (tmdbId) => {
+            const tmdbEp = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${sn}/episode/${en}?api_key=eb3db2bfcff07c2c05038f4ea48b8c29&append_to_response=images`;
+            fetch(tmdbEp)
+              .then(r => r.ok ? r.json() : null)
+              .then(epInfo => {
+                if (epInfo?.still_path) {
+                  const stillUrl = `https://image.tmdb.org/t/p/w300${epInfo.still_path}`;
+                  const imgEl = card.querySelector('.continue-card-img');
+                  if (imgEl) imgEl.src = stillUrl;
+                  if (epInfo.name) {
+                    const tEl = card.querySelector('.continue-card-title');
+                    if (tEl) tEl.textContent = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} • ${epInfo.name}`;
+                  }
+                }
+              })
+              .catch(() => {});
+          };
+
+          if (targetImdbId) {
+            tryFetchCinemetaStill(targetImdbId);
+          }
+
+          // Also try TMDB direct API
+          const tmdbId = metaCache?.tmdbId || metaCache?.id || item.tmdbId || item.showId;
+          if (tmdbId && !String(tmdbId).startsWith('tt') && !String(tmdbId).startsWith('kitsu')) {
+            tryFetchTmdbStill(tmdbId);
+          }
         }
 
         card.onclick = (e) => {
@@ -3177,7 +3208,16 @@
       el.dataset.episodeNum = ep.episode;
       const thumb = ep.thumbnail || meta.poster_path || meta.poster || 'imgs/no-backdrop.png';
       const fallbackImg = meta.backdrop_path || meta.background || meta.poster_path || meta.poster || 'imgs/no-backdrop.png';
-      el.innerHTML = `<div class="ep-thumb-wrap"><img src="${thumb}" class="ep-thumb" onerror="this.onerror=null; this.src='${escapeHTML(fallbackImg)}';"><div class="ep-number-overlay">${ep.episode}</div><div class="ep-play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div></div><div class="episode-info"><div class="episode-title">${escapeHTML(ep.name || ep.title || `Episode ${ep.episode}`)}</div><div class="episode-desc">${escapeHTML(ep.overview || ep.description || 'No description.')}</div></div>`;
+      const rawName = ep.name || ep.title || '';
+      const displayTitle = (rawName && !rawName.toLowerCase().startsWith('episode') && rawName !== String(ep.episode))
+        ? `EP ${ep.episode} • ${rawName}`
+        : (rawName || `Episode ${ep.episode}`);
+      const voteVal = parseFloat(ep.vote_average || ep.rating || ep.imdbRating);
+      const ratingTag = (!isNaN(voteVal) && voteVal > 0)
+        ? `<span class="ep-rating-badge" style="display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.15);color:#F5C518;font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px;"><i class="fas fa-star" style="font-size:8px;"></i>${voteVal.toFixed(1)}</span>`
+        : '';
+
+      el.innerHTML = `<div class="ep-thumb-wrap"><img src="${thumb}" class="ep-thumb" onerror="this.onerror=null; this.src='${escapeHTML(fallbackImg)}';"><div class="ep-number-overlay">${ep.episode}</div><div class="ep-play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div></div><div class="episode-info"><div class="episode-title" style="display:flex;align-items:center;justify-content:space-between;"><span>${escapeHTML(displayTitle)}</span>${ratingTag}</div><div class="episode-desc">${escapeHTML(ep.overview || ep.description || 'No description.')}</div></div>`;
       el.onclick = () => {
         document.querySelectorAll('.episode-item').forEach(i => i.classList.remove('active'));
         el.classList.add('active');
@@ -3189,7 +3229,7 @@
       container.appendChild(el);
     });
 
-    const tmdbKey = appData.tmdbKey || null;
+    const tmdbKey = appData.tmdbKey || 'eb3db2bfcff07c2c05038f4ea48b8c29';
     const overrideEnabled = appData.tmdbEnabled !== false;
     const imdbId = meta.imdb_id || meta.id || '';
 
@@ -3221,9 +3261,18 @@
                       imgEl.src = `https://image.tmdb.org/t/p/w500${tmdbEp.still_path}`;
                     }
                   }
-                  if (tmdbEp.name) {
-                    const titleEl = epEl.querySelector('.episode-title');
-                    if (titleEl) titleEl.textContent = tmdbEp.name;
+                  const tEpVote = parseFloat(tmdbEp.vote_average);
+                  const tEpRatingTag = (!isNaN(tEpVote) && tEpVote > 0)
+                    ? `<span class="ep-rating-badge" style="display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.15);color:#F5C518;font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px;"><i class="fas fa-star" style="font-size:8px;"></i>${tEpVote.toFixed(1)}</span>`
+                    : '';
+                  const epRawName = tmdbEp.name || '';
+                  const fullTitle = (epRawName && !epRawName.toLowerCase().startsWith('episode'))
+                    ? `EP ${tmdbEp.episode_number} • ${epRawName}`
+                    : (epRawName || `Episode ${tmdbEp.episode_number}`);
+
+                  const titleEl = epEl.querySelector('.episode-title');
+                  if (titleEl) {
+                    titleEl.innerHTML = `<span>${escapeHTML(fullTitle)}</span>${tEpRatingTag}`;
                   }
                   if (tmdbEp.overview) {
                     const descEl = epEl.querySelector('.episode-desc');
