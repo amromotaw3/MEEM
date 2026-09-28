@@ -637,23 +637,62 @@
     if (spinner) spinner.style.display = 'flex';
     if (errorOverlay) errorOverlay.style.display = 'none';
 
+    // Clear previous state
     if (hlsInstance) {
-      hlsInstance.destroy();
+      try { hlsInstance.destroy(); } catch (_) {}
       hlsInstance = null;
     }
 
+    const isMobile = !!(window.Capacitor || (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile()) || /android|iphone|ipad/i.test(navigator.userAgent));
+
+    const onPlaying = () => {
+      if (spinner) spinner.style.display = 'none';
+      if (errorOverlay) errorOverlay.style.display = 'none';
+    };
+    video.removeEventListener('playing', video._onPlayingHandler);
+    video.removeEventListener('canplay', video._onPlayingHandler);
+    video._onPlayingHandler = onPlaying;
+    video.addEventListener('playing', onPlaying, { once: true });
+    video.addEventListener('canplay', onPlaying, { once: true });
+
+    const tryNativePlayback = () => {
+      try {
+        if (hlsInstance) {
+          hlsInstance.destroy();
+          hlsInstance = null;
+        }
+      } catch (_) {}
+      video.src = streamUrl;
+      video.load();
+      video.play().catch(err => {
+        console.warn('[IPTV Native Playback Fallback Failed]', err);
+        if (spinner) spinner.style.display = 'none';
+        if (errorOverlay) errorOverlay.style.display = 'flex';
+      });
+    };
+
     if (window.Hls && window.Hls.isSupported()) {
       hlsInstance = new window.Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 90
+        enableWorker: !isMobile, // Disable workers on Android WebView to prevent worker thread crashes
+        lowLatencyMode: false,
+        backBufferLength: 60,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        manifestLoadingTimeOut: 20000,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingTimeOut: 20000,
+        levelLoadingMaxRetry: 4,
+        fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 6,
+        xhrSetup: function (xhr, url) {
+          xhr.withCredentials = false;
+        }
       });
 
       hlsInstance.loadSource(streamUrl);
       hlsInstance.attachMedia(video);
 
       hlsInstance.on(window.Hls.Events.MANIFEST_PARSED, () => {
-        if (spinner) spinner.style.display = 'none';
         video.play().catch(e => {
           if (e && e.name !== 'AbortError' && !e.message?.includes('interrupted')) {
             console.warn('[IPTV Autoplay]', e);
@@ -666,28 +705,22 @@
         if (data.fatal) {
           switch (data.type) {
             case window.Hls.ErrorTypes.NETWORK_ERROR:
+              console.log('[IPTV HLS] Network error encountered, retrying...');
               hlsInstance.startLoad();
               break;
             case window.Hls.ErrorTypes.MEDIA_ERROR:
+              console.log('[IPTV HLS] Media error encountered, recovering...');
               hlsInstance.recoverMediaError();
               break;
             default:
-              if (spinner) spinner.style.display = 'none';
-              if (errorOverlay) errorOverlay.style.display = 'flex';
+              console.warn('[IPTV HLS] Fatal error, trying native video fallback...');
+              tryNativePlayback();
               break;
           }
         }
       });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = streamUrl;
-      video.addEventListener('loadedmetadata', () => {
-        if (spinner) spinner.style.display = 'none';
-        video.play().catch(e => {
-          if (e && e.name !== 'AbortError' && !e.message?.includes('interrupted')) {
-            console.warn('[IPTV Autoplay]', e);
-          }
-        });
-      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl') || isMobile) {
+      tryNativePlayback();
     } else {
       if (spinner) spinner.style.display = 'none';
       if (errorOverlay) errorOverlay.style.display = 'flex';

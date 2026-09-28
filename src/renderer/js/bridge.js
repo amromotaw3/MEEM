@@ -2372,6 +2372,168 @@
             }
         },
 
+        // Mobile Metadata & YouTube IPC Handlers
+        resolveYouTubeVideo: async (args) => {
+            let vidId = typeof args === 'string' ? args : (args?.videoId || args?.id || args?.url);
+            if (typeof vidId === 'string') {
+                const m = vidId.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+                if (m) vidId = m[1];
+                else vidId = vidId.replace(/^(yt:|youtube:)/, '');
+            }
+            if (!vidId || !/^[a-zA-Z0-9_-]{11}$/.test(vidId)) {
+                return { success: false, error: 'Invalid YouTube ID' };
+            }
+
+            const invidiousInstances = [
+                'https://inv.tux.im',
+                'https://invidious.nerdvpn.de',
+                'https://yewtu.be',
+                'https://invidious.flokinet.to',
+                'https://invidious.projectsegfau.lt',
+                'https://invidious.no-logs.com'
+            ];
+            for (const inst of invidiousInstances) {
+                try {
+                    const fetchUrl = `${inst}/api/v1/videos/${vidId}`;
+                    let data = null;
+                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
+                        data = res.data;
+                    } else {
+                        const res = await fetch(fetchUrl);
+                        data = await res.json();
+                    }
+                    if (data && (data.formatStreams || data.adaptiveFormats || data.title)) {
+                        let streamUrl = null;
+                        if (data.formatStreams && data.formatStreams.length > 0) {
+                            const sorted = [...data.formatStreams].sort((a, b) => (parseInt(b.qualityLabel) || 0) - (parseInt(a.qualityLabel) || 0));
+                            streamUrl = sorted[0]?.url;
+                        }
+                        if (!streamUrl && data.adaptiveFormats && data.adaptiveFormats.length > 0) {
+                            const audioOrVideo = data.adaptiveFormats.find(f => f.type?.includes('audio') || f.type?.includes('video'));
+                            streamUrl = audioOrVideo?.url;
+                        }
+                        return {
+                            success: true,
+                            details: {
+                                id: vidId,
+                                videoId: vidId,
+                                title: data.title || 'YouTube Video',
+                                author: data.author || 'YouTube',
+                                duration: data.lengthSeconds || 0,
+                                thumbnail: data.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`,
+                                streamUrl: streamUrl || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`
+                            }
+                        };
+                    }
+                } catch (_) {}
+            }
+
+            return {
+                success: true,
+                details: {
+                    id: vidId,
+                    videoId: vidId,
+                    title: 'YouTube Video',
+                    author: 'YouTube',
+                    duration: 0,
+                    thumbnail: `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`,
+                    streamUrl: `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`
+                }
+            };
+        },
+
+        resolveTrailerStream: async (youtubeUrl) => {
+            if (!youtubeUrl) return null;
+            const res = await window.api.resolveYouTubeVideo(youtubeUrl);
+            return (res?.success && res.details?.streamUrl) ? res.details.streamUrl : null;
+        },
+
+        searchYouTube: async (args) => {
+            const query = typeof args === 'string' ? args : (args?.query || '');
+            if (!query) return [];
+            const invidiousInstances = ['https://inv.tux.im', 'https://invidious.nerdvpn.de', 'https://yewtu.be', 'https://invidious.flokinet.to'];
+            for (const inst of invidiousInstances) {
+                try {
+                    const url = `${inst}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
+                    let data = null;
+                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url });
+                        data = res.data;
+                    } else {
+                        const res = await fetch(url);
+                        data = await res.json();
+                    }
+                    if (Array.isArray(data)) {
+                        return data.map(item => ({
+                            id: item.videoId,
+                            videoId: item.videoId,
+                            title: item.title,
+                            author: item.author,
+                            duration: item.lengthSeconds,
+                            thumbnail: item.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
+                            published: item.publishedText
+                        }));
+                    }
+                } catch (_) {}
+            }
+            return [];
+        },
+
+        fetchFanartImages: async (type, imdbId) => {
+            if (!imdbId) return { posters: [], backdrops: [], clearlogos: [], banners: [] };
+            try {
+                const cleanType = (type === 'show' || type === 'series' || type === 'tv') ? 'series' : 'movie';
+                const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/${cleanType}/${imdbId}.json`;
+                const res = await fetch(cinemetaUrl).then(r => r.json());
+                const meta = res?.meta || {};
+                return {
+                    posters: meta.poster ? [meta.poster] : [],
+                    backdrops: meta.background ? [meta.background] : [],
+                    clearlogos: meta.logo ? [meta.logo] : [],
+                    banners: meta.banner ? [meta.banner] : []
+                };
+            } catch (_) {
+                return { posters: [], backdrops: [], clearlogos: [], banners: [] };
+            }
+        },
+
+        fetchAniListAssets: async (query) => {
+            if (!query) return { banner: null, cover: null };
+            try {
+                const gql = `query ($search: String) { Media (search: $search, type: ANIME) { id bannerImage coverImage { extraLarge large medium } } }`;
+                const res = await fetch('https://graphql.anilist.co', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ query: gql, variables: { search: query } })
+                }).then(r => r.json());
+                const m = res?.data?.Media;
+                return {
+                    banner: m?.bannerImage || null,
+                    cover: m?.coverImage?.extraLarge || m?.coverImage?.large || null
+                };
+            } catch (_) {
+                return { banner: null, cover: null };
+            }
+        },
+
+        fetchSmartRecommendations: async (query) => {
+            if (!query || typeof query !== 'string' || !query.trim()) return [];
+            try {
+                const q = encodeURIComponent(query.trim());
+                const [movRes, serRes] = await Promise.allSettled([
+                    fetch(`https://v3-cinemeta.strem.io/catalog/movie/top/search=${q}.json`).then(r => r.json()),
+                    fetch(`https://v3-cinemeta.strem.io/catalog/series/top/search=${q}.json`).then(r => r.json())
+                ]);
+                const results = [];
+                if (movRes.status === 'fulfilled' && Array.isArray(movRes.value?.metas)) results.push(...movRes.value.metas.slice(0, 10));
+                if (serRes.status === 'fulfilled' && Array.isArray(serRes.value?.metas)) results.push(...serRes.value.metas.slice(0, 10));
+                return results;
+            } catch (_) {
+                return [];
+            }
+        },
+
         downloadImage: async (url, id, force) => {
             return url;
         },
@@ -2855,6 +3017,21 @@
             if (channel === 'load-app-data') return window.api.loadData();
             if (channel === 'save-app-data') return window.api.saveData(args[0]);
             if (channel === 'search-addons') return window.api.searchAddons(args[0]);
+            if (channel === 'cinemeta-details') return window.api.cinemetaDetails(args[0]);
+            if (channel === 'cinemeta-search') return window.api.cinemetaSearch(typeof args[0] === 'string' ? args[0] : (args[0]?.query || args[0]));
+            if (channel === 'cinemeta-catalog') return window.api.cinemetaCatalog(args[0]);
+            if (channel === 'cinemeta-discover') return window.api.cinemetaDiscoverByGenre(typeof args[0] === 'string' ? args[0] : (args[0]?.genre || args[0]));
+            if (channel === 'fanart-images') return window.api.fetchFanartImages(args[0], args[1]);
+            if (channel === 'anilist-media-assets') return window.api.fetchAniListAssets(args[0]);
+            if (channel === 'anilist-search') return window.api.fetchAniListAssets(args[0]);
+            if (channel === 'get-smart-recommendations') return window.api.fetchSmartRecommendations(args[0]);
+            if (channel === 'unified-search') return window.api.fetchSmartRecommendations(args[0]);
+            if (channel === 'youtube-get-video-info') return window.api.resolveYouTubeVideo(args[0]);
+            if (channel === 'resolve-trailer-stream') return window.api.resolveTrailerStream(args[0]);
+            if (channel === 'youtube-search') return window.api.searchYouTube(args[0]);
+            if (channel === 'mal-details') return window.api.malDetails(typeof args[0] === 'object' ? args[0]?.id : args[0]);
+            if (channel === 'kitsu-details') return window.api.kitsuDetails(typeof args[0] === 'object' ? args[0]?.id : args[0]);
+            if (channel === 'kitsu-trending') return window.api.kitsuTrending();
             if (channel === 'ensure-profile-folders') return (typeof window.api.ensureProfileFolders === 'function') ? window.api.ensureProfileFolders(args[0]) : true;
             if (channel === 'get-profile-media-paths') return (typeof window.api.getProfileMediaPaths === 'function') ? window.api.getProfileMediaPaths(args[0]) : { movies: '', series: '', social: '', music: '' };
             if (channel === 'rename-profile-folders') return (typeof window.api.renameProfileFolders === 'function') ? window.api.renameProfileFolders(args[0], args[1]) : true;
