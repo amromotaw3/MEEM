@@ -79,7 +79,11 @@
                 try {
                     const baseFolders = ['MEEM', 'MEEM/Movies', 'MEEM/Series', 'MEEM/Music', 'MEEM/Social', 'MEEM/Downloads', 'MEEM/Subtitles'];
                     for (const f of baseFolders) {
-                        await fs.mkdir({ path: f, directory: 'DOCUMENTS', recursive: true }).catch(() => {});
+                        try {
+                            await fs.stat({ path: f, directory: 'DOCUMENTS' });
+                        } catch (_) {
+                            await fs.mkdir({ path: f, directory: 'DOCUMENTS', recursive: true }).catch(() => {});
+                        }
                     }
                 } catch (_) {}
             }
@@ -945,16 +949,15 @@
         const dirsToTry = ['DOCUMENTS', 'EXTERNAL_STORAGE'];
         for (const d of dirsToTry) {
             try {
-                if (Filesystem && d === 'DOCUMENTS') {
-                    await Filesystem.mkdir({ path: cleanPath, directory: d, recursive: true }).catch(() => {});
-                }
-                const { files } = await Filesystem.readdir({ path: cleanPath, directory: d });
-                if (files && files.length > 0) {
-                    return files.map(f => {
-                        const name = typeof f === 'string' ? f : (f.name || '');
-                        const isDir = typeof f === 'string' ? !name.includes('.') : (f.type === 'directory');
-                        return { name, type: isDir ? 'directory' : 'file' };
-                    });
+                if (Filesystem) {
+                    const { files } = await Filesystem.readdir({ path: cleanPath, directory: d });
+                    if (files && files.length > 0) {
+                        return files.map(f => {
+                            const name = typeof f === 'string' ? f : (f.name || '');
+                            const isDir = typeof f === 'string' ? !name.includes('.') : (f.type === 'directory');
+                            return { name, type: isDir ? 'directory' : 'file' };
+                        });
+                    }
                 }
             } catch (e) { /* silent fallback */ }
         }
@@ -2299,7 +2302,37 @@
             }
         },
 
-        // TMDB functions removed — use Cinemeta/Kitsu APIs instead
+        tmdbDiscoverByGenre: async (genreId) => {
+            try {
+                const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+                const url = `https://api.themoviedb.org/3/discover/movie?api_key=${tmdbKey}&with_genres=${genreId}&sort_by=popularity.desc`;
+                const resp = await fetch(url).then(r => r.json());
+                return resp || { results: [] };
+            } catch (err) {
+                return { results: [] };
+            }
+        },
+
+        tmdbVerifyKey: async (key) => {
+            try {
+                const k = key || window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+                const resp = await fetch(`https://api.themoviedb.org/3/authentication?api_key=${k}`).then(r => r.json());
+                return { success: !!(resp && resp.success) };
+            } catch (err) {
+                return { success: false, error: err.message };
+            }
+        },
+
+        tmdbSeasonDetails: async (tvId, seasonNum) => {
+            try {
+                const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
+                const url = `https://api.themoviedb.org/3/tv/${tvId}/season/${seasonNum}?api_key=${tmdbKey}`;
+                const resp = await fetch(url).then(r => r.json());
+                return resp;
+            } catch (err) {
+                return null;
+            }
+        },
 
         cinemetaSearch: async (query) => {
             try {
@@ -3099,7 +3132,10 @@
             if (channel === 'cinemeta-details') return window.api.cinemetaDetails(args[0]);
             if (channel === 'cinemeta-search') return window.api.cinemetaSearch(typeof args[0] === 'string' ? args[0] : (args[0]?.query || args[0]));
             if (channel === 'cinemeta-catalog') return window.api.cinemetaCatalog(args[0]);
-            if (channel === 'cinemeta-discover') return window.api.cinemetaDiscoverByGenre(typeof args[0] === 'string' ? args[0] : (args[0]?.genre || args[0]));
+            if (channel === 'cinemeta-discover' || channel === 'cinemeta-discover-by-genre') return window.api.cinemetaDiscoverByGenre(typeof args[0] === 'string' ? args[0] : (args[0]?.genre || args[0]));
+            if (channel === 'tmdb-discover-by-genre') return window.api.tmdbDiscoverByGenre(args[0]);
+            if (channel === 'tmdb-verify-key') return window.api.tmdbVerifyKey(args[0]);
+            if (channel === 'tmdb-season-details') return window.api.tmdbSeasonDetails(args[0], args[1]);
             if (channel === 'fanart-images') return window.api.fetchFanartImages(args[0], args[1]);
             if (channel === 'anilist-media-assets') return window.api.fetchAniListAssets(args[0]);
             if (channel === 'anilist-search') return window.api.fetchAniListAssets(args[0]);

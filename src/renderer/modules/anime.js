@@ -163,6 +163,13 @@
       }
     }
 
+    const GENRE_MAP = {
+      '28': 'Action', '12': 'Adventure', '16': 'Animation', '35': 'Comedy', '80': 'Crime',
+      '99': 'Documentary', '18': 'Drama', '10751': 'Family', '14': 'Fantasy', '36': 'History',
+      '27': 'Horror', '10402': 'Music', '9648': 'Mystery', '10749': 'Romance', '878': 'Sci-Fi',
+      '10770': 'TV Movie', '53': 'Thriller', '10752': 'War', '37': 'Western'
+    };
+
     try {
       let finalItems = [];
       if (id === '16') {
@@ -183,8 +190,42 @@
           year: m.releaseInfo
         }));
       } else {
-        const tmdbData = await window.api.tmdbDiscoverByGenre(id);
-        finalItems = (tmdbData.results || []).filter(item => item.adult !== true);
+        try {
+          const tmdbData = (typeof window.api?.tmdbDiscoverByGenre === 'function')
+            ? await window.api.tmdbDiscoverByGenre(id)
+            : await window.api.invoke('tmdb-discover-by-genre', id);
+          finalItems = (tmdbData?.results || []).filter(item => item.adult !== true).map(m => {
+            const pPath = m.poster_path || m.poster || '';
+            const fullPoster = pPath ? (pPath.startsWith('http') ? pPath : (pPath.startsWith('/') ? `https://image.tmdb.org/t/p/w500${pPath}` : pPath)) : '';
+            return {
+              ...m,
+              poster: fullPoster,
+              poster_path: fullPoster
+            };
+          });
+        } catch (_) {}
+
+        if (!finalItems.length) {
+          const cinGenre = GENRE_MAP[String(id)] || name;
+          const cinData = (typeof window.api?.cinemetaDiscoverByGenre === 'function')
+            ? await window.api.cinemetaDiscoverByGenre(cinGenre)
+            : await window.api.invoke('cinemeta-discover-by-genre', cinGenre);
+          finalItems = (cinData?.results || []).map(m => ({
+            id: m.id,
+            imdb_id: m.id,
+            title: m.name,
+            name: m.name,
+            overview: m.description,
+            vote_average: parseFloat(m.imdbRating || 0),
+            poster: m.poster,
+            backdrop_path: m.background,
+            media_type: m.media_type === 'series' || m.type === 'series' ? 'tv' : 'movie',
+            type: m.media_type === 'series' || m.type === 'series' ? 'tv' : 'movie',
+            release_date: m.releaseInfo,
+            first_air_date: m.releaseInfo,
+            year: m.releaseInfo
+          }));
+        }
       }
       finalItems = finalItems.filter(item => item.isLocal || !!(item.poster || item.poster_path || item.cover || item.thumbnail || item.banner || item.backdrop_path));
       renderDiscoverGrid('#genre-grid', finalItems);
@@ -1826,10 +1867,10 @@
       });
     }
     
+    const TMDB_DEFAULT_KEY = '4e44d9029b1270a757cddc766a1bcb63';
     const fetchTmdbShelfAndRender = async (selector, endpoint, defaultType = 'movie', isTop10 = false, fallbackCinemetaId = null) => {
       if (!hasCatalog) return;
-      const tmdbKey = window.appData?.tmdbKey || null;
-      if (!tmdbKey) return;
+      const tmdbKey = window.appData?.tmdbKey || TMDB_DEFAULT_KEY;
       try {
         const url = `https://api.themoviedb.org/3/${endpoint}${endpoint.includes('?') ? '&' : '?'}api_key=${tmdbKey}`;
         const resp = await fetch(url, { signal: AbortSignal.timeout(6500) });
@@ -1870,36 +1911,62 @@
         }
       } catch (err) {
         console.warn(`[Discover] TMDB fetch failed for ${selector} (${endpoint}):`, err.message, 'Falling back to Cinemeta...');
-        if (fallbackCinemetaId) {
-          await fetchCinemetaAndRender(selector, defaultType, fallbackCinemetaId, isTop10);
-        }
+        await fetchCinemetaAndRender(selector, defaultType, fallbackCinemetaId || 'top', isTop10);
       }
     };
 
-    const fetchCinemetaAndRender = async (selector, type, catalogId, isTop10 = false) => {
+    const fetchCinemetaAndRender = async (selector, type, catalogId = 'top', isTop10 = false) => {
       if (!hasCatalog) return;
       const row = $(selector);
       try {
         const data = await window.api.invoke('cinemeta-catalog', { type, id: catalogId });
-        if (!data || !data.metas || data.metas.length === 0) return;
-        const items = data.metas.map(m => ({
-          id: m.id,
-          imdb_id: m.id,
-          title: m.name,
-          overview: m.description,
-          vote_average: parseFloat(m.imdbRating || 0),
-          poster_path: m.poster,
-          backdrop_path: m.background,
-          media_type: type,
-          release_date: m.releaseInfo,
-          year: m.releaseInfo
-        }));
+        if (!data || !data.metas || data.metas.length === 0) {
+          if (row && row.querySelector('.discover-card-skeleton')) {
+            row.innerHTML = '<div style="grid-column:1/-1; padding:20px; text-align:center; color:var(--text-muted); font-size:0.85rem">No content available at the moment.</div>';
+          }
+          return;
+        }
+        const items = data.metas.map(m => {
+          let p = m.poster || '';
+          if (p.startsWith('/tt') || p.startsWith('tt')) {
+            const cleanId = p.replace(/^\//, '').split('/')[0];
+            p = `https://images.metahub.space/poster/medium/${cleanId}/img`;
+          } else if (p === 'img' || p === '/img' || p === 'poster.jpg' || p === '/poster.jpg' || !p) {
+            p = m.id ? `https://images.metahub.space/poster/medium/${m.id}/img` : '';
+          }
+          let bg = m.background || '';
+          if (bg.startsWith('/tt') || bg.startsWith('tt')) {
+            const cleanId = bg.replace(/^\//, '').split('/')[0];
+            bg = `https://images.metahub.space/background/large/${cleanId}/img`;
+          } else if (bg === 'img' || bg === '/img' || !bg) {
+            bg = m.id ? `https://images.metahub.space/background/large/${m.id}/img` : '';
+          }
+          return {
+            id: m.id,
+            imdb_id: m.id,
+            title: m.name,
+            name: m.name,
+            overview: m.description,
+            vote_average: parseFloat(m.imdbRating || 0),
+            poster: p,
+            poster_path: p,
+            background: bg,
+            backdrop_path: bg,
+            media_type: type === 'series' || type === 'tv' ? 'tv' : 'movie',
+            type: type === 'series' || type === 'tv' ? 'tv' : 'movie',
+            release_date: m.releaseInfo,
+            year: m.releaseInfo
+          };
+        });
         renderDiscoverRow(selector, items, isTop10);
-        if (items.length > 0) {
-          items.slice(0, 8).forEach(it => addDiscoverHeroItem(it));
+        if (items.length > 0 && discoverHeroItems.length < 10) {
+          items.slice(0, 4).forEach(it => addDiscoverHeroItem(it));
         }
       } catch (err) {
         console.error(`Failed to load ${selector}:`, err);
+        if (row && row.querySelector('.discover-card-skeleton')) {
+          row.innerHTML = '<div style="grid-column:1/-1; padding:20px; text-align:center; color:var(--text-muted); font-size:0.85rem">Failed to load content.</div>';
+        }
       }
     };
 
@@ -1908,26 +1975,53 @@
       const row = $(selector);
       try {
         const data = await window.api.cinemetaDiscoverByGenre(genre);
-        if (!data || !data.results || data.results.length === 0) return;
-        const items = data.results.map(m => ({
-          id: m.id,
-          imdb_id: m.id,
-          title: m.name,
-          overview: m.description,
-          vote_average: parseFloat(m.imdbRating || 0),
-          poster_path: m.poster,
-          backdrop_path: m.background,
-          media_type: m.media_type === 'series' || m.type === 'series' ? 'tv' : 'movie',
-          type: m.media_type === 'series' || m.type === 'series' ? 'tv' : 'movie',
-          release_date: m.releaseInfo,
-          year: m.releaseInfo
-        }));
+        if (!data || !data.results || data.results.length === 0) {
+          if (row && row.querySelector('.discover-card-skeleton')) {
+            row.innerHTML = '<div style="grid-column:1/-1; padding:20px; text-align:center; color:var(--text-muted); font-size:0.85rem">No content available at the moment.</div>';
+          }
+          return;
+        }
+        const items = data.results.map(m => {
+          let p = m.poster || '';
+          if (p.startsWith('/tt') || p.startsWith('tt')) {
+            const cleanId = p.replace(/^\//, '').split('/')[0];
+            p = `https://images.metahub.space/poster/medium/${cleanId}/img`;
+          } else if (p === 'img' || p === '/img' || !p) {
+            p = m.id ? `https://images.metahub.space/poster/medium/${m.id}/img` : '';
+          }
+          let bg = m.background || '';
+          if (bg.startsWith('/tt') || bg.startsWith('tt')) {
+            const cleanId = bg.replace(/^\//, '').split('/')[0];
+            bg = `https://images.metahub.space/background/large/${cleanId}/img`;
+          } else if (bg === 'img' || bg === '/img' || !bg) {
+            bg = m.id ? `https://images.metahub.space/background/large/${m.id}/img` : '';
+          }
+          return {
+            id: m.id,
+            imdb_id: m.id,
+            title: m.name,
+            name: m.name,
+            overview: m.description,
+            vote_average: parseFloat(m.imdbRating || 0),
+            poster: p,
+            poster_path: p,
+            background: bg,
+            backdrop_path: bg,
+            media_type: m.media_type === 'series' || m.type === 'series' ? 'tv' : 'movie',
+            type: m.media_type === 'series' || m.type === 'series' ? 'tv' : 'movie',
+            release_date: m.releaseInfo,
+            year: m.releaseInfo
+          };
+        });
         renderDiscoverRow(selector, items, false);
-        if (items.length > 0) {
+        if (items.length > 0 && discoverHeroItems.length < 10) {
           items.slice(0, 8).forEach(it => addDiscoverHeroItem(it));
         }
       } catch (err) {
         console.error(`Failed to load ${selector}:`, err);
+        if (row && row.querySelector('.discover-card-skeleton')) {
+          row.innerHTML = '<div style="grid-column:1/-1; padding:20px; text-align:center; color:var(--text-muted); font-size:0.85rem">Failed to load content.</div>';
+        }
       }
     };
 
