@@ -427,7 +427,7 @@ void MainWindow::changeYouTubeQuality(const QString &quality) {
                         m_playerEngine.loadMedia(newStreamUrl, newAudioUrl);
                         m_playerEngine.play();
                         if (currentMs > 0) {
-                            QTimer::singleShot(350, this, [this, currentMs]() {
+                            QTimer::singleShot(60, this, [this, currentMs]() {
                                 m_playerEngine.seekTime(currentMs);
                             });
                         }

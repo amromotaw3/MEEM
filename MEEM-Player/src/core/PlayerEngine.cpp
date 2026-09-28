@@ -90,11 +90,12 @@ PlayerEngine::PlayerEngine(QObject *parent) : QObject(parent) {
         "--avcodec-threads=0",
         "--audio-time-stretch",
         "--video-filter=adjust",
-        "--network-caching=3000",
-        "--file-caching=300",
-        "--live-caching=1000",
-        "--disc-caching=500",
-        "--sout-mux-caching=1000",
+        "--network-caching=800",
+        "--file-caching=150",
+        "--live-caching=300",
+        "--disc-caching=300",
+        "--sout-mux-caching=300",
+        "--fast-seek",
         "--http-reconnect",
         "--adaptive-maxwidth=3840",
         "--adaptive-maxheight=2160",
@@ -210,7 +211,11 @@ bool PlayerEngine::loadMedia(const QString &fileOrUrl, const QString &audioUrl) 
         m_pendingAudioSlave.clear();
     }
 
-    libvlc_media_add_option(media, ":network-caching=5000");
+    if (fi.exists()) {
+        libvlc_media_add_option(media, ":file-caching=150");
+    } else {
+        libvlc_media_add_option(media, ":network-caching=800");
+    }
     libvlc_media_add_option(media, ":http-reconnect");
     libvlc_media_add_option(media, ":http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36");
 
@@ -548,10 +553,6 @@ bool PlayerEngine::takeSnapshot(const QString &outputFilepath) {
 
 void PlayerEngine::ensureAudioTrackSelected() {
     if (!m_player) return;
-
-#ifdef _WIN32
-    forceUnmuteWindowsAudioSession();
-#endif
 
     int cur = libvlc_audio_get_track(m_player);
     libvlc_track_description_t *tracks = libvlc_audio_get_track_description(m_player);
