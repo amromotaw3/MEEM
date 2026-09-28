@@ -910,6 +910,7 @@ function initAddonsIpc(ipcMain, store) {
                 description
                 bannerImage
                 genres
+                tags { name rank isMediaSpoiler }
                 coverImage { extraLarge large }
               }
             }`;
@@ -928,6 +929,11 @@ function initAddonsIpc(ipcMain, store) {
                         }
                     } catch (_) {}
                 }
+                const topTags = (media.tags || [])
+                    .filter(t => !t.isMediaSpoiler && t.rank >= 60 && t.name)
+                    .map(t => t.name)
+                    .slice(0, 4);
+                const enrichedGenres = Array.from(new Set([...(media.genres || []), ...topTags]));
                 return {
                     id: media.id,
                     malId: media.idMal,
@@ -938,7 +944,7 @@ function initAddonsIpc(ipcMain, store) {
                     averageScore: media.averageScore,
                     description: media.description || '',
                     bannerImage: media.bannerImage || null,
-                    genres: media.genres || [],
+                    genres: enrichedGenres,
                     coverImage: {
                         extraLarge: media.coverImage?.extraLarge,
                         large: media.coverImage?.large

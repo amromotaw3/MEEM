@@ -324,9 +324,20 @@ window.renderUnifiedDetail = async function(item) {
                 (cinemetaId && String(cinemetaId).startsWith('tt')) ? window.api.invoke('cinemeta-details', { id: cinemetaId, type: mediaType }).catch(() => null) : Promise.resolve(null),
                 (cinemetaId && window.api && window.api.fanartGetImages) ? window.api.fanartGetImages(cinemetaId, mediaType).catch(() => null) : Promise.resolve(null),
                 fetchTmdbDetails(),
-            (isAnimeSearch) ? window.api.invoke('anilist-media-detailed', { title: item.title_english || item.title || item.name }).catch(() => null) : Promise.resolve(null)
+                (isAnimeSearch) ? window.api.invoke('anilist-media-detailed', { title: item.title_english || item.title || item.name }).catch(() => null) : Promise.resolve(null)
             ]);
             if (anilistRes) anilist = anilistRes;
+
+            // Auto-enrich anime from AniList if TMDB reveals Japanese animation
+            if (!anilist && tmdbDetailsRes) {
+                const isJp = tmdbDetailsRes.origin_country?.includes('JP') || tmdbDetailsRes.original_language === 'ja' || (tmdbDetailsRes.genres || []).some(g => g.id === 16 || (g.name || '').toLowerCase() === 'animation');
+                if (isJp) {
+                    try {
+                        const targetTitle = tmdbDetailsRes.name || tmdbDetailsRes.title || item.title || item.name;
+                        anilist = await window.api.invoke('anilist-media-detailed', { title: targetTitle }).catch(() => null);
+                    } catch (_) {}
+                }
+            }
 
             // If Cinemeta details was not fetched initially, but TMDB provides an IMDb ID, fetch Cinemeta now
             const resolvedImdbId = cinemetaRes?.imdb_id || cinemetaRes?.meta?.imdb_id || (cinemetaId && String(cinemetaId).startsWith('tt') ? cinemetaId : null) || tmdbDetailsRes?.imdb_id || tmdbDetailsRes?.external_ids?.imdb_id;
@@ -2531,16 +2542,39 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 }
 
 function extractAllGenres(item, tmdb, extra1, anilist) {
-    const genreSet = new Set();
+    const rawList = [];
     const rawCandidates = [
-        tmdb?.genres,
-        tmdb?.genre,
+        anilist?.genres,
         extra1?.genres,
         extra1?.genre,
+        tmdb?.genres,
+        tmdb?.genre,
         item?.genres,
-        item?.genre,
-        anilist?.genres
+        item?.genre
     ];
+
+    const normalizeGenre = (str) => {
+        if (!str || typeof str !== 'string') return null;
+        let s = str.trim();
+        if (!s || s.length <= 1) return null;
+        
+        // Handle common splits & combined names
+        if (s.toLowerCase() === 'sci-fi & fantasy' || s.toLowerCase() === 'scifi & fantasy') {
+            return ['Sci-Fi', 'Fantasy'];
+        }
+        if (s.toLowerCase() === 'action & adventure') {
+            return ['Action', 'Adventure'];
+        }
+        if (s.toLowerCase() === 'war & politics') {
+            return ['War', 'Politics'];
+        }
+        
+        // Capitalize words nicely
+        s = s.replace(/\b\w/g, l => l.toUpperCase());
+        if (s.toLowerCase() === 'sci-fi' || s.toLowerCase() === 'science fiction') s = 'Sci-Fi';
+        if (s.toLowerCase() === 'tv movie') s = 'TV Movie';
+        return [s];
+    };
 
     rawCandidates.forEach(candidate => {
         if (!candidate) return;
@@ -2548,24 +2582,41 @@ function extractAllGenres(item, tmdb, extra1, anilist) {
             candidate.forEach(g => {
                 if (!g) return;
                 if (typeof g === 'string') {
-                    g.split(/[,/|]/).forEach(s => {
-                        const clean = s.trim();
-                        if (clean && clean.length > 1) genreSet.add(clean);
+                    g.split(/[,/|]/).forEach(sub => {
+                        const norm = normalizeGenre(sub);
+                        if (norm) rawList.push(...norm);
                     });
                 } else if (typeof g === 'object' && (g.name || g.label)) {
-                    const clean = (g.name || g.label).trim();
-                    if (clean && clean.length > 1) genreSet.add(clean);
+                    const norm = normalizeGenre(g.name || g.label);
+                    if (norm) rawList.push(...norm);
                 }
             });
         } else if (typeof candidate === 'string') {
-            candidate.split(/[,/|]/).forEach(s => {
-                const clean = s.trim();
-                if (clean && clean.length > 1) genreSet.add(clean);
+            candidate.split(/[,/|]/).forEach(sub => {
+                const norm = normalizeGenre(sub);
+                if (norm) rawList.push(...norm);
             });
         }
     });
 
-    return Array.from(genreSet);
+    // Deduplicate case-insensitively
+    const seen = new Set();
+    const result = [];
+    for (const g of rawList) {
+        const lower = g.toLowerCase();
+        if (!seen.has(lower)) {
+            seen.add(lower);
+            result.push(g);
+        }
+    }
+
+    if (result.length > 5 && result.includes('Animation')) {
+        const animIdx = result.indexOf('Animation');
+        result.splice(animIdx, 1);
+        result.push('Animation');
+    }
+
+    return result.slice(0, 8);
 }
 
 function createPillGroup(label, items) {
