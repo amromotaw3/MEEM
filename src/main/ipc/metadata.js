@@ -1302,6 +1302,19 @@ function initMetadataIpc(ipcMain) {
         }
       }
 
+      // Fallback: If not numeric ID or IMDb ID, search TMDB by title
+      if (tmdbKey && !/^\d+$/.test(String(resolvedTvId)) && !String(resolvedTvId).startsWith('tt')) {
+        try {
+          const cleanName = String(tvId).replace(/^(kitsu|mal|tmdb):/, '').trim();
+          if (cleanName && cleanName.length >= 2) {
+            const sResp = await axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${encodeURIComponent(cleanName)}`, { timeout: 5000 }).catch(() => null);
+            if (sResp?.data?.results?.[0]?.id) {
+              resolvedTvId = sResp.data.results[0].id;
+            }
+          }
+        } catch (e) {}
+      }
+
       // If resolvedTvId is numeric TMDB ID and user has TMDB key, query TMDB API
       if (tmdbKey && /^\d+$/.test(String(resolvedTvId))) {
         try {

@@ -1609,7 +1609,8 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
     // Apply fetched stills and ratings to already-rendered episode cards
     const applyTmdbStillsToCards = (listEl, stillsMap, seasonN) => {
         if (!stillsMap || !Object.keys(stillsMap).length || !listEl) return;
-        const cards = listEl.querySelectorAll(`.dd-ep-card[data-season="${seasonN}"]`);
+        let cards = seasonN != null ? listEl.querySelectorAll(`.dd-ep-card[data-season="${seasonN}"]`) : listEl.querySelectorAll('.dd-ep-card');
+        if (!cards || cards.length === 0) cards = listEl.querySelectorAll('.dd-ep-card');
         cards.forEach(card => {
             const epN = parseInt(card.dataset.episode);
             const entry = stillsMap[epN];
@@ -1639,12 +1640,15 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
             if (voteAverage && parseFloat(voteAverage) > 0) {
                 const metaRow = card.querySelector('.dd-ep-meta-row');
-                if (metaRow && !card.querySelector('.dd-ep-rating')) {
-                    const rEl = document.createElement('span');
-                    rEl.className = 'dd-ep-rating';
-                    rEl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.15);color:#F5C518;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:auto;';
+                if (metaRow) {
+                    let rEl = card.querySelector('.dd-ep-rating');
+                    if (!rEl) {
+                        rEl = document.createElement('span');
+                        rEl.className = 'dd-ep-rating';
+                        rEl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.18);color:#F5C518;font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px;margin-left:auto;letter-spacing:0.3px;';
+                        metaRow.appendChild(rEl);
+                    }
                     rEl.innerHTML = `<i class="fas fa-star" style="font-size:8px;"></i>${parseFloat(voteAverage).toFixed(1)}`;
-                    metaRow.appendChild(rEl);
                 }
             }
 
@@ -2352,25 +2356,23 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                 if (!listEl) return;
                 renderEpisodesInBatches(listEl, data.videos, 1, true);
 
-                // Enrich with TMDB in background if possible
-                const tmdbId = data.tmdb_id || window.currentDetailItem?.tmdb_id || window.currentDetailItem?.tmdbId || (window._lastExtraData?.tmdb_id);
-                if (tmdbId) {
-                    const activeSeason = data.seasons?.find(s => String(s.id) === String(tvId).replace('kitsu:', '')) || data.seasons?.find(s => s.active);
-                    const tmdbSeasonNum = activeSeason ? activeSeason.season_number : 1;
-                    window.api.invoke('tmdb-season-details', tmdbId, tmdbSeasonNum).then(tmdbData => {
-                        if (tmdbData && tmdbData.episodes) {
-                            const map = {};
-                            tmdbData.episodes.forEach(te => {
-                                map[te.episode_number] = {
-                                    still: te.still_path,
-                                    vote_average: te.vote_average || te.rating,
-                                    name: te.name
-                                };
-                            });
-                            applyTmdbStillsToCards(listEl, map, 1);
-                        }
-                    }).catch(() => {});
-                }
+                // Enrich with TMDB in background for stills and ratings
+                const targetTvId = data.tmdb_id || window.currentDetailItem?.tmdb_id || window.currentDetailItem?.tmdbId || window.currentDetailItem?.title || window.currentDetailItem?.name || data?.name || tvId;
+                const activeSeason = data.seasons?.find(s => String(s.id) === String(tvId).replace('kitsu:', '')) || data.seasons?.find(s => s.active);
+                const tmdbSeasonNum = activeSeason ? activeSeason.season_number : 1;
+                window.api.invoke('tmdb-season-details', targetTvId, tmdbSeasonNum).then(tmdbData => {
+                    if (tmdbData && tmdbData.episodes && tmdbData.episodes.length > 0) {
+                        const map = {};
+                        tmdbData.episodes.forEach(te => {
+                            map[te.episode_number] = {
+                                still: te.still_path,
+                                vote_average: te.vote_average || te.rating,
+                                name: te.name
+                            };
+                        });
+                        applyTmdbStillsToCards(listEl, map, 1);
+                    }
+                }).catch(() => {});
             }
             return;
         }
