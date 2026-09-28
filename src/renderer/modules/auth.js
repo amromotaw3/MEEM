@@ -103,7 +103,12 @@
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          flowType: 'pkce',
+          // CRITICAL MOBILE FIX: Use 'implicit' flow on native Android.
+          // With PKCE, the code verifier is stored in the WebView's localStorage,
+          // but Google OAuth completes in a separate Capacitor Browser context,
+          // so exchangeCodeForSession always fails cross-context.
+          // Implicit flow returns access_token directly in the URL fragment instead.
+          flowType: nativePlatform ? 'implicit' : 'pkce',
           storage: supabaseStorage,
           // Disable detectSessionInUrl on native Android because intent URLs are captured by appUrlOpen
           detectSessionInUrl: !nativePlatform,
@@ -282,6 +287,9 @@
     const client = getSupabaseRendererClient();
     let relayId = null;
     if (isMobileClient()) {
+      // Flag that an OAuth is in progress — prevents loadData() from clearing the
+      // session state when the app resumes mid-flow (before the relay completes).
+      window._mobileOAuthInProgress = true;
       try {
         const { data: rData, error: rErr } = await client.rpc('create_mobile_auth_relay');
         if (!rErr && rData) {
@@ -364,6 +372,8 @@
     let appStateHandle = null;
 
     const cleanupListeners = () => {
+      // Clear the in-progress flag regardless of outcome so bridge.loadData() is unblocked
+      window._mobileOAuthInProgress = false;
       window.removeEventListener('focus', onWindowFocus);
       window.removeEventListener('meem-oauth-browser-closed', onBrowserClosed);
       window.removeEventListener('mediavault-oauth-browser-closed', onBrowserClosed);
@@ -729,6 +739,8 @@
   }
 
   async function completeOAuthLogin(user, session) {
+    // Clear the in-progress flag — auth data is now being finalized
+    window._mobileOAuthInProgress = false;
     if (!user || !user.id) {
       console.warn('[AUTH] completeOAuthLogin called without valid user');
       return;

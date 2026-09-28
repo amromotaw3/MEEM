@@ -399,11 +399,13 @@
                 auth: {
                     persistSession: true,
                     autoRefreshToken: true,
-                    flowType: 'pkce',
+                    // Match auth.js: implicit flow on native Android to avoid PKCE cross-context failure
+                    flowType: isNative ? 'implicit' : 'pkce',
                     detectSessionInUrl: !isNative,
                     lock: isNative ? async (_name, _acquireTimeout, fn) => await fn() : undefined
                 }
             });
+            window._supabaseRendererClientShared = _supabaseClient;
             return _supabaseClient;
         }
         return null;
@@ -972,11 +974,19 @@
                 const hwId = await getHardwareId();
 
                 if ((!localData || localData.authenticated !== true) && (!cloudSession || !cloudSession.authenticated)) {
+                    // CRITICAL FIX: Don't clear the session if a mobile OAuth flow is currently running.
+                    // loadData() can fire on app resume BEFORE the relay completes and writes auth state,
+                    // which would prematurely log the user out.
+                    if (window._mobileOAuthInProgress) {
+                        console.log('[Bridge] OAuth in progress — skipping early logout check, waiting for relay...');
+                        return { authenticated: false, user: null, profiles: [], activeProfileId: null, hardwareId: hwId, _oauthPending: true };
+                    }
                     console.log('[Bridge] AppData cleared or user logged out (localData.authenticated !== true). Returning logged-out state immediately.');
                     cloudSession = null;
                     window.cloudSession = null;
                     return { authenticated: false, user: null, profiles: [], activeProfileId: null, hardwareId: hwId };
                 }
+
                 
                 console.log(`[Bridge] Loading cloud session for device: ${hwId}`);
 
