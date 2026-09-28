@@ -71,8 +71,22 @@
         } catch (_) {}
     }
 
-    // Early deep link listener on native Android
+    // Early deep link listener & base storage initialization on native Android
     if (isAndroid) {
+        const initBaseFolders = async () => {
+            const fs = window.Capacitor?.Plugins?.Filesystem;
+            if (fs) {
+                try {
+                    const baseFolders = ['MEEM', 'MEEM/Movies', 'MEEM/Series', 'MEEM/Music', 'MEEM/Social', 'MEEM/Downloads', 'MEEM/Subtitles'];
+                    for (const f of baseFolders) {
+                        await fs.mkdir({ path: f, directory: 'DOCUMENTS', recursive: true }).catch(() => {});
+                    }
+                } catch (_) {}
+            }
+        };
+        setTimeout(initBaseFolders, 100);
+        setTimeout(initBaseFolders, 1500);
+
         const initEarlyDeepLink = () => {
             const App = window.Capacitor?.Plugins?.App;
             if (!App) return false;
@@ -931,6 +945,9 @@
         const dirsToTry = ['DOCUMENTS', 'EXTERNAL_STORAGE'];
         for (const d of dirsToTry) {
             try {
+                if (Filesystem && d === 'DOCUMENTS') {
+                    await Filesystem.mkdir({ path: cleanPath, directory: d, recursive: true }).catch(() => {});
+                }
                 const { files } = await Filesystem.readdir({ path: cleanPath, directory: d });
                 if (files && files.length > 0) {
                     return files.map(f => {
