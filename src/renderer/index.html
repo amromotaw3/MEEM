@@ -5594,6 +5594,27 @@
     }
     .auth-oauth i { font-size:18px; }
   </style>
+  <script src="lib/eruda.min.js"></script>
+  <script>
+    try {
+      if (typeof eruda !== 'undefined') {
+        const isMobile = !!window.Capacitor || (window.api && typeof window.api.isMobile === 'function' && window.api.isMobile()) || window.innerWidth <= 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (isMobile) {
+          eruda.init({
+            tool: ['console', 'elements', 'network', 'resources', 'info', 'snippets'],
+            defaults: {
+              displaySize: 50,
+              transparency: 0.9,
+              theme: 'Dark'
+            }
+          });
+          console.log('[MEEM Mobile] Eruda Dev Console initialized.');
+        }
+      }
+    } catch (e) {
+      console.warn('[Eruda] Failed to initialize:', e);
+    }
+  </script>
   <script src="js/state.js"></script>
   <script src="js/thumbnail-generator.js"></script>
   <script src="js/supabase-public.js"></script>
