@@ -1558,7 +1558,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         if (_tmdbStillCache[cacheKey]) return _tmdbStillCache[cacheKey]; // already fetched
         _tmdbStillCache[cacheKey] = {}; // mark as fetching (empty map prevents duplicate requests)
         try {
-            const tmdbKey = window.appData?.tmdbKey || null;
+            const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
             if (!tmdbKey || !showId) return {};
             // Resolve TMDB TV ID from IMDB ID if needed
             let tvId = null;
@@ -1580,6 +1580,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
             return {};
         }
     };
+    const fetchTmdbSeasonStills = prefetchTmdbSeasonStills;
 
     const renderEpisodeSkeletons = (count = 6) => {
         return Array.from({ length: count }).map(() => `

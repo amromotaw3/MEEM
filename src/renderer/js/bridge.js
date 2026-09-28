@@ -2992,60 +2992,30 @@
                         try {
                             const tikRes = await makeReq('https://www.tikwm.com/api/', { url });
                             if (tikRes?.data?.play) directUrl = tikRes.data.play;
-                        } catch(e) { console.warn('[Bridge] TikWM failed:', e); }
+                        } catch(e) {}
                     }
 
-                    // 1b. Serverless YouTube parser using public Invidious API instances
+                    // 1b. YouTube resolver via Piped / Invidious
                     const getYouTubeId = (u) => {
                         const m = u.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
                         return m ? m[1] : null;
                     };
                     const ytId = getYouTubeId(url);
                     if (ytId && !directUrl) {
-                        const invidiousInstances = [
-                            'https://invidious.flokinet.to',
-                            'https://yewtu.be',
-                            'https://invidious.projectsegfau.lt',
-                            'https://inv.tux.im',
-                            'https://invidious.nerdvpn.de',
-                            'https://invidious.no-logs.com'
-                        ];
-                        for (let inst of invidiousInstances) {
-                            try {
-                                const fetchUrl = `${inst}/api/v1/videos/${ytId}`;
-                                let ytRes;
-                                if (window.Capacitor?.Plugins?.CapacitorHttp) {
-                                    const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
-                                    ytRes = res.data;
-                                } else {
-                                    const res = await fetch(fetchUrl);
-                                    ytRes = await res.json();
-                                }
-                                if (ytRes && ytRes.formatStreams && ytRes.formatStreams.length > 0) {
-                                    const sorted = ytRes.formatStreams.sort((a, b) => {
-                                        const qA = parseInt(a.qualityLabel) || 0;
-                                        const qB = parseInt(b.qualityLabel) || 0;
-                                        return qB - qA;
-                                    });
-                                    if (sorted[0]?.url) {
-                                        directUrl = sorted[0].url;
-                                        console.log('[Bridge] Resolved YouTube via Invidious:', inst);
-                                        break;
-                                    }
-                                }
-                            } catch(e) {
-                                console.warn('[Bridge] Invidious instance failed:', inst, e);
+                        try {
+                            const ytRes = await window.api.resolveYouTubeVideo(ytId);
+                            if (ytRes?.success && ytRes.details?.streamUrl && ytRes.details.streamUrl.startsWith('http') && !ytRes.details.streamUrl.includes('hqdefault.jpg')) {
+                                directUrl = ytRes.details.streamUrl;
                             }
-                        }
+                        } catch(e) {}
                     }
 
                     // 2. Cobalt API instances for everything else
                     if (!directUrl) {
                         const instances = [
                             'https://api.cobalt.tools/',
-                            'https://co.wuk.sh/', 
-                            'https://api.vve.wtf/', 
-                            'https://cobalt.q0.wtf/', 
+                            'https://cobalt-api.kwiatekm.pl/',
+                            'https://cobalt.xy2401.com/api/json',
                             'https://cobalt.catbox.video/'
                         ];
                         for (let apiBase of instances) {
@@ -3058,23 +3028,10 @@
                                         const firstItem = cobRes.picker.find(i => i.type === 'video' || i.url);
                                         if (firstItem && firstItem.url) { directUrl = firstItem.url; break; }
                                     }
-                                } catch(e) { console.warn('[Bridge] Cobalt failed at', apiUrl); }
+                                } catch(e) {}
                             }
                             if (directUrl) break;
                         }
-                    }
-
-                    // 3. Final Fallback: CORS Proxy + Cobalt v11 (Aggressive)
-                    if (!directUrl) {
-                        try {
-                            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://api.vve.wtf/');
-                            const res = await fetch(proxyUrl, {
-                                method: 'POST',
-                                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ url })
-                            }).then(r => r.json());
-                            if (res && res.url) directUrl = res.url;
-                        } catch (e) { console.warn('[Bridge] Final proxy fallback failed:', e); }
                     }
 
                     if (directUrl) {
