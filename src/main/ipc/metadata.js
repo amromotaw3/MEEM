@@ -1243,6 +1243,29 @@ function initMetadataIpc(ipcMain) {
     return { results: [] };
   });
 
+  async function fetchImdbSeasonRatings(imdbId, seasonNum) {
+    if (!imdbId || !String(imdbId).startsWith('tt')) return {};
+    const omdbKeys = ['trilogy', 'b9bd48a6', '7c86a583', 'e3a24128'];
+    for (const k of omdbKeys) {
+      try {
+        const url = `https://www.omdbapi.com/?i=${imdbId}&Season=${seasonNum}&apikey=${k}`;
+        const res = await axios.get(url, { timeout: 4000 }).catch(() => null);
+        if (res?.data?.Episodes && Array.isArray(res.data.Episodes) && res.data.Episodes.length > 0) {
+          const map = {};
+          res.data.Episodes.forEach(ep => {
+            const epNum = Number(ep.Episode);
+            const r = parseFloat(ep.imdbRating);
+            if (!isNaN(epNum) && !isNaN(r) && r > 0) {
+              map[epNum] = r;
+            }
+          });
+          if (Object.keys(map).length > 0) return map;
+        }
+      } catch (_) {}
+    }
+    return {};
+  }
+
   ipcMain.handle('tmdb-season-details', async (_e, tvId, seasonNum) => {
     try {
       if (!tvId) return { episodes: [] };
@@ -1259,7 +1282,7 @@ function initMetadataIpc(ipcMain) {
           if (kitsuMeta?.imdb_id) {
             resolvedTvId = kitsuMeta.imdb_id;
           } else if (kitsuMeta?.name) {
-            const sResp = await axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${encodeURIComponent(kitsuMeta.name)}`, { timeout: 5000 }).catch(() => null);
+            const sResp = tmdbKey ? await axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${encodeURIComponent(kitsuMeta.name)}`, { timeout: 5000 }).catch(() => null) : null;
             if (sResp?.data?.results?.[0]?.id) {
               resolvedTvId = sResp.data.results[0].id;
             }
@@ -1276,8 +1299,6 @@ function initMetadataIpc(ipcMain) {
         const tmdbItem = resultsList?.[0];
         if (tmdbItem && tmdbItem.id) {
           resolvedTvId = tmdbItem.id;
-        } else {
-          console.warn(`[Metadata] Could not resolve TMDB ID for IMDb ID: ${resolvedTvId}, falling back to Cinemeta/ElfHosted`);
         }
       }
 
@@ -1294,25 +1315,25 @@ function initMetadataIpc(ipcMain) {
         } catch (e) {}
       }
 
+      let finalEpisodes = [];
+
       // If resolvedTvId is numeric TMDB ID and user has TMDB key, query TMDB API
       if (tmdbKey && /^\d+$/.test(String(resolvedTvId))) {
         try {
           const url = `https://api.themoviedb.org/3/tv/${resolvedTvId}/season/${seasonNum}?api_key=${tmdbKey}`;
           const resp = await axios.get(url, { timeout: 8000 }).catch(() => null);
           if (resp && resp.data && Array.isArray(resp.data.episodes) && resp.data.episodes.length > 0) {
-            return {
-              episodes: resp.data.episodes.map(ep => ({
-                episode_number: ep.episode_number,
-                season_number: ep.season_number,
-                name: ep.name,
-                still_path: ep.still_path ? `https://image.tmdb.org/t/p/w300${ep.still_path}` : null,
-                air_date: ep.air_date,
-                vote_average: ep.vote_average ? parseFloat(ep.vote_average) : 0,
-                vote_count: ep.vote_count || 0,
-                rating: ep.vote_average ? parseFloat(ep.vote_average) : 0,
-                overview: ep.overview || ''
-              }))
-            };
+            finalEpisodes = resp.data.episodes.map(ep => ({
+              episode_number: ep.episode_number,
+              season_number: ep.season_number,
+              name: ep.name,
+              still_path: ep.still_path ? `https://image.tmdb.org/t/p/w300${ep.still_path}` : null,
+              air_date: ep.air_date,
+              vote_average: ep.vote_average ? parseFloat(ep.vote_average) : 0,
+              vote_count: ep.vote_count || 0,
+              rating: ep.vote_average ? parseFloat(ep.vote_average) : 0,
+              overview: ep.overview || ''
+            }));
           }
         } catch (tmdbErr) {
           console.warn('[Metadata] TMDB season fetch error:', tmdbErr.message);
@@ -1320,8 +1341,8 @@ function initMetadataIpc(ipcMain) {
       }
 
       // Fallback 1: Cinemeta series endpoint
-      const imdbIdForCinemeta = String(tvId).startsWith('tt') ? tvId : null;
-      if (imdbIdForCinemeta) {
+      const imdbIdForCinemeta = String(tvId).startsWith('tt') ? tvId : (String(resolvedTvId).startsWith('tt') ? resolvedTvId : null);
+      if (finalEpisodes.length === 0 && imdbIdForCinemeta) {
         try {
           const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/series/${imdbIdForCinemeta}.json`;
           const cinemetaResp = await axios.get(cinemetaUrl, { timeout: 8000 }).catch(() => null);
@@ -1329,36 +1350,7 @@ function initMetadataIpc(ipcMain) {
           if (cinemetaMeta && Array.isArray(cinemetaMeta.videos) && cinemetaMeta.videos.length > 0) {
             const filtered = cinemetaMeta.videos.filter(v => Number(v.season) === Number(seasonNum));
             if (filtered.length > 0) {
-              return {
-                episodes: filtered.map(v => ({
-                  episode_number: v.episode,
-                  season_number: v.season,
-                  name: v.title || v.name || `Episode ${v.episode}`,
-                  still_path: v.thumbnail || v.still || v.still_path || v.image || null,
-                  air_date: v.released || null,
-                  vote_average: v.rating || v.imdbRating || 0,
-                  rating: v.rating || v.imdbRating || 0,
-                  overview: v.overview || v.description || ''
-                }))
-              };
-            }
-          }
-        } catch (cinErr) {
-          console.warn('[Metadata] Cinemeta season fetch error:', cinErr.message);
-        }
-      }
-
-      // Fallback 2: Stremio ElfHosted TMDB addon
-      try {
-        const idPath = String(tvId).startsWith('tt') ? tvId : `tmdb:${resolvedTvId}`;
-        const addonUrl = `https://tmdb.elfhosted.com/meta/series/${idPath}.json`;
-        const resp = await axios.get(addonUrl, { timeout: 8000 }).catch(() => null);
-        const meta = resp?.data?.meta;
-        if (meta && Array.isArray(meta.videos) && meta.videos.length > 0) {
-          const filtered = meta.videos.filter(v => Number(v.season) === Number(seasonNum));
-          if (filtered.length > 0) {
-            return {
-              episodes: filtered.map(v => ({
+              finalEpisodes = filtered.map(v => ({
                 episode_number: v.episode,
                 season_number: v.season,
                 name: v.title || v.name || `Episode ${v.episode}`,
@@ -1367,13 +1359,72 @@ function initMetadataIpc(ipcMain) {
                 vote_average: v.rating || v.imdbRating || 0,
                 rating: v.rating || v.imdbRating || 0,
                 overview: v.overview || v.description || ''
-              }))
-            };
+              }));
+            }
+          }
+        } catch (cinErr) {
+          console.warn('[Metadata] Cinemeta season fetch error:', cinErr.message);
+        }
+      }
+
+      // Fallback 2: Stremio ElfHosted TMDB addon
+      if (finalEpisodes.length === 0) {
+        try {
+          const idPath = String(tvId).startsWith('tt') ? tvId : `tmdb:${resolvedTvId}`;
+          const addonUrl = `https://tmdb.elfhosted.com/meta/series/${idPath}.json`;
+          const resp = await axios.get(addonUrl, { timeout: 8000 }).catch(() => null);
+          const meta = resp?.data?.meta;
+          if (meta && Array.isArray(meta.videos) && meta.videos.length > 0) {
+            const filtered = meta.videos.filter(v => Number(v.season) === Number(seasonNum));
+            if (filtered.length > 0) {
+              finalEpisodes = filtered.map(v => ({
+                episode_number: v.episode,
+                season_number: v.season,
+                name: v.title || v.name || `Episode ${v.episode}`,
+                still_path: v.thumbnail || v.still || v.still_path || v.image || null,
+                air_date: v.released || null,
+                vote_average: v.rating || v.imdbRating || 0,
+                rating: v.rating || v.imdbRating || 0,
+                overview: v.overview || v.description || ''
+              }));
+            }
+          }
+        } catch (elfErr) {
+          console.warn('[Metadata] ElfHosted season fetch error:', elfErr.message);
+        }
+      }
+
+      // Attach real IMDb ratings if IMDb ID is available or resolvable
+      let targetImdbId = String(tvId).startsWith('tt') ? tvId : (String(resolvedTvId).startsWith('tt') ? resolvedTvId : null);
+      if (!targetImdbId && /^\d+$/.test(String(resolvedTvId))) {
+        try {
+          if (tmdbKey) {
+            const extResp = await axios.get(`https://api.themoviedb.org/3/tv/${resolvedTvId}/external_ids?api_key=${tmdbKey}`, { timeout: 3500 }).catch(() => null);
+            if (extResp?.data?.imdb_id) targetImdbId = extResp.data.imdb_id;
+          }
+          if (!targetImdbId) {
+            const elfResp = await axios.get(`https://tmdb.elfhosted.com/meta/series/tmdb:${resolvedTvId}.json`, { timeout: 3500 }).catch(() => null);
+            if (elfResp?.data?.meta?.imdb_id) targetImdbId = elfResp.data.meta.imdb_id;
+          }
+        } catch (_) {}
+      }
+
+      if (targetImdbId) {
+        const imdbMap = await fetchImdbSeasonRatings(targetImdbId, seasonNum).catch(() => ({}));
+        if (imdbMap && Object.keys(imdbMap).length > 0) {
+          if (finalEpisodes && finalEpisodes.length > 0) {
+            finalEpisodes.forEach(ep => {
+              if (imdbMap[ep.episode_number]) {
+                ep.imdbRating = imdbMap[ep.episode_number];
+                ep.vote_average = imdbMap[ep.episode_number];
+                ep.rating = imdbMap[ep.episode_number];
+              }
+            });
           }
         }
-      } catch (elfErr) {
-        console.warn('[Metadata] ElfHosted season fetch error:', elfErr.message);
       }
+
+      return { episodes: finalEpisodes };
     } catch (err) {
       console.error('[Metadata] tmdb-season-details error:', err.message);
     }

@@ -161,62 +161,48 @@ window.renderUnifiedDetail = async function(item) {
                 cinemetaId = numericTmdbId; // strip prefix for API calls
             }
         }
-        if (numericTmdbId && tmdbKey) {
+        if (numericTmdbId) {
             console.log(`[UnifiedDetail] Numeric TMDB ID detected: ${numericTmdbId}. Resolving to IMDb ID...`);
             const isSeries = mediaType === 'tv' || mediaType === 'series';
-            const tmdbUrl = isSeries 
-                ? `https://api.themoviedb.org/3/tv/${numericTmdbId}/external_ids?api_key=${tmdbKey}`
-                : `https://api.themoviedb.org/3/movie/${numericTmdbId}?api_key=${tmdbKey}`;
+            let resolvedImdbId = null;
             
-            try {
-                const tmdbRes = await fetch(tmdbUrl).then(r => r.json());
-                const resolvedImdbId = tmdbRes?.imdb_id || tmdbRes?.external_ids?.imdb_id;
-                if (resolvedImdbId && String(resolvedImdbId).startsWith('tt')) {
-                    console.log(`[UnifiedDetail] Resolved TMDB ID ${numericTmdbId} → IMDb ${resolvedImdbId}`);
-                    cinemetaId = resolvedImdbId;
-                    item.imdbId = resolvedImdbId;
-                    item.imdb_id = resolvedImdbId;
-                    if (window.currentDetailItem) {
-                        window.currentDetailItem.imdbId = resolvedImdbId;
-                        window.currentDetailItem.imdb_id = resolvedImdbId;
-                    }
-                    if (window.currentUnifiedDetailItem) {
-                        window.currentUnifiedDetailItem.imdbId = resolvedImdbId;
-                        window.currentUnifiedDetailItem.imdb_id = resolvedImdbId;
-                    }
-                } else {
-                    console.warn(`[UnifiedDetail] TMDB API did not return an IMDb ID for ${numericTmdbId}, trying ElfHosted fallback...`);
-                    const type2 = isSeries ? 'series' : 'movie';
-                    const elfRes = await fetch(`https://tmdb.elfhosted.com/meta/${type2}/tmdb:${numericTmdbId}.json`, { signal: AbortSignal.timeout(4000) }).then(r => r.json());
-                    const elfImdb = elfRes?.meta?.imdb_id || elfRes?.meta?.imdbId;
-                    if (elfImdb && String(elfImdb).startsWith('tt')) {
-                        console.log(`[UnifiedDetail] Resolved via ElfHosted: TMDB ${numericTmdbId} → IMDb ${elfImdb}`);
-                        cinemetaId = elfImdb;
-                        item.imdbId = elfImdb;
-                        item.imdb_id = elfImdb;
-                        if (window.currentDetailItem) {
-                            window.currentDetailItem.imdbId = elfImdb;
-                            window.currentDetailItem.imdb_id = elfImdb;
-                        }
-                    }
+            if (tmdbKey) {
+                const tmdbUrl = isSeries 
+                    ? `https://api.themoviedb.org/3/tv/${numericTmdbId}/external_ids?api_key=${tmdbKey}`
+                    : `https://api.themoviedb.org/3/movie/${numericTmdbId}?api_key=${tmdbKey}`;
+                try {
+                    const tmdbRes = await fetch(tmdbUrl).then(r => r.json());
+                    resolvedImdbId = tmdbRes?.imdb_id || tmdbRes?.external_ids?.imdb_id;
+                } catch (err) {
+                    console.warn(`[UnifiedDetail] TMDB API resolution note:`, err.message);
                 }
-            } catch (err) {
-                console.warn(`[UnifiedDetail] TMDB API resolution note:`, err.message);
+            }
+
+            if (!resolvedImdbId || !String(resolvedImdbId).startsWith('tt')) {
                 try {
                     const type2 = isSeries ? 'series' : 'movie';
                     const elfRes = await fetch(`https://tmdb.elfhosted.com/meta/${type2}/tmdb:${numericTmdbId}.json`, { signal: AbortSignal.timeout(4000) }).then(r => r.json());
-                    const elfImdb = elfRes?.meta?.imdb_id || elfRes?.meta?.imdbId;
-                    if (elfImdb && String(elfImdb).startsWith('tt')) {
-                        console.log(`[UnifiedDetail] Resolved via ElfHosted: TMDB ${numericTmdbId} → IMDb ${elfImdb}`);
-                        cinemetaId = elfImdb;
-                        item.imdbId = elfImdb;
-                        item.imdb_id = elfImdb;
-                        if (window.currentDetailItem) {
-                            window.currentDetailItem.imdbId = elfImdb;
-                            window.currentDetailItem.imdb_id = elfImdb;
-                        }
+                    resolvedImdbId = elfRes?.meta?.imdb_id || elfRes?.meta?.imdbId;
+                    if (elfRes?.meta) {
+                        extra1 = elfRes.meta;
+                        if (!item.title && elfRes.meta.name) item.title = elfRes.meta.name;
                     }
                 } catch (e2) {}
+            }
+
+            if (resolvedImdbId && String(resolvedImdbId).startsWith('tt')) {
+                console.log(`[UnifiedDetail] Resolved TMDB ID ${numericTmdbId} → IMDb ${resolvedImdbId}`);
+                cinemetaId = resolvedImdbId;
+                item.imdbId = resolvedImdbId;
+                item.imdb_id = resolvedImdbId;
+                if (window.currentDetailItem) {
+                    window.currentDetailItem.imdbId = resolvedImdbId;
+                    window.currentDetailItem.imdb_id = resolvedImdbId;
+                }
+                if (window.currentUnifiedDetailItem) {
+                    window.currentUnifiedDetailItem.imdbId = resolvedImdbId;
+                    window.currentUnifiedDetailItem.imdb_id = resolvedImdbId;
+                }
             }
         }
 
@@ -250,6 +236,7 @@ window.renderUnifiedDetail = async function(item) {
         let fanartImages = null;
 
         if (isAnime) {
+            let malId = item.mal_id || item.malId || (String(item.id).startsWith('mal:') ? String(item.id).replace('mal:', '') : null);
             if (!malId && item.source === 'kitsu' && item.id) {
                 extra1 = await window.api.invoke('kitsu-details', item.id).catch(() => null);
                 malId = extra1?.mal_id || extra1?.malId || null;

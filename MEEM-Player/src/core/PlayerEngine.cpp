@@ -88,8 +88,6 @@ PlayerEngine::PlayerEngine(QObject *parent) : QObject(parent) {
         "--subsdec-encoding=UTF-8",
         "--avcodec-hw=dxva2",
         "--avcodec-threads=0",
-        "--directx-hw-yuv=1",
-        "--d3d11-hw-blending=1",
         "--audio-time-stretch",
         "--video-filter=adjust",
         "--network-caching=3000",
@@ -97,8 +95,6 @@ PlayerEngine::PlayerEngine(QObject *parent) : QObject(parent) {
         "--live-caching=1000",
         "--disc-caching=500",
         "--sout-mux-caching=1000",
-        "--clock-jitter=0",
-        "--clock-synchro=0",
         "--http-reconnect",
         "--adaptive-maxwidth=3840",
         "--adaptive-maxheight=2160",
@@ -240,7 +236,7 @@ void PlayerEngine::play() {
             setWindowHandle(m_currentWinId);
         }
         if (m_isPaused) {
-            libvlc_media_player_pause(m_player);
+            libvlc_media_player_play(m_player);
             m_isPaused = false;
         } else if (!isPlaying()) {
             libvlc_media_player_play(m_player);
