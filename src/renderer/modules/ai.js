@@ -3316,14 +3316,31 @@ Output ONLY the clean 2-4 word title, no quotes, no extra punctuation.`;
       return;
     }
 
-    // Only run AI overview for plot/conversational/recommendation prompts, skipping simple title searches to save quota
-    if (!force && !isAIOverviewWorthyQuery(q)) {
-      container.style.display = 'none';
-      container.innerHTML = '';
+    const isArabic = /[\u0600-\u06FF]/.test(q);
+
+    // If not forced, show on-demand trigger without making API calls or consuming quota
+    if (!force) {
+      if (!isAIOverviewWorthyQuery(q)) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+      }
+      container.style.display = 'flex';
+      container.innerHTML = `
+        <div class="ai-overview-header" style="justify-content: space-between; width: 100%;">
+          <div class="ai-overview-title-group">
+            <div class="ai-overview-badge"><img src="imgs/meem-ai.jpg" alt="MEEM AI" style="width:16px;height:16px;border-radius:4px;object-fit:cover;"> MEEM AI</div>
+            <span style="font-size:0.85rem; opacity:0.85; font-weight:600;">
+              ${isArabic ? `هل تبحث عن ملخص أو ترشيحات بالذكاء الاصطناعي لـ "${escapeHTML(q)}"؟` : `Looking for AI plot insights or recommendations for "${escapeHTML(q)}"?`}
+            </span>
+          </div>
+          <button class="ai-overview-copilot-btn" onclick="window.renderSearchAIOverview('${escapeAttr(q)}', true)" style="background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; cursor: pointer; padding: 6px 14px; font-size: 0.8rem; border-radius: 10px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+            <i class="fas fa-sparkles" style="color: #c084fc;"></i> <span>${isArabic ? 'عرض إجابة الذكاء الاصطناعي' : 'Show AI Overview'}</span>
+          </button>
+        </div>
+      `;
       return;
     }
-
-    const isArabic = /[\u0600-\u06FF]/.test(q);
 
     // Check user quota before generating overview
     if (getRemainingQuota() <= 0) {

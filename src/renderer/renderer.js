@@ -18310,10 +18310,6 @@ function performUnifiedSearch(q) {
       persist();
     }
 
-    // Trigger Google-style AI Search Overview
-    if (typeof window.renderSearchAIOverview === 'function') {
-      window.renderSearchAIOverview(qClean);
-    }
     // Create beautiful cinematic skeleton grid cards that fill the entire space
     let skeletonHTML = '';
     const cols = Math.max(4, Math.floor((window.innerWidth || 1200) / 160));
@@ -18724,19 +18720,10 @@ function performUnifiedSearch(q) {
 
         if (!hasAnyResults) {
           grid.innerHTML = `
-            <div style="padding: 40px 20px; text-align: center; color: var(--text-muted); line-height: 1.6; grid-column: 1/-1; display: flex; flex-direction: column; align-items: center; gap: 16px;">
-              <div style="font-size: 1.05rem; color: #fff;">No direct titles found matching "${escapeHTML(qClean)}"</div>
-              <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(99, 102, 241, 0.12)); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 18px; padding: 22px 26px; max-width: 520px; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.25);">
-                <div style="color: #c084fc; font-weight: 800; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
-                  <i class="fas fa-sparkles"></i> Searching by story description or plot?
-                </div>
-                <p style="color: rgba(255,255,255,0.7); font-size: 0.88rem; margin: 0; line-height: 1.5;">
-                  MEEM AI understands natural plot descriptions and will suggest the right movies, series, or live stations for you.
-                </p>
-                <button onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('${escapeAttr(qClean)}')" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; color: #fff; padding: 10px 24px; border-radius: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 18px rgba(168, 85, 247, 0.4); margin-top: 4px; transition: transform 0.2s;">
-                  <i class="fas fa-robot"></i> Ask MEEM AI about "${escapeHTML(qClean)}"
-                </button>
-              </div>
+            <div style="padding: 60px 20px; text-align: center; color: var(--text-muted); line-height: 1.6; grid-column: 1/-1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
+              <i class="fas fa-search" style="font-size: 2rem; color: rgba(255, 255, 255, 0.15); margin-bottom: 6px;"></i>
+              <div style="font-size: 1.05rem; font-weight: 600; color: #fff;">No direct titles found matching "${escapeHTML(qClean)}"</div>
+              <div style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.4);">Check your spelling or try searching with different keywords.</div>
             </div>
           `;
         }
