@@ -983,8 +983,336 @@ function initMetadataIpc(ipcMain) {
     }
   });
 
-  ipcMain.handle('mal-recommendations', async () => {
-    return { data: [] };
+  const ARABIC_SUGGESTION_ALIASES = {
+    'بليتش': 'Bleach',
+    'ناروتو': 'Naruto',
+    'ون بيس': 'One Piece',
+    'ونبيس': 'One Piece',
+    'هنتر': 'Hunter x Hunter',
+    'القناص': 'Hunter x Hunter',
+    'هجوم العمالقة': 'Attack on Titan',
+    'اتاك': 'Attack on Titan',
+    'ديث نوت': 'Death Note',
+    'مذكرة الموت': 'Death Note',
+    'دراغون بول': 'Dragon Ball',
+    'دراغونبول': 'Dragon Ball',
+    'قاتل الشياطين': 'Demon Slayer',
+    'كيميتسو': 'Demon Slayer',
+    'جوجوتسو': 'Jujutsu Kaisen',
+    'جوجوتسو كايسن': 'Jujutsu Kaisen',
+    'فول ميتال': 'Fullmetal Alchemist',
+    'الكيميائي المعدني': 'Fullmetal Alchemist',
+    'طوكيو غول': 'Tokyo Ghoul',
+    'كونان': 'Detective Conan',
+    'المحقق كونان': 'Detective Conan',
+    'بيرسيرك': 'Berserk',
+    'كود غياس': 'Code Geass',
+    'فينلاند': 'Vinland Saga',
+    'سولو ليفلينج': 'Solo Leveling',
+    'سولو لفلنج': 'Solo Leveling',
+    'جينتاما': 'Gintama',
+    'بلاك كلوفر': 'Black Clover',
+    'فيري تيل': 'Fairy Tail',
+    'هايكيو': 'Haikyuu!!',
+    'مونستر': 'Monster',
+    'كايجو': 'Kaiju No. 8',
+    'فريرين': 'Frieren',
+    'فريرن': 'Frieren',
+    'شتاينز جيت': 'Steins;Gate',
+    'موب سايكو': 'Mob Psycho 100',
+    'بوكو نو هيرو': 'My Hero Academia',
+    'اكاديمية بطلي': 'My Hero Academia',
+    'تشينسو مان': 'Chainsaw Man',
+    'رجل المنشار': 'Chainsaw Man',
+    'نيفرلاند': 'The Promised Neverland',
+    'سباي اكس فاميلي': 'Spy x Family',
+    'عائلة الجاسوس': 'Spy x Family',
+    'بلو لوك': 'Blue Lock',
+    'سلام دانك': 'Slam Dunk',
+    'صراع العروش': 'Game of Thrones',
+    'بريكنج باد': 'Breaking Bad',
+    'اختلال ضال': 'Breaking Bad',
+    'سترينجر ثينقز': 'Stranger Things',
+    'بيكي بلايندرز': 'Peaky Blinders',
+    'بين النجوم': 'Interstellar'
+  };
+
+  const TMDB_BACKUP_KEYS = ['4e44d9029b1270a757cddc766a1bcb63', '1bfb172360ba6b96dd78bee13f4cee88', '82f42d2a4a5840d2f07d2c3dfd689b6b'];
+  const smartRecCache = new Map();
+
+  async function fetchSmartRecommendations(rawQuery, customTmdbKey = null) {
+    if (!rawQuery || typeof rawQuery !== 'string' || !rawQuery.trim()) {
+      return { results: [] };
+    }
+
+    const trimmed = rawQuery.trim();
+    const cacheKey = trimmed.toLowerCase();
+    if (smartRecCache.has(cacheKey)) {
+      const cached = smartRecCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < 10 * 60 * 1000) { // 10 min cache
+        return cached.data;
+      }
+    }
+
+    const alias = ARABIC_SUGGESTION_ALIASES[trimmed.toLowerCase()] || ARABIC_SUGGESTION_ALIASES[trimmed];
+    const searchName = alias || trimmed;
+    const store = loadData() || {};
+    const tmdbKey = customTmdbKey || store.tmdbKey || TMDB_BACKUP_KEYS[0];
+
+    const results = [];
+    const seenIds = new Set();
+    const seenTitles = new Set([trimmed.toLowerCase(), searchName.toLowerCase()]);
+
+    let isAnimeSeed = false;
+
+    // 1. Check AniList GraphQL (Curated high-quality community recommendations)
+    try {
+      const isNumericId = /^\d+$/.test(searchName);
+      const aniQuery = isNumericId
+        ? `query ($idMal: Int) {
+            Media (idMal: $idMal, type: ANIME) {
+              id idMal title { romaji english native }
+              recommendations (sort: RATING_DESC, perPage: 25) {
+                nodes {
+                  rating
+                  mediaRecommendation {
+                    id idMal title { romaji english native }
+                    coverImage { extraLarge large medium } bannerImage
+                    format averageScore startDate { year } genres description
+                  }
+                }
+              }
+            }
+          }`
+        : `query ($search: String) {
+            Media (search: $search, type: ANIME) {
+              id idMal title { romaji english native }
+              recommendations (sort: RATING_DESC, perPage: 25) {
+                nodes {
+                  rating
+                  mediaRecommendation {
+                    id idMal title { romaji english native }
+                    coverImage { extraLarge large medium } bannerImage
+                    format averageScore startDate { year } genres description
+                  }
+                }
+              }
+            }
+          }`;
+
+      const variables = isNumericId ? { idMal: parseInt(searchName) } : { search: searchName };
+      const aniResp = await axios.post('https://graphql.anilist.co', { query: aniQuery, variables }, { timeout: 4500 }).catch(() => null);
+      const media = aniResp?.data?.data?.Media;
+
+      if (media) {
+        if (media.title?.english) seenTitles.add(media.title.english.toLowerCase());
+        if (media.title?.romaji) seenTitles.add(media.title.romaji.toLowerCase());
+        if (media.title?.native) seenTitles.add(media.title.native.toLowerCase());
+
+        const nodes = media.recommendations?.nodes || [];
+        if (nodes.length > 0) {
+          isAnimeSeed = true;
+          for (const n of nodes) {
+            const rec = n.mediaRecommendation;
+            if (!rec) continue;
+            const title = rec.title?.english || rec.title?.romaji || rec.title?.native;
+            if (!title) continue;
+            const lower = title.toLowerCase();
+            if (seenTitles.has(lower)) continue;
+            seenTitles.add(lower);
+
+            const malId = rec.idMal || rec.id;
+            const id = `kitsu:${malId}`;
+            if (seenIds.has(id)) continue;
+            seenIds.add(id);
+
+            results.push({
+              id: id,
+              mal_id: rec.idMal || rec.id,
+              anilist_id: rec.id,
+              title: title,
+              name: title,
+              poster: rec.coverImage?.extraLarge || rec.coverImage?.large || rec.coverImage?.medium || '',
+              backdrop: rec.bannerImage || '',
+              type: 'anime',
+              source: 'kitsu',
+              rating: rec.averageScore ? parseFloat((rec.averageScore / 10).toFixed(1)) : 0,
+              releaseYear: rec.startDate?.year || 0,
+              synopsis: rec.description || '',
+              genres: rec.genres || []
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // 1b. Fallback to Jikan MAL recommendations if it's an anime with few results
+    if (isAnimeSeed && results.length < 5) {
+      try {
+        const malId = results[0]?.mal_id || (/^\d+$/.test(searchName) ? parseInt(searchName) : null);
+        if (malId) {
+          const jikanResp = await jikanFetch(`/anime/${malId}/recommendations`);
+          const jikanList = jikanResp?.data || [];
+          for (const item of jikanList) {
+            const entry = item.entry;
+            if (!entry || !entry.title) continue;
+            const lower = entry.title.toLowerCase();
+            if (seenTitles.has(lower)) continue;
+            seenTitles.add(lower);
+
+            const id = `kitsu:${entry.mal_id}`;
+            if (seenIds.has(id)) continue;
+            seenIds.add(id);
+
+            results.push({
+              id: id,
+              mal_id: entry.mal_id,
+              title: entry.title,
+              name: entry.title,
+              poster: entry.images?.webp?.large_image_url || entry.images?.jpg?.large_image_url || '',
+              type: 'anime',
+              source: 'kitsu',
+              rating: 0,
+              releaseYear: 0,
+              synopsis: '',
+              genres: []
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. Query TMDB for Western Movies & Series (or general recommendations)
+    try {
+      let seedItem = null;
+      if (searchName.startsWith('tt')) {
+        // IMDb ID
+        const findResp = await axios.get(`https://api.themoviedb.org/3/find/${searchName}?api_key=${tmdbKey}&external_source=imdb_id`, { timeout: 4000 }).catch(() => null);
+        seedItem = findResp?.data?.movie_results?.[0] ? { ...findResp.data.movie_results[0], media_type: 'movie' } : (findResp?.data?.tv_results?.[0] ? { ...findResp.data.tv_results[0], media_type: 'tv' } : null);
+      } else if (searchName.startsWith('tmdb:')) {
+        const rawId = searchName.replace('tmdb:', '');
+        seedItem = { id: rawId, media_type: 'movie' };
+      } else {
+        const sResp = await axios.get(`https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(searchName)}&include_adult=false`, { timeout: 4000 }).catch(() => null);
+        seedItem = sResp?.data?.results?.find(r => r.media_type === 'movie' || r.media_type === 'tv');
+      }
+
+      if (seedItem && seedItem.id) {
+        const seedTitle = seedItem.title || seedItem.name || '';
+        if (seedTitle) seenTitles.add(seedTitle.toLowerCase());
+        if (seedItem.original_title) seenTitles.add(seedItem.original_title.toLowerCase());
+        if (seedItem.original_name) seenTitles.add(seedItem.original_name.toLowerCase());
+
+        const mediaType = seedItem.media_type || 'movie';
+        const [recResp, simResp] = await Promise.all([
+          axios.get(`https://api.themoviedb.org/3/${mediaType}/${seedItem.id}/recommendations?api_key=${tmdbKey}`, { timeout: 4000 }).catch(() => null),
+          axios.get(`https://api.themoviedb.org/3/${mediaType}/${seedItem.id}/similar?api_key=${tmdbKey}`, { timeout: 4000 }).catch(() => null)
+        ]);
+
+        const tmdbList = [
+          ...(recResp?.data?.results || []),
+          ...(simResp?.data?.results || [])
+        ];
+
+        const westernRecs = [];
+        for (const item of tmdbList) {
+          const itemTitle = item.title || item.name;
+          if (!itemTitle) continue;
+          const lower = itemTitle.toLowerCase();
+          if (seenTitles.has(lower)) continue;
+          seenTitles.add(lower);
+
+          const id = `tmdb:${item.id}`;
+          if (seenIds.has(id)) continue;
+          seenIds.add(id);
+
+          const year = (item.release_date || item.first_air_date || '').substring(0, 4);
+
+          westernRecs.push({
+            id: id,
+            tmdb_id: String(item.id),
+            title: itemTitle,
+            name: itemTitle,
+            poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : '',
+            backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : '',
+            type: mediaType === 'tv' ? 'tv' : 'movie',
+            source: 'tmdb',
+            rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0,
+            releaseYear: year ? parseInt(year) : 0,
+            synopsis: item.overview || ''
+          });
+        }
+
+        if (isAnimeSeed) {
+          results.push(...westernRecs);
+        } else {
+          results.unshift(...westernRecs);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // 3. Fallback to Cinemeta Top if empty
+    if (results.length === 0) {
+      try {
+        const cmResp = await axios.get('https://v3-cinemeta.strem.io/catalog/movie/top.json', { timeout: 4000 }).catch(() => null);
+        if (cmResp?.data?.metas?.length) {
+          for (const m of cmResp.data.metas.slice(0, 15)) {
+            if (!m.id || seenIds.has(m.id)) continue;
+            seenIds.add(m.id);
+            results.push({
+              id: m.id,
+              title: m.name,
+              name: m.name,
+              poster: m.poster || `https://images.metahub.space/poster/medium/${m.id}/img`,
+              type: 'movie',
+              source: 'cinemeta',
+              rating: m.imdbRating ? parseFloat(m.imdbRating) : 0,
+              releaseYear: m.releaseInfo ? parseInt(m.releaseInfo.substring(0, 4)) : 0,
+              synopsis: m.description || ''
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    const payload = { results: results.slice(0, 24) };
+    smartRecCache.set(cacheKey, { timestamp: Date.now(), data: payload });
+    return payload;
+  }
+
+  ipcMain.handle('get-smart-recommendations', async (_e, query) => {
+    return await fetchSmartRecommendations(query);
+  });
+
+  ipcMain.handle('mal-recommendations', async (_e, malIdOrTitle) => {
+    try {
+      const q = String(malIdOrTitle || '');
+      const smart = await fetchSmartRecommendations(q);
+      const data = (smart.results || []).map(r => ({
+        entry: {
+          mal_id: r.mal_id || (String(r.id).startsWith('kitsu:') ? parseInt(r.id.replace('kitsu:', '')) : r.id),
+          title: r.title,
+          images: {
+            webp: {
+              large_image_url: r.poster,
+              image_url: r.poster
+            },
+            jpg: {
+              large_image_url: r.poster,
+              image_url: r.poster
+            }
+          }
+        }
+      }));
+      return { data };
+    } catch (err) {
+      console.error('[Metadata] mal-recommendations error:', err.message);
+      return { data: [] };
+    }
   });
 
   let anilistScheduleCache = { timestamp: 0, items: [] };

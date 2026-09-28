@@ -10,7 +10,7 @@ window.RecommendationService = {
 
   async generatePersonalizedRecommendations(userLibraryList) {
     const now = Date.now();
-    const CACHE_DURATION = 12 * 60 * 60 * 1000; // 12 hours
+    const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
 
     if (this.cache.data && (now - this.cache.timestamp < CACHE_DURATION)) {
       console.log('[RECOMMENDATIONS] Returning cached recommendations');
@@ -18,64 +18,84 @@ window.RecommendationService = {
     }
 
     try {
-      const animeItems = (userLibraryList || []).filter(item => {
-        const idStr = String(item.id || '');
-        return item.source === 'kitsu' || !idStr.startsWith('tmdb:') || item.anime_id;
-      });
-
+      const items = Array.isArray(userLibraryList) ? userLibraryList : [];
       let seed = null;
       let isRecent = false;
-      if (animeItems.length > 0) {
-        // Since toggleWatchlist unshifts items, index 0 is always the most recently added item!
-        seed = animeItems[0];
+
+      if (items.length > 0) {
+        // Most recently added item in watchlist/library
+        seed = items[0];
         isRecent = true;
       } else {
-        // Default seeds for new/empty profiles
+        // Default popular seeds for empty libraries
         const defaultSeeds = [
-          { id: 38000, title: 'Demon Slayer' },
-          { id: 30276, title: 'One Punch Man' },
-          { id: 21, title: 'One Piece' },
-          { id: 5114, title: 'Fullmetal Alchemist: Brotherhood' }
+          { title: 'Interstellar', type: 'movie' },
+          { title: 'Attack on Titan', type: 'anime' },
+          { title: 'Breaking Bad', type: 'tv' },
+          { title: 'Demon Slayer', type: 'anime' },
+          { title: 'Inception', type: 'movie' },
+          { title: 'Solo Leveling', type: 'anime' }
         ];
         seed = defaultSeeds[Math.floor(Math.random() * defaultSeeds.length)];
         isRecent = false;
       }
 
-      const seedId = seed.id || seed.anime_id;
-      const seedTitle = seed.title || seed.name || 'this show';
+      const seedTitle = seed.title || seed.name || 'this title';
+      const searchSeed = seed.imdb_id || seed.imdbId || seedTitle;
 
-      console.log(`[RECOMMENDATIONS] Fetching recommendations for seed: "${seedTitle}" (ID: ${seedId})`);
-      const response = await window.api.invoke('mal-recommendations', seedId);
-
-      if (!response || !response.data || !Array.isArray(response.data)) {
-        return { recommendations: [], seedTitle: '' };
+      console.log(`[RECOMMENDATIONS] Fetching smart recommendations for seed: "${seedTitle}"`);
+      
+      let rawRecs = [];
+      if (window.api && typeof window.api.invoke === 'function') {
+        const resp = await window.api.invoke('get-smart-recommendations', searchSeed).catch(() => null);
+        rawRecs = resp?.results || [];
       }
 
-      // Filter out items already in the user's library list
-      const libraryTitles = new Set((userLibraryList || []).map(i => (i.title || i.name || '').toLowerCase()));
-      const libraryIds = new Set((userLibraryList || []).map(i => String(i.id || i.anime_id || '')));
+      if (!rawRecs || rawRecs.length === 0) {
+        return { recommendations: [], seedTitle: '', isRecent: false };
+      }
 
-      const formatted = response.data
-        .map(entry => {
-          const node = entry.entry;
-          if (!node) return null;
+      // Filter out items already in the user's library
+      const libraryTitles = new Set((items || []).map(i => (i.title || i.name || '').trim().toLowerCase()));
+      const libraryIds = new Set((items || []).map(i => String(i.id || i.anime_id || i.imdb_id || i.imdbId || '')));
+
+      const formatted = rawRecs
+        .filter(item => {
+          if (!item) return false;
+          const t = (item.title || item.name || '').trim().toLowerCase();
+          const keyId = String(item.id || item.tmdb_id || item.mal_id || '');
+          if (!t) return false;
+          if (libraryTitles.has(t)) return false;
+          if (keyId && libraryIds.has(keyId)) return false;
+          return true;
+        })
+        .map(item => {
+          const isAnime = item.type === 'anime' || item.source === 'kitsu' || String(item.id).startsWith('kitsu:');
+          const poster = item.poster || item.poster_path || '';
+          const backdrop = item.backdrop || item.backdrop_path || '';
+
           return {
-            id: node.mal_id,
-            title: node.title,
-            poster_path: node.images?.webp?.large_image_url || node.images?.webp?.image_url || node.images?.jpg?.large_image_url || '',
-            source: 'kitsu', // Treat Jikan suggestions as kitsu items so they open in our beautiful unified detail view!
-            score: 0,
-            year: '',
-            format: 'TV'
+            id: item.id,
+            tmdb_id: item.tmdb_id || null,
+            mal_id: item.mal_id || null,
+            anilist_id: item.anilist_id || null,
+            title: item.title || item.name,
+            name: item.title || item.name,
+            poster: poster,
+            poster_path: poster,
+            backdrop: backdrop,
+            backdrop_path: backdrop,
+            type: isAnime ? 'anime' : (item.type || 'movie'),
+            source: isAnime ? 'kitsu' : (item.source || 'tmdb'),
+            rating: item.rating || item.vote_average || 0,
+            score: item.rating || item.vote_average || 0,
+            year: item.releaseYear || item.year || '',
+            releaseYear: item.releaseYear || item.year || '',
+            synopsis: item.synopsis || item.overview || '',
+            format: isAnime ? 'TV' : (item.type === 'movie' ? 'Movie' : 'TV Series')
           };
         })
-        .filter(item => {
-          if (!item || !item.title) return false;
-          const keyId = String(item.id);
-          const keyTitle = item.title.toLowerCase();
-          return !libraryIds.has(keyId) && !libraryTitles.has(keyTitle);
-        })
-        .slice(0, 15); // Return top 15 recommendations
+        .slice(0, 18);
 
       // Save to cache
       this.cache.data = formatted;

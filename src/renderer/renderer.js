@@ -18131,11 +18131,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         const lastQuery = history[0];
         sectionTitle = `Suggested based on "${lastQuery}"`;
         if (window.api && typeof window.api.invoke === 'function') {
-          const res = await window.api.invoke('unified-search', lastQuery).catch(() => null);
+          const res = await window.api.invoke('get-smart-recommendations', lastQuery).catch(() => null);
           recs = res?.results || [];
         }
         if (!recs.length) {
-          const cinemetaResp = await fetch(`https://v3-cinemeta.strem.io/catalog/movie/top/search=${encodeURIComponent(lastQuery)}.json`).then(r => r.json()).catch(() => null);
+          const cinemetaResp = await fetch('https://v3-cinemeta.strem.io/catalog/movie/top.json').then(r => r.json()).catch(() => null);
           if (cinemetaResp?.metas?.length) {
             recs = cinemetaResp.metas.map(m => ({
               id: m.id,

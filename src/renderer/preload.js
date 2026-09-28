@@ -208,7 +208,7 @@ contextBridge.exposeInMainWorld('api', {
       'mal-top-upcoming', 'mal-seasonal', 'jikan-trending', 'jikan-episodes', 'jikan-details', 'jikan-schedule', 'anime-search-schedule',
       'kitsu-search', 'kitsu-details', 'kitsu-details-by-mal', 'kitsu-trending',
       'anilist-search', 'anilist-media-detailed', 'anilist-media-assets',
-      'unified-search', 'save-manual-link', 'get-anime-media-internal', 'get-western-media-internal',
+      'unified-search', 'get-smart-recommendations', 'save-manual-link', 'get-anime-media-internal', 'get-western-media-internal',
       'radio-search', 'iptv-parse-m3u-text', 'stremio-addon-list', 'search-addons',
 
       // Trakt Integration
