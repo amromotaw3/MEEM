@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="osYellow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFDE59" />
+      <stop offset="100%" stop-color="#FFBD14" />
+    </linearGradient>
+    <linearGradient id="osBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="100%" stop-color="#0369A1" />
+    </linearGradient>
+  </defs>
+  <!-- Background Shield / Rounded Box -->
+  <rect width="512" height="512" rx="110" fill="#0E131F" />
+  
+  <!-- Main Yellow Subtitle Chat Bubble -->
+  <g transform="translate(64, 76)">
+    <!-- Primary Yellow Bubble -->
+    <path d="M 50 20 L 330 20 C 357 20 380 43 380 70 L 380 230 C 380 257 357 280 330 280 L 140 280 L 70 340 L 70 280 L 50 280 C 23 280 0 257 0 230 L 0 70 C 0 43 23 20 50 20 Z" fill="url(#osYellow)" />
+    
+    <!-- Subtitle text bars inside main bubble -->
+    <rect x="55" y="80" width="270" height="32" rx="16" fill="#181D2A" />
+    <rect x="55" y="135" width="210" height="32" rx="16" fill="#181D2A" />
+    <rect x="55" y="190" width="250" height="32" rx="16" fill="#181D2A" />
+
+    <!-- Secondary Blue Subtitle Bubble (Overlay) -->
+    <g transform="translate(140, 120)">
+      <path d="M 40 10 L 220 10 C 236 10 250 24 250 40 L 250 160 C 250 176 236 190 220 190 L 100 190 L 50 235 L 50 190 L 40 190 C 24 190 10 176 10 160 L 10 40 C 10 24 24 10 40 10 Z" fill="url(#osBlue)" stroke="#0E131F" stroke-width="8" />
+      <!-- Text bars inside blue bubble -->
+      <rect x="45" y="55" width="160" height="22" rx="11" fill="#FFFFFF" />
+      <rect x="45" y="95" width="120" height="22" rx="11" fill="#FFFFFF" />
+      <rect x="45" y="135" width="145" height="22" rx="11" fill="#FFFFFF" />
+    </g>
+  </g>
+</svg>

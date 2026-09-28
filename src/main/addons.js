@@ -241,7 +241,7 @@ function initAddonsIpc(ipcMain, store) {
         if (!userAddons.some(a => String(a.url || a.manifestUrl || '').toLowerCase().includes('opensubtitles-v3'))) {
             userAddons.push({
                 id: 'org.stremio.opensubtitlesv3',
-                name: 'OpenSubtitles v3',
+                name: 'OpenSubtitles',
                 url: 'https://opensubtitles-v3.strem.io',
                 manifestUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
                 types: ['subtitles'],
@@ -609,7 +609,7 @@ function initAddonsIpc(ipcMain, store) {
             console.log('[Unified Search] Searching for:', searchQueries.join(', '));
             const appData = (store && typeof store.get === 'function' ? store.get('appData') : null) || {};
             const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
-            const tmdbKey = appData.tmdbKey || 'eb3db2bfcff07c2c05038f4ea48b8c29';
+            const tmdbKey = appData.tmdbKey || null;
 
             // Cinemeta is the universal default catalog unless specifically disabled
             const cinemetaDisabled = installed.some(a => {

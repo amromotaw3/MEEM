@@ -672,7 +672,9 @@
           };
 
           const tryFetchTmdbStill = (tmdbId) => {
-            const tmdbEp = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${sn}/episode/${en}?api_key=eb3db2bfcff07c2c05038f4ea48b8c29`;
+            const tmdbKey = window.appData?.tmdbKey;
+            if (!tmdbKey) return;
+            const tmdbEp = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${sn}/episode/${en}?api_key=${tmdbKey}`;
             fetch(tmdbEp)
               .then(r => r.ok ? r.json() : null)
               .then(epInfo => {
@@ -687,11 +689,12 @@
             tryFetchCinemetaStill(targetImdbId);
           }
 
+          const tmdbKey = window.appData?.tmdbKey;
           let tmdbId = metaCache?.tmdbId || metaCache?.id || item.tmdbId || item.showId;
           if (tmdbId && /^\d+$/.test(String(tmdbId))) {
             tryFetchTmdbStill(tmdbId);
-          } else if (showName && showName.length >= 2) {
-            fetch(`https://api.themoviedb.org/3/search/tv?api_key=eb3db2bfcff07c2c05038f4ea48b8c29&query=${encodeURIComponent(showName)}`)
+          } else if (tmdbKey && showName && showName.length >= 2) {
+            fetch(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${encodeURIComponent(showName)}`)
               .then(r => r.ok ? r.json() : null)
               .then(sData => {
                 const found = sData?.results?.[0];
@@ -3215,7 +3218,7 @@
       container.appendChild(el);
     });
 
-    const tmdbKey = appData.tmdbKey || 'eb3db2bfcff07c2c05038f4ea48b8c29';
+    const tmdbKey = appData.tmdbKey || null;
     const overrideEnabled = appData.tmdbEnabled !== false;
     const imdbId = meta.imdb_id || meta.id || '';
 

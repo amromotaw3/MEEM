@@ -456,7 +456,46 @@ async function openInMeemPlayer(args) {
         } catch (_) {}
       }
 
-      // 2. Fetch TMDB Season episodes if user provided a TMDB key
+      // 2. Check Kitsu Anime for anime series
+      const kitsuId = opts.kitsuId || opts.item?.kitsuId || opts.show?.kitsuId || (String(resolvedImdbId).startsWith('kitsu:') ? String(resolvedImdbId).replace('kitsu:', '') : null);
+      if (kitsuId) {
+        try {
+          const kitsuUrl = `https://anime-kitsu.strem.fun/meta/series/kitsu:${kitsuId}.json`;
+          const kResp = await axios.get(kitsuUrl, { timeout: 3000 }).catch(() => null);
+          if (kResp?.data?.meta?.videos && Array.isArray(kResp.data.meta.videos)) {
+            kResp.data.meta.videos.forEach(v => {
+              const vEp = v.episode != null ? v.episode : (v.number != null ? v.number : v.episodeNumber);
+              if (vEp != null && (!episodeMetadataMap[vEp] || !episodeMetadataMap[vEp].still)) {
+                episodeMetadataMap[vEp] = {
+                  name: v.title || v.name || episodeMetadataMap[vEp]?.name || '',
+                  still: v.thumbnail || v.still || episodeMetadataMap[vEp]?.still || '',
+                  overview: v.overview || episodeMetadataMap[vEp]?.overview || ''
+                };
+              }
+            });
+          }
+        } catch (_) {}
+      }
+
+      // 3. Fallback to passed episode objects from renderer
+      const existingEps = opts.episodes || opts.item?.episodes || opts.show?.episodes || (opts.playlist && opts.playlist.length > 0 ? opts.playlist : null);
+      if (Array.isArray(existingEps)) {
+        existingEps.forEach(ep => {
+          const epNum = ep.episode_number || ep.episode || ep.number;
+          if (epNum != null) {
+            const existing = episodeMetadataMap[epNum] || {};
+            let st = ep.still_path || ep.still || ep.thumbnail || ep.poster || ep.image || '';
+            if (st && st.startsWith('/') && !st.startsWith('//')) st = `https://image.tmdb.org/t/p/w500${st}`;
+            episodeMetadataMap[epNum] = {
+              name: ep.name || ep.title || existing.name || '',
+              still: st || existing.still || '',
+              overview: ep.overview || existing.overview || ''
+            };
+          }
+        });
+      }
+
+      // 4. Fetch TMDB Season episodes if user provided a TMDB key
       if (resolvedTmdbId && tmdbKey) {
         try {
           const tmdbSeasonUrl = `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${targetSeason}?api_key=${tmdbKey}`;

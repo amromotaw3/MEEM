@@ -841,7 +841,37 @@ function initMetadataIpc(ipcMain) {
     const vMatch = youtubeUrl.match(/(?:v=|\/embed\/|\/1.1\/|v\/|https:\/\/youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
     const videoId = vMatch ? vMatch[1] : null;
 
-    // 0. Primary: Fast Cobalt API resolution (Bypasses all YouTube geo-locks & embed restrictions in ~200ms)
+    // 1. Primary: Use YouTubeService (youtubei.js / Innertube) locally to extract direct 1080p Full HD stream
+    if (videoId) {
+      try {
+        const YouTubeService = require('../youtube/YouTubeService');
+        const res = await YouTubeService.getVideoDetails(videoId, '1080');
+        if (res && res.success && res.details?.streamUrl) {
+          console.log('[resolve-trailer-stream] Pristine 1080p stream resolved via YouTubeService:', res.details.streamUrl.slice(0, 60) + '...');
+          return res.details.streamUrl;
+        }
+      } catch (ytErr) {
+        console.warn('[resolve-trailer-stream] YouTubeService failed:', ytErr.message);
+      }
+    }
+
+    // 2. Secondary: Try local yt-dlp prioritizing 1080p Full HD AVC stream
+    try {
+      const { execYtDlp } = require('../downloader-adapter');
+      const directUrl = await execYtDlp(
+        `--no-playlist --flat-playlist --socket-timeout 5 --geo-bypass -g -f "bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" --extractor-args "youtube:player_client=mweb,tv,ios,android_creator" "${youtubeUrl}"`,
+        { timeout: 8000 }
+      );
+      if (directUrl && directUrl.startsWith('http')) {
+        const stream = directUrl.split('\n')[0].trim();
+        console.log('[YTDLP] Fast resolved 1080p YouTube trailer stream:', stream.slice(0, 60) + '...');
+        return stream;
+      }
+    } catch (err) {
+      console.warn('[YTDLP] Stream resolution failed, trying Cobalt & proxy fallbacks:', err.message);
+    }
+
+    // 3. Fast Cobalt API resolution (Requesting 1080p Full HD)
     const cobaltEndpoints = [
       'https://api.cobalt.tools',
       'https://co.wuk.sh/api/json',
@@ -862,37 +892,7 @@ function initMetadataIpc(ipcMain) {
       } catch (_) {}
     }
 
-    // 1. Secondary: Use YouTubeService (youtubei.js / Innertube) locally to get playable stream URL
-    if (videoId) {
-      try {
-        const YouTubeService = require('../youtube/YouTubeService');
-        const res = await YouTubeService.getVideoDetails(videoId, '1080');
-        if (res && res.success && res.details?.streamUrl) {
-          console.log('[resolve-trailer-stream] Resolved via YouTubeService (youtubei.js):', res.details.streamUrl.slice(0, 60) + '...');
-          return res.details.streamUrl;
-        }
-      } catch (ytErr) {
-        console.warn('[resolve-trailer-stream] YouTubeService failed:', ytErr.message);
-      }
-    }
-
-    // 2. Secondary: Try local yt-dlp fallback prioritizing 1080p Full HD
-    try {
-      const { execYtDlp } = require('../downloader-adapter');
-      const directUrl = await execYtDlp(
-        `--no-playlist --flat-playlist --socket-timeout 5 --geo-bypass -g -f "bestvideo[height>=1080][ext=mp4]/bestvideo[height>=1080]/bestvideo[height>=720][ext=mp4]/bestvideo[height>=720]/best[height>=720]/best" --extractor-args "youtube:player_client=mweb,tv,ios,android_creator" "${youtubeUrl}"`,
-        { timeout: 8000 }
-      );
-      if (directUrl && directUrl.startsWith('http')) {
-        const stream = directUrl.split('\n')[0].trim();
-        console.log('[YTDLP] Fast resolved 1080p/HD YouTube trailer stream:', stream.slice(0, 60) + '...');
-        return stream;
-      }
-    } catch (err) {
-      console.warn('[YTDLP] Stream resolution failed, trying proxy fallbacks:', err.message);
-    }
-
-    // 2. Secondary: Invidious / Piped using proxied stream URLs (prioritizing 1080p itags)
+    // 4. Invidious / Piped using proxied stream URLs (prioritizing 1080p itags)
     if (videoId) {
       const invidInstances = [
         `https://inv.tux.pizza/latest_version?id=${videoId}&itag=137`,
@@ -929,27 +929,6 @@ function initMetadataIpc(ipcMain) {
           }
         } catch (e) {}
       }
-    }
-
-    // 3. Tertiary: Cobalt API (requesting 1080p minimum)
-    const instances = [
-      'https://co.wuk.sh/api/json',
-      'https://api.vve.wtf/api/json',
-      'https://cobalt.catbox.video/api/json',
-      'https://api.cobalt.tools/api/json'
-    ];
-    for (const endpoint of instances) {
-      try {
-        const res = await axios.post(
-          endpoint,
-          { url: youtubeUrl, videoQuality: '1080', isAudioMuted: true },
-          { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 4000 }
-        );
-        if (res.data && res.data.url) {
-          console.log('[Cobalt] 1080p Stream resolved for backdrop video');
-          return res.data.url;
-        }
-      } catch (e) {}
     }
     return null;
   });
@@ -1268,7 +1247,7 @@ function initMetadataIpc(ipcMain) {
     try {
       if (!tvId) return { episodes: [] };
       const data = await loadData();
-      const tmdbKey = data.tmdbKey || 'eb3db2bfcff07c2c05038f4ea48b8c29';
+      const tmdbKey = data.tmdbKey || null;
 
       let resolvedTvId = tvId;
 

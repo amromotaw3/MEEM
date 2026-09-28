@@ -332,7 +332,7 @@ class StremioSubtitleProvider extends SubtitleProvider {
         return hasSubResource || hasSubType || url.includes('subtitle') || id.includes('subtitle') || name.includes('subtitle') || url.includes('opensubtitle') || id.includes('opensubtitle');
       });
 
-      // Guarantee OpenSubtitles v3 is available as a zero-config official fallback
+      // Guarantee OpenSubtitles is available as a zero-config official fallback
       const hasOpenSubs = userAddons.some(a => {
         const u = String(a.url || a.manifestUrl || '').toLowerCase();
         return u.includes('opensubtitles-v3');
@@ -340,7 +340,7 @@ class StremioSubtitleProvider extends SubtitleProvider {
       if (!hasOpenSubs) {
         userAddons.push({
           id: 'org.stremio.opensubtitlesv3',
-          name: 'OpenSubtitles v3',
+          name: 'OpenSubtitles',
           url: 'https://opensubtitles-v3.strem.io',
           manifestUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
           types: ['subtitles'],
