@@ -2667,31 +2667,31 @@ let trailerTimeout = null;
 let currentTrailerVideo = null;
 async function resolveTrailerYoutubeUrl(item, cinemeta, extra1, anilist) {
     try {
-        const isAnime = false; // Disabled: all anime routed through Cinemeta/TMDB for trailer resolution
+        const cleanTitle = (item?.title || item?.name || extra1?.title || extra1?.canonicalTitle || anilist?.title?.english || anilist?.title?.romaji || '').trim();
+        const isAnime = item?.type === 'anime' || item?.media_type === 'anime' || !!extra1?.attributes || !!anilist || String(item?.id || '').startsWith('kitsu:') || String(item?.id || '').startsWith('mal:');
         let youtubeUrl = null;
-        
-        if (isAnime) {
-            let malId = item.mal_id || item.malId || extra1?.mal_id || extra1?.malId;
-            if (!malId && item.id && String(item.id).startsWith('mal:')) {
-                malId = item.id.replace('mal:', '');
-            }
-            if (malId && !isNaN(malId)) {
-                const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}`).catch(() => null);
-                if (res) {
-                    const json = await res.json().catch(() => null);
-                    if (json?.data?.trailer?.youtube_id) {
-                        youtubeUrl = `https://www.youtube.com/watch?v=${json.data.trailer.youtube_id}`;
+
+        // 1. For Anime: prioritize local YouTube search to get official, globally unrestricted trailer (bypasses HIDIVE/Crunchyroll US geo-blocks)
+        if (isAnime && cleanTitle) {
+            try {
+                const searchRes = await window.api.invoke('youtube-search', { query: `${cleanTitle} Official Trailer`, filter: 'video' }).catch(() => null);
+                if (searchRes && searchRes.results && searchRes.results.length > 0) {
+                    const topV = searchRes.results.find(v => {
+                        const t = (v.title || '').toLowerCase();
+                        return t.includes('trailer') || t.includes('pv') || t.includes('teaser') || t.includes('official');
+                    }) || searchRes.results[0];
+                    const vId = topV?.id || topV?.videoId;
+                    if (vId) {
+                        youtubeUrl = `https://www.youtube.com/watch?v=${vId}`;
                     }
                 }
-            }
-            if (!youtubeUrl && extra1?.attributes?.youtubeVideoId) {
-                youtubeUrl = `https://www.youtube.com/watch?v=${extra1.attributes.youtubeVideoId}`;
-            }
-        } else {
-            // Western media & General media
+            } catch (_) {}
+        }
+
+        // 2. Western media & General media from Cinemeta
+        if (!youtubeUrl) {
             const meta = cinemeta?.meta || cinemeta || item;
             if (meta?.trailers && meta.trailers.length > 0) {
-                // Cinemeta format: { source: "video_id", type: "Trailer" }
                 const yt = meta.trailers.find(t => t.type === 'Trailer' || t.type === 'trailer' || t.source);
                 if (yt && yt.source) {
                     youtubeUrl = (yt.source.includes('://') || yt.source.includes('watch?')) ? yt.source : `https://www.youtube.com/watch?v=${yt.source}`;
@@ -2700,48 +2700,63 @@ async function resolveTrailerYoutubeUrl(item, cinemeta, extra1, anilist) {
             if (!youtubeUrl && meta?.youtubeId) {
                 youtubeUrl = `https://www.youtube.com/watch?v=${meta.youtubeId}`;
             }
+        }
+
+        // 3. TMDB Videos Fallback
+        if (!youtubeUrl) {
+            const tmdbKey = window.appData?.tmdbKey;
+            const imdbId = item.imdb_id || item.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
+            let tmdbId = item.tmdbId || item.tmdb_id;
             
-            // TMDB Videos Fallback
-            if (!youtubeUrl) {
-                const tmdbKey = window.appData?.tmdbKey;
-                const imdbId = item.imdb_id || item.imdbId || meta?.imdb_id || (String(item.id).startsWith('tt') ? item.id : null);
-                let tmdbId = item.tmdbId || item.tmdb_id || meta?.moviedb_id || meta?.tmdb_id;
-                
-                if (tmdbKey && (imdbId || tmdbId)) {
-                    if (!tmdbId && imdbId) {
-                        const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${tmdbKey}&external_source=imdb_id`;
-                        const findRes = await fetch(findUrl).then(r => r.json()).catch(() => null);
-                        const isTv = item.type === 'series' || item.type === 'tv' || meta?.type === 'series' || meta?.type === 'tv';
-                        const resultsList = isTv ? findRes?.tv_results : findRes?.movie_results;
-                        if (resultsList && resultsList[0]) {
-                            tmdbId = resultsList[0].id;
-                        }
-                    }
-                    if (tmdbId) {
-                        const isTv = item.type === 'series' || item.type === 'tv' || meta?.type === 'series' || meta?.type === 'tv';
-                        const videoUrl = `https://api.themoviedb.org/3/${isTv ? 'tv' : 'movie'}/${tmdbId}/videos?api_key=${tmdbKey}`;
-                        const videoRes = await fetch(videoUrl).then(r => r.json()).catch(() => null);
-                        if (videoRes && videoRes.results && videoRes.results.length > 0) {
-                            const trailer = videoRes.results.find(v => v.site === 'YouTube' && v.type === 'Trailer') ||
-                                            videoRes.results.find(v => v.site === 'YouTube' && v.type === 'Teaser') ||
-                                            videoRes.results.find(v => v.site === 'YouTube');
-                            if (trailer) {
-                                youtubeUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
-                            }
-                        }
+            if (tmdbKey && (imdbId || tmdbId || cleanTitle)) {
+                if (!tmdbId && imdbId) {
+                    const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${tmdbKey}&external_source=imdb_id`;
+                    const findRes = await fetch(findUrl).then(r => r.json()).catch(() => null);
+                    const isTv = item.type === 'series' || item.type === 'tv';
+                    const resultsList = isTv ? findRes?.tv_results : findRes?.movie_results;
+                    if (resultsList && resultsList[0]) {
+                        tmdbId = resultsList[0].id;
                     }
                 }
-            }
-
-            // Fallback for Anime: AniList or Kitsu trailer
-            if (!youtubeUrl) {
-                if (anilist?.trailer?.id && (anilist?.trailer?.site || '').toLowerCase() === 'youtube') {
-                    youtubeUrl = `https://www.youtube.com/watch?v=${anilist.trailer.id}`;
-                } else if (extra1?.attributes?.youtubeVideoId) {
-                    youtubeUrl = `https://www.youtube.com/watch?v=${extra1.attributes.youtubeVideoId}`;
+                if (tmdbId) {
+                    const isTv = item.type === 'series' || item.type === 'tv';
+                    const videoUrl = `https://api.themoviedb.org/3/${isTv ? 'tv' : 'movie'}/${tmdbId}/videos?api_key=${tmdbKey}`;
+                    const videoRes = await fetch(videoUrl).then(r => r.json()).catch(() => null);
+                    if (videoRes && videoRes.results && videoRes.results.length > 0) {
+                        const trailer = videoRes.results.find(v => v.site === 'YouTube' && v.type === 'Trailer') ||
+                                        videoRes.results.find(v => v.site === 'YouTube' && v.type === 'Teaser') ||
+                                        videoRes.results.find(v => v.site === 'YouTube');
+                        if (trailer) {
+                            youtubeUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
+                        }
+                    }
                 }
             }
         }
+
+        // 4. Secondary fallback via YouTube search if still not found
+        if (!youtubeUrl && cleanTitle) {
+            try {
+                const searchRes = await window.api.invoke('youtube-search', { query: `${cleanTitle} Official Trailer`, filter: 'video' }).catch(() => null);
+                if (searchRes && searchRes.results && searchRes.results.length > 0) {
+                    const topV = searchRes.results[0];
+                    const vId = topV?.id || topV?.videoId;
+                    if (vId) {
+                        youtubeUrl = `https://www.youtube.com/watch?v=${vId}`;
+                    }
+                }
+            } catch (_) {}
+        }
+
+        // 5. Last fallback: AniList / Kitsu
+        if (!youtubeUrl) {
+            if (anilist?.trailer?.id && (anilist?.trailer?.site || '').toLowerCase() === 'youtube') {
+                youtubeUrl = `https://www.youtube.com/watch?v=${anilist.trailer.id}`;
+            } else if (extra1?.attributes?.youtubeVideoId) {
+                youtubeUrl = `https://www.youtube.com/watch?v=${extra1.attributes.youtubeVideoId}`;
+            }
+        }
+
         return youtubeUrl;
     } catch (e) {
         console.warn('[Trailer] Failed to resolve YouTube URL:', e);

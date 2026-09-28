@@ -3331,11 +3331,11 @@ Output ONLY the clean 2-4 word title, no quotes, no extra punctuation.`;
           <div class="ai-overview-title-group">
             <div class="ai-overview-badge"><img src="imgs/meem-ai.jpg" alt="MEEM AI" style="width:16px;height:16px;border-radius:4px;object-fit:cover;"> MEEM AI</div>
             <span style="font-size:0.85rem; opacity:0.85; font-weight:600;">
-              ${isArabic ? `هل تبحث عن ملخص أو ترشيحات بالذكاء الاصطناعي لـ "${escapeHTML(q)}"؟` : `Looking for AI plot insights or recommendations for "${escapeHTML(q)}"?`}
+              Looking for AI plot insights or recommendations for "${escapeHTML(q)}"?
             </span>
           </div>
           <button class="ai-overview-copilot-btn" onclick="window.renderSearchAIOverview('${escapeAttr(q)}', true)" style="background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; cursor: pointer; padding: 6px 14px; font-size: 0.8rem; border-radius: 10px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
-            <i class="fas fa-sparkles" style="color: #c084fc;"></i> <span>${isArabic ? 'عرض إجابة الذكاء الاصطناعي' : 'Show AI Overview'}</span>
+            <i class="fas fa-sparkles" style="color: #c084fc;"></i> <span>Show AI Overview</span>
           </button>
         </div>
       `;
