@@ -697,6 +697,7 @@ function initAddonsIpc(ipcMain, store) {
                         axios.get(`https://api.themoviedb.org/3/search/movie?api_key=${tmdbKey}&query=${q}`, { timeout: 2500 })
                             .then(resp => (resp.data?.results || []).map(movie => ({
                                 id: `tmdb:${movie.id}`,
+                                tmdb_id: String(movie.id),
                                 title: movie.title,
                                 poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '',
                                 backdrop: movie.backdrop_path ? `https://image.tmdb.org/t/p/w1280${movie.backdrop_path}` : '',
@@ -711,6 +712,7 @@ function initAddonsIpc(ipcMain, store) {
                         axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${q}`, { timeout: 2500 })
                             .then(resp => (resp.data?.results || []).map(tv => ({
                                 id: `tmdb:${tv.id}`,
+                                tmdb_id: String(tv.id),
                                 title: tv.name,
                                 poster: tv.poster_path ? `https://image.tmdb.org/t/p/w500${tv.poster_path}` : '',
                                 backdrop: tv.backdrop_path ? `https://image.tmdb.org/t/p/w1280${tv.backdrop_path}` : '',
@@ -722,36 +724,75 @@ function initAddonsIpc(ipcMain, store) {
                             }))).catch(() => [])
                     );
                 }
+
+                // 4. Search Anime Kitsu Catalog (Universal Anime Resolver)
+                allFetchPromises.push(
+                    axios.get(`https://anime-kitsu.strem.fun/catalog/anime/kitsu-anime-list/search=${q}.json`, { timeout: 2500 })
+                        .then(resp => (resp.data?.metas || []).map(ani => ({
+                            id: ani.id,
+                            kitsu_id: ani.kitsu_id || (String(ani.id).startsWith('kitsu:') ? String(ani.id).replace('kitsu:', '') : ani.id),
+                            title: ani.name || ani.title,
+                            poster: ani.poster ? (ani.poster.startsWith('http') ? ani.poster : `https://images.metahub.space/poster/medium/${ani.id}/img`) : '',
+                            backdrop: ani.background || ani.backdrop || '',
+                            type: 'series',
+                            isAnime: true,
+                            source: 'kitsu',
+                            rating: ani.imdbRating ? parseFloat(ani.imdbRating) : (ani.rating ? parseFloat(ani.rating) : 0),
+                            releaseYear: ani.year ? parseInt(ani.year) : (ani.releaseInfo ? parseInt(ani.releaseInfo.substring(0, 4)) : 0),
+                            synopsis: ani.description || ani.overview || ''
+                        }))).catch(() => [])
+                );
             }
 
             const fetchResults = await Promise.all(allFetchPromises);
 
-            // Merge and deduplicate results
+            // Merge and deduplicate results with Cross-Provider ID Binding
             const merged = [];
             const seen = new Set();
 
             const addResult = (item) => {
                 if (!item || !item.id || !item.title) return;
-                const titleClean = (item.title || '').toLowerCase().trim();
+                const titleClean = (item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
                 const key = `${titleClean}_${item.releaseYear || ''}_${item.type}`;
                 const idKey = String(item.id).toLowerCase();
 
-                if (!seen.has(key) && !seen.has(idKey)) {
+                if (String(item.id).startsWith('tt')) item.imdb_id = item.id;
+                if (String(item.id).startsWith('tmdb:')) item.tmdb_id = String(item.id).replace('tmdb:', '');
+                if (String(item.id).startsWith('kitsu:')) item.kitsu_id = String(item.id).replace('kitsu:', '');
+                if (String(item.id).startsWith('mal:')) item.mal_id = String(item.id).replace('mal:', '');
+
+                let existing = null;
+                for (const m of merged) {
+                    const mTitle = (m.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+                    const sameId = String(m.id).toLowerCase() === idKey ||
+                                   (m.imdb_id && item.imdb_id && m.imdb_id === item.imdb_id) ||
+                                   (m.tmdb_id && item.tmdb_id && m.tmdb_id === item.tmdb_id) ||
+                                   (m.kitsu_id && item.kitsu_id && m.kitsu_id === item.kitsu_id) ||
+                                   (m.mal_id && item.mal_id && m.mal_id === item.mal_id);
+                    const sameTitleYear = titleClean && mTitle && titleClean === mTitle && (
+                        !m.releaseYear || !item.releaseYear || Math.abs(m.releaseYear - item.releaseYear) <= 1
+                    );
+                    if (sameId || sameTitleYear) {
+                        existing = m;
+                        break;
+                    }
+                }
+
+                if (!existing) {
                     seen.add(key);
                     seen.add(idKey);
                     merged.push(item);
                 } else {
-                    const existingIdx = merged.findIndex(x => 
-                        String(x.id).toLowerCase() === idKey ||
-                        `${(x.title || '').toLowerCase().trim()}_${x.releaseYear || ''}_${x.type}` === key
-                    );
-                    if (existingIdx !== -1) {
-                        const existing = merged[existingIdx];
-                        if (!existing.backdrop && item.backdrop) existing.backdrop = item.backdrop;
-                        if (!existing.poster && item.poster) existing.poster = item.poster;
-                        if ((!existing.rating || existing.rating === 0) && item.rating > 0) existing.rating = item.rating;
-                        if (!existing.synopsis && item.synopsis) existing.synopsis = item.synopsis;
-                    }
+                    // Cross-bind IDs so item retains all provider connections
+                    if (!existing.imdb_id && item.imdb_id) existing.imdb_id = item.imdb_id;
+                    if (!existing.tmdb_id && item.tmdb_id) existing.tmdb_id = item.tmdb_id;
+                    if (!existing.kitsu_id && item.kitsu_id) existing.kitsu_id = item.kitsu_id;
+                    if (!existing.mal_id && item.mal_id) existing.mal_id = item.mal_id;
+                    if (!existing.backdrop && item.backdrop) existing.backdrop = item.backdrop;
+                    if (!existing.poster && item.poster) existing.poster = item.poster;
+                    if ((!existing.rating || existing.rating === 0) && item.rating > 0) existing.rating = item.rating;
+                    if (!existing.synopsis && item.synopsis) existing.synopsis = item.synopsis;
+                    if (item.isAnime) existing.isAnime = true;
                 }
             };
 

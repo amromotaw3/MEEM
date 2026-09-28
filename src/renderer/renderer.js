@@ -18344,46 +18344,33 @@ function performUnifiedSearch(q) {
         }
         // ─── Helper: dedup merged results ───────────────────────────────────
         const mergeDedup = (items) => {
-          const byImdb = new Map();
-          const byTitle = new Map();
-          const byTitleNoYear = new Map();
           const merged = [];
-
           for (const item of items) {
-            const imdbId = item.imdb_id || item.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
-            const tmdbId = item.tmdb_id || item.tmdbId || (!String(item.id).startsWith('tt') && !isNaN(item.id) ? item.id : null);
-            const typeNorm = (item.type === 'tv' || item.type === 'show') ? 'series' : item.type;
-            const year = (item.release_date || item.first_air_date || item.seasonYear || item.releaseYear || item.year || '').toString().slice(0, 4);
-            const titleClean = (item.title || item.name || '').toLowerCase().trim();
-
-            const titleKey = `${titleClean}_${year}_${typeNorm}`;
-            const titleKeyNoYear = `${titleClean}_${typeNorm}`;
-
-            let existingIdx = -1;
-            if (imdbId && byImdb.has(imdbId)) existingIdx = byImdb.get(imdbId);
-            else if (year && byTitle.has(titleKey)) existingIdx = byTitle.get(titleKey);
-            else if (!year && byTitleNoYear.has(titleKeyNoYear)) existingIdx = byTitleNoYear.get(titleKeyNoYear);
-
-            if (existingIdx !== -1) {
-              const existing = merged[existingIdx];
-              if (imdbId && !existing.imdb_id && !existing.imdbId) { existing.imdb_id = imdbId; existing.imdbId = imdbId; byImdb.set(imdbId, existingIdx); }
-              if (tmdbId && !existing.tmdb_id && !existing.tmdbId) { existing.tmdb_id = tmdbId; existing.tmdbId = tmdbId; }
+            if (!item) continue;
+            const existing = merged.find(m => isSameItem(m, item));
+            if (existing) {
+              if (!existing.imdb_id && item.imdb_id) existing.imdb_id = item.imdb_id;
+              if (!existing.imdbId && (item.imdbId || item.imdb_id)) existing.imdbId = item.imdbId || item.imdb_id;
+              if (!existing.tmdb_id && item.tmdb_id) existing.tmdb_id = item.tmdb_id;
+              if (!existing.tmdbId && (item.tmdbId || item.tmdb_id)) existing.tmdbId = item.tmdbId || item.tmdb_id;
+              if (!existing.kitsu_id && item.kitsu_id) existing.kitsu_id = item.kitsu_id;
+              if (!existing.mal_id && item.mal_id) existing.mal_id = item.mal_id;
               const existingHasRealPoster = existing.poster && !existing.poster.match(/^\/tt\d+$/) && existing.poster !== '';
               const newHasRealPoster = item.poster && !item.poster.match(/^\/tt\d+$/) && item.poster !== '';
-              if (!existingHasRealPoster && newHasRealPoster) { existing.poster = item.poster; existing.backdrop = item.backdrop || existing.backdrop; }
-              else if (item.backdrop && !existing.backdrop) existing.backdrop = item.backdrop;
+              if (!existingHasRealPoster && newHasRealPoster) {
+                existing.poster = item.poster;
+                existing.backdrop = item.backdrop || existing.backdrop;
+              } else if (item.backdrop && !existing.backdrop) {
+                existing.backdrop = item.backdrop;
+              }
               if (!existing.synopsis && item.synopsis) existing.synopsis = item.synopsis;
-              if (!existing.rating && item.rating) existing.rating = item.rating;
+              if ((!existing.rating || existing.rating === 0) && item.rating > 0) existing.rating = item.rating;
               if (!existing.releaseYear && item.releaseYear) existing.releaseYear = item.releaseYear;
               if (!existing.year && item.year) existing.year = item.year;
+              if (item.isAnime) existing.isAnime = true;
               continue;
             }
-
-            const idx = merged.length;
             merged.push(item);
-            if (imdbId) byImdb.set(imdbId, idx);
-            if (year) byTitle.set(titleKey, idx);
-            byTitleNoYear.set(titleKeyNoYear, idx);
           }
           return merged;
         };

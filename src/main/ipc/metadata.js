@@ -1271,15 +1271,34 @@ function initMetadataIpc(ipcMain) {
       const tmdbKey = data.tmdbKey || 'eb3db2bfcff07c2c05038f4ea48b8c29';
 
       let resolvedTvId = tvId;
-      if (tmdbKey && String(tvId).startsWith('tt')) {
-        const tmdbFindUrl = `https://api.themoviedb.org/3/find/${tvId}?api_key=${tmdbKey}&external_source=imdb_id`;
+
+      // If ID is from Kitsu or MAL, resolve to IMDb / TMDB
+      if (String(tvId).startsWith('kitsu:') || String(tvId).startsWith('mal:')) {
+        try {
+          const rawId = String(tvId).replace(/^(kitsu|mal):/, '');
+          const kitsuMeta = await fetchStremioMeta(rawId).catch(() => null);
+          if (kitsuMeta?.imdb_id) {
+            resolvedTvId = kitsuMeta.imdb_id;
+          } else if (kitsuMeta?.name) {
+            const sResp = await axios.get(`https://api.themoviedb.org/3/search/tv?api_key=${tmdbKey}&query=${encodeURIComponent(kitsuMeta.name)}`, { timeout: 5000 }).catch(() => null);
+            if (sResp?.data?.results?.[0]?.id) {
+              resolvedTvId = sResp.data.results[0].id;
+            }
+          }
+        } catch (e) {
+          console.warn('[Metadata] Anime ID resolution failed:', e.message);
+        }
+      }
+
+      if (tmdbKey && String(resolvedTvId).startsWith('tt')) {
+        const tmdbFindUrl = `https://api.themoviedb.org/3/find/${resolvedTvId}?api_key=${tmdbKey}&external_source=imdb_id`;
         const tmdbFindResp = await axios.get(tmdbFindUrl, { timeout: 6000 }).catch(() => null);
         const resultsList = tmdbFindResp?.data?.tv_results;
         const tmdbItem = resultsList?.[0];
         if (tmdbItem && tmdbItem.id) {
           resolvedTvId = tmdbItem.id;
         } else {
-          console.warn(`[Metadata] Could not resolve TMDB ID for IMDb ID: ${tvId}, falling back to Cinemeta/ElfHosted`);
+          console.warn(`[Metadata] Could not resolve TMDB ID for IMDb ID: ${resolvedTvId}, falling back to Cinemeta/ElfHosted`);
         }
       }
 
