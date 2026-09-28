@@ -5648,7 +5648,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       description: 'Official OpenSubtitles integration. Provides multi-language subtitles (Arabic, English, etc.) for movies and TV series directly without any API key.',
       url: 'https://opensubtitles-v3.strem.io',
       manifestUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
-      icon: 'imgs/opensubtitles.svg',
+      icon: 'imgs/OpenSubtitles.png',
       iconClass: 'fas fa-closed-captioning',
       iconColor: '#f5c518',
       types: ['subtitles'],

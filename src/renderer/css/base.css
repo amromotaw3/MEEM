@@ -12,13 +12,13 @@
   --text-primary: #ffffff;
   --text-secondary: #a1a1aa;
   --text-muted: #8e8e93;
-  --border: rgba(255, 255, 255, 0.22);
-  --border-subtle: rgba(255, 255, 255, 0.14);
-  --border-strong: rgba(255, 255, 255, 0.45);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.14);
   --accent: #ffffff;
   --accent-hover: #f4f4f5;
   --accent-light: rgba(255, 255, 255, 0.16);
-  --accent-glow: rgba(255, 255, 255, 0.30);
+  --accent-glow: rgba(255, 255, 255, 0.12);
   --radius: 10px;
   --radius-lg: 14px;
   --radius-xl: 18px;
