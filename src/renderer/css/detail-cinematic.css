@@ -640,12 +640,14 @@
 .dd-ep-name {
     font-weight: 700;
     font-size: 0.88rem;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
     color: #fff;
-    line-height: 1.3;
-    white-space: nowrap;
+    line-height: 1.35;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .dd-ep-date {

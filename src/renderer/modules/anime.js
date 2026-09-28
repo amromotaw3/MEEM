@@ -638,8 +638,21 @@
         }
 
         if (isEpisode && !episodeStill) {
-          const sn = parseInt(item.season, 10);
-          const en = parseInt(item.episode, 10);
+          const sn = parseInt(item.season, 10) || 1;
+          const en = parseInt(item.episode, 10) || 1;
+          const showName = item.showTitle || item.showName || item.title || showObj?.title || showObj?.name || '';
+
+          const applyEpisodeData = (stillUrl, epTitle) => {
+            if (stillUrl) {
+              const cleanStill = toCleanImg(stillUrl);
+              const imgEl = card.querySelector('.continue-card-img');
+              if (imgEl && cleanStill) imgEl.src = cleanStill;
+            }
+            if (epTitle) {
+              const tEl = card.querySelector('.continue-card-title');
+              if (tEl) tEl.textContent = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} • ${epTitle}`;
+            }
+          };
 
           const tryFetchCinemetaStill = (imdbId) => {
             fetch(`https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`)
@@ -651,15 +664,7 @@
                   window.appData.cinemetaCache[imdbId] = data.meta;
                   const v = data.meta.videos.find(x => (x.season == sn || x.seasonNumber == sn) && (x.episode == en || x.number == en || x.episodeNumber == en));
                   if (v) {
-                    const fetchedThumb = toCleanImg(v.thumbnail || v.still);
-                    if (fetchedThumb) {
-                      const imgEl = card.querySelector('.continue-card-img');
-                      if (imgEl) imgEl.src = fetchedThumb;
-                    }
-                    if (v.title || v.name) {
-                      const tEl = card.querySelector('.continue-card-title');
-                      if (tEl) tEl.textContent = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} • ${v.title || v.name}`;
-                    }
+                    applyEpisodeData(v.thumbnail || v.still, v.title || v.name);
                   }
                 }
               })
@@ -667,18 +672,12 @@
           };
 
           const tryFetchTmdbStill = (tmdbId) => {
-            const tmdbEp = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${sn}/episode/${en}?api_key=eb3db2bfcff07c2c05038f4ea48b8c29&append_to_response=images`;
+            const tmdbEp = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${sn}/episode/${en}?api_key=eb3db2bfcff07c2c05038f4ea48b8c29`;
             fetch(tmdbEp)
               .then(r => r.ok ? r.json() : null)
               .then(epInfo => {
                 if (epInfo?.still_path) {
-                  const stillUrl = `https://image.tmdb.org/t/p/w300${epInfo.still_path}`;
-                  const imgEl = card.querySelector('.continue-card-img');
-                  if (imgEl) imgEl.src = stillUrl;
-                  if (epInfo.name) {
-                    const tEl = card.querySelector('.continue-card-title');
-                    if (tEl) tEl.textContent = `S${String(sn).padStart(2, '0')}E${String(en).padStart(2, '0')} • ${epInfo.name}`;
-                  }
+                  applyEpisodeData(`https://image.tmdb.org/t/p/w500${epInfo.still_path}`, epInfo.name);
                 }
               })
               .catch(() => {});
@@ -688,10 +687,19 @@
             tryFetchCinemetaStill(targetImdbId);
           }
 
-          // Also try TMDB direct API
-          const tmdbId = metaCache?.tmdbId || metaCache?.id || item.tmdbId || item.showId;
-          if (tmdbId && !String(tmdbId).startsWith('tt') && !String(tmdbId).startsWith('kitsu')) {
+          let tmdbId = metaCache?.tmdbId || metaCache?.id || item.tmdbId || item.showId;
+          if (tmdbId && /^\d+$/.test(String(tmdbId))) {
             tryFetchTmdbStill(tmdbId);
+          } else if (showName && showName.length >= 2) {
+            fetch(`https://api.themoviedb.org/3/search/tv?api_key=eb3db2bfcff07c2c05038f4ea48b8c29&query=${encodeURIComponent(showName)}`)
+              .then(r => r.ok ? r.json() : null)
+              .then(sData => {
+                const found = sData?.results?.[0];
+                if (found?.id) {
+                  tryFetchTmdbStill(found.id);
+                }
+              })
+              .catch(() => {});
           }
         }
 
