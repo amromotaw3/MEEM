@@ -119,7 +119,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
   // Helper: Convert a local file path to a protocol URL that works with webSecurity=true
   // Returns the original value if it's already a URL (http/https/data:)
-  const APP_VERSION = '3.10.6'; // Sync with package.json
+  const APP_VERSION = '3.10.7'; // Sync with package.json
   function getSafeId(itemId) {
     try {
       const utf8Bytes = new TextEncoder().encode(String(itemId));
@@ -17569,7 +17569,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (!modal) return;
 
     modal.style.display = 'flex';
-    const verToShow = targetVer || APP_VERSION || '3.10.6';
+    const verToShow = targetVer || APP_VERSION || '3.10.7';
     if (badge) badge.textContent = `v${verToShow}`;
 
     if (customNotes) {
@@ -17657,7 +17657,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   // Initial Auto-Check & Post-Update "What's New" Popup
   setTimeout(() => {
     // Only auto-show "What's New" if the user JUST installed an update
-    const curVer = APP_VERSION || '3.10.6';
+    const curVer = APP_VERSION || '3.10.7';
     const justUpdated = localStorage.getItem('meem_just_updated') === 'true';
     if (justUpdated) {
       console.log(`[UPDATER] App launched post-update: v${curVer}`);
