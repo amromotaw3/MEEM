@@ -2213,6 +2213,22 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                 const listEl = document.getElementById('dd-unified-ep-list');
                 renderEpisodesInBatches(listEl, vids, 1, true);
                 try { window._lastUnifiedKitsuSeasonId = String(item.id).replace('kitsu:', ''); } catch (e) { window._lastUnifiedKitsuSeasonId = item.id; }
+
+                // Enrich anime episodes with TMDB stills and ratings
+                const targetLookupId = item?.tmdb_id || item?.tmdbId || item?.imdb_id || item?.imdbId || item?.title || item?.name || extra1?.name || item?.id;
+                window.api.invoke('tmdb-season-details', targetLookupId, 1).then(tmdbData => {
+                    if (tmdbData && tmdbData.episodes && tmdbData.episodes.length > 0) {
+                        const map = {};
+                        tmdbData.episodes.forEach(te => {
+                            map[te.episode_number] = {
+                                still: te.still_path,
+                                vote_average: te.vote_average || te.rating,
+                                name: te.name
+                            };
+                        });
+                        applyTmdbStillsToCards(listEl, map, 1);
+                    }
+                }).catch(() => {});
             } else if (item.source === 'jikan' || item.source === 'mal' || item.mal_id) {
                 const malId = item.mal_id || String(item.id).replace('mal:', '').replace('jikan:', '');
                 
@@ -2245,6 +2261,22 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                     const listEl = document.getElementById('dd-unified-ep-list');
                     renderEpisodesInBatches(listEl, kitsuData.videos, 1, true);
                     try { window._lastUnifiedKitsuSeasonId = String(kitsuData.id).replace('kitsu:', ''); } catch (e) {}
+
+                    // Enrich anime episodes with TMDB stills and ratings
+                    const targetLookupId = item?.tmdb_id || item?.tmdbId || item?.imdb_id || item?.imdbId || item?.title || item?.name || kitsuData?.name || malId;
+                    window.api.invoke('tmdb-season-details', targetLookupId, 1).then(tmdbData => {
+                        if (tmdbData && tmdbData.episodes && tmdbData.episodes.length > 0) {
+                            const map = {};
+                            tmdbData.episodes.forEach(te => {
+                                map[te.episode_number] = {
+                                    still: te.still_path,
+                                    vote_average: te.vote_average || te.rating,
+                                    name: te.name
+                                };
+                            });
+                            applyTmdbStillsToCards(listEl, map, 1);
+                        }
+                    }).catch(() => {});
                 } else {
                     // Fallback to Jikan native episodes
                     content.innerHTML = `
