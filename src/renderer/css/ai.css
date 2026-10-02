@@ -1,6 +1,6 @@
 /* ── MEEM AI Luxury Obsidian & Monochrome Styles ── */
 #view-ai {
-  display: none;
+  display: none !important;
   flex-direction: column;
   height: 100%;
   width: 100%;
@@ -12,7 +12,7 @@
   background: radial-gradient(circle at 50% 12%, rgba(255, 255, 255, 0.03) 0%, transparent 60%);
 }
 
-#view-ai.active, #view-ai[style*="display: block"], #view-ai[style*="display: flex"] {
+#view-ai.active {
   display: flex !important;
 }
 

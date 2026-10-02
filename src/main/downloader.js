@@ -138,7 +138,7 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
             }
 
             // 2. Cobalt API Instances for YouTube, Instagram, and TikTok fallback
-            const instances = ['https://co.wuk.sh/api/json', 'https://api.cobalt.tools/api/json'];
+            const instances = ['https://api.cobalt.tools/api/json'];
             for (let apiUrl of instances) {
                 try {
                     const data = await tryCobaltAPI(apiUrl);
@@ -208,6 +208,22 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
     childProcess.stdout.on('data', (d) => { 
       if (cancelled) return; 
       const t = d.toString();
+
+      // Detect FFmpeg Merger / Muxing / Post-processing phase to prevent UI freeze
+      if (t.includes('[Merger]') || t.includes('[ExtractAudio]') || t.includes('[Fixup') || t.includes('Merging formats')) {
+        mainWindow?.webContents?.send?.('download-progress', {
+            id: downloadId,
+            name: displayName,
+            percent: 99.5,
+            downloaded: 'Merging streams...',
+            total: 'Finalizing',
+            speed: 'FFmpeg',
+            status: 'muxing',
+            statusText: 'Merging audio and video streams (FFmpeg)...'
+        });
+        return;
+      }
+
       // Match yt-dlp progress: handles ~estimated sizes and fragment downloads
       const m = t.match(/\[download\]\s+([\d\.]+)%\s+of\s+[~]?([\d\.]+)([a-zA-Z]+)(?:\s+at\s+([^\s]+))?/); 
       if (m) {
@@ -272,6 +288,21 @@ async function downloadYouTube(url, outputPath, downloadId, displayName) {
           fallbackProc.stdout.on('data', (d) => {
             if (cancelled) return;
             const t = d.toString();
+
+            if (t.includes('[Merger]') || t.includes('[ExtractAudio]') || t.includes('[Fixup') || t.includes('Merging formats')) {
+              mainWindow?.webContents?.send?.('download-progress', {
+                  id: downloadId,
+                  name: displayName,
+                  percent: 99.5,
+                  downloaded: 'Merging streams...',
+                  total: 'Finalizing',
+                  speed: 'FFmpeg',
+                  status: 'muxing',
+                  statusText: 'Merging audio and video streams (FFmpeg)...'
+              });
+              return;
+            }
+
             const m = t.match(/\[download\]\s+([\d\.]+)%\s+of\s+[~]?([\d\.]+)([a-zA-Z]+)(?:\s+at\s+([^\s]+))?/);
             if (m) {
               mainWindow?.webContents?.send?.('download-progress', {

@@ -12,6 +12,54 @@
 
     const isElectron = !!(window.api);
     const isAndroid = !!(window.Capacitor);
+
+    window.toggleMobileDockExpansion = window.toggleMobileDockExpansion || function(show) {
+        const nav = document.getElementById('mobile-bottom-nav');
+        const backdrop = document.getElementById('mobile-dock-backdrop');
+        if (!nav) return;
+        if (show === undefined) show = !nav.classList.contains('expanded');
+        nav.classList.toggle('expanded', show);
+        if (backdrop) backdrop.classList.toggle('active', show);
+        
+        const expandedContainer = nav.querySelector('.mobile-nav-bar-expanded');
+        if (expandedContainer) {
+            expandedContainer.style.display = show ? 'flex' : 'none';
+        }
+    };
+    window.toggleMobileBottomSheet = window.toggleMobileDockExpansion;
+
+    window.handleMobileSheetNavigation = function(viewName, event) {
+        if (event && typeof event.stopPropagation === 'function') {
+            event.stopPropagation();
+        }
+        if (typeof window.toggleMobileDockExpansion === 'function') {
+            window.toggleMobileDockExpansion(false);
+        }
+        if (viewName === 'bug-report') {
+            if (typeof window.openBugReportModal === 'function') {
+                window.openBugReportModal();
+            } else if (typeof window.switchView === 'function') {
+                window.switchView('bug-report');
+            }
+        } else if (viewName && typeof window.switchView === 'function') {
+            window.switchView(viewName);
+        }
+    };
+
+    window.syncMobileCategoryChips = window.syncMobileCategoryChips || function(name) {
+        const chips = document.querySelectorAll('.mobile-category-chip');
+        if (!chips.length) return;
+        chips.forEach(chip => {
+            const cat = chip.getAttribute('data-category');
+            let isActive = false;
+            if (cat === 'discover' && name === 'discover') isActive = true;
+            else if (cat === 'movies' && name === 'movies') isActive = true;
+            else if (cat === 'shows' && name === 'shows') isActive = true;
+            else if (cat === 'anime-schedule' && name === 'anime-schedule') isActive = true;
+            else if (cat === 'social' && (name === 'social' || name === 'music')) isActive = true;
+            chip.classList.toggle('active', isActive);
+        });
+    };
     
     let Filesystem, Directory, Share, LocalServer;
     if (isAndroid) {
@@ -19,7 +67,7 @@
         Share = window.Capacitor?.Plugins?.Share;
         LocalServer = window.Capacitor?.Plugins?.LocalServer;
         if (!LocalServer) {
-            console.warn('[Bridge] LocalServer plugin NOT found in window.Capacitor.Plugins. Trying fallback...');
+            console.log('[Bridge] Using direct Capacitor streaming bridge.');
         } else {
             console.log('[Bridge] LocalServer plugin successfully loaded.');
         }
@@ -73,23 +121,35 @@
 
     // Early deep link listener & base storage initialization on native Android
     if (isAndroid) {
+        // Fast dismiss native splash screen so app transitions instantly
+        try {
+            if (window.Capacitor?.Plugins?.SplashScreen) {
+                window.Capacitor.Plugins.SplashScreen.hide().catch(() => {});
+            }
+        } catch (_) {}
+
         const initBaseFolders = async () => {
             const fs = window.Capacitor?.Plugins?.Filesystem;
             if (fs) {
                 try {
-                    const baseFolders = ['MEEM', 'MEEM/Movies', 'MEEM/Series', 'MEEM/Music', 'MEEM/Social', 'MEEM/Downloads', 'MEEM/Subtitles'];
+                    // Only create the root MEEM directory. Profile-specific media folders are created inside MEEM/{profileName}/
+                    const baseFolders = ['MEEM'];
                     for (const f of baseFolders) {
                         try {
-                            await fs.stat({ path: f, directory: 'DOCUMENTS' });
-                        } catch (_) {
-                            await fs.mkdir({ path: f, directory: 'DOCUMENTS', recursive: true }).catch(() => {});
-                        }
+                            const statRes = await fs.stat({ path: f, directory: 'DOCUMENTS' }).catch(() => null);
+                            if (!statRes) {
+                                await fs.mkdir({ path: f, directory: 'DOCUMENTS', recursive: true }).catch(err => {
+                                    if (err?.code === 'OS-PLUG-FILE-0007' || err?.message?.includes('permission')) {
+                                        return fs.mkdir({ path: f, directory: 'DATA', recursive: true }).catch(() => {});
+                                    }
+                                });
+                            }
+                        } catch (_) {}
                     }
                 } catch (_) {}
             }
         };
-        setTimeout(initBaseFolders, 100);
-        setTimeout(initBaseFolders, 1500);
+        setTimeout(initBaseFolders, 500);
 
         const initEarlyDeepLink = () => {
             const App = window.Capacitor?.Plugins?.App;
@@ -109,6 +169,54 @@
                 if (initEarlyDeepLink()) clearInterval(earlyT);
             }, 200);
             setTimeout(() => clearInterval(earlyT), 10000);
+        }
+
+        // Native Download Events Bridge from MeemDownloader Capacitor Plugin
+        const initNativeDownloaderBridge = () => {
+            const MeemDL = window.Capacitor?.Plugins?.MeemDownloader;
+            if (!MeemDL || typeof MeemDL.addListener !== 'function') return false;
+            try {
+                MeemDL.addListener('downloadProgress', (data) => {
+                    if (!data || !data.id) return;
+                    window.dispatchEvent(new CustomEvent('download-progress', { detail: data }));
+                    
+                    if (data.status === 'completed') {
+                        window.dispatchEvent(new CustomEvent('download-complete', {
+                            detail: {
+                                id: data.id,
+                                name: data.name,
+                                path: data.path || '',
+                                url: data.url || ''
+                            }
+                        }));
+                    } else if (data.status === 'error') {
+                        window.dispatchEvent(new CustomEvent('download-error', {
+                            detail: {
+                                id: data.id,
+                                name: data.name,
+                                error: data.error || 'Download failed'
+                            }
+                        }));
+                    } else if (data.status === 'cancelled') {
+                        window.dispatchEvent(new CustomEvent('download-cancelled', {
+                            detail: {
+                                id: data.id,
+                                name: data.name
+                            }
+                        }));
+                    }
+                });
+                console.log('[Bridge] Native MeemDownloader event listener connected.');
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+        if (!initNativeDownloaderBridge()) {
+            const dlT = setInterval(() => {
+                if (initNativeDownloaderBridge()) clearInterval(dlT);
+            }, 300);
+            setTimeout(() => clearInterval(dlT), 10000);
         }
     }
 
@@ -622,10 +730,23 @@
                     magnetUrl = `magnet:?xt=urn:btih:${url}&tr=udp://tracker.opentrackr.org:1337/announce`;
                 }
 
+                const fileIdx = meta.fileIdx ?? meta.item?.fileIdx ?? meta.item?.file_idx ?? null;
+                if (fileIdx !== null && fileIdx !== undefined && !magnetUrl.includes('index=') && !magnetUrl.includes('fileIndex=')) {
+                    const sep = magnetUrl.includes('?') ? '&' : '?';
+                    magnetUrl += `${sep}index=${fileIdx}&fileIndex=${fileIdx}&so=${fileIdx}`;
+                }
+
                 if (isAndroid) {
                     try {
-                        console.log('[PlayMediaService] Opening magnet/torrent via App Chooser intent:', magnetUrl);
-                        const chooserIntent = `intent:${magnetUrl.substring(magnetUrl.indexOf(':') + 1)}#Intent;scheme=magnet;action=android.intent.action.VIEW;end;`;
+                        console.log('[PlayMediaService] Opening magnet/torrent via App Chooser intent:', magnetUrl, 'fileIdx:', fileIdx);
+                        let intentExtras = '';
+                        if (fileIdx !== null && fileIdx !== undefined) {
+                            intentExtras += `;i.index=${fileIdx};i.file_index=${fileIdx};i.fileIdx=${fileIdx};i.selected_file=${fileIdx};`;
+                        }
+                        if (meta.title) {
+                            intentExtras += `S.title=${encodeURIComponent(meta.title)};`;
+                        }
+                        const chooserIntent = `intent:${magnetUrl.substring(magnetUrl.indexOf(':') + 1)}#Intent;scheme=magnet;action=android.intent.action.VIEW;${intentExtras}end;`;
                         window.location.href = chooserIntent;
                         return { success: true, method: 'app-chooser-intent' };
                     } catch (e) {
@@ -643,7 +764,11 @@
 
                 // Fallback to legacy magnet intent
                 try {
-                    const intentUrl = `intent:${magnetUrl.substring(magnetUrl.indexOf(':') + 1)}#Intent;scheme=magnet;action=android.intent.action.VIEW;end;`;
+                    let intentExtras = '';
+                    if (fileIdx !== null && fileIdx !== undefined) {
+                        intentExtras += `;i.index=${fileIdx};i.file_index=${fileIdx};`;
+                    }
+                    const intentUrl = `intent:${magnetUrl.substring(magnetUrl.indexOf(':') + 1)}#Intent;scheme=magnet;action=android.intent.action.VIEW;${intentExtras}end;`;
                     window.location.href = intentUrl;
                     return { success: true, method: 'intent-scheme' };
                 } catch (e) {
@@ -907,10 +1032,11 @@
                 directory: Directory.Documents,
                 recursive: true
             });
-            console.log(`[Filesystem] Created (Public): ${path}`);
             return { directory: Directory.Documents, path };
         } catch (e) {
-            console.warn(`[Filesystem] Public failed for ${path}, using Sandbox fallback.`, e.message);
+            if (e?.code === 'OS-PLUG-FILE-0010' || e?.message?.includes('already exists') || e?.message?.includes('exists')) {
+                return { directory: Directory.Documents, path };
+            }
             try {
                 // Attempt 2: App Data Sandbox (Safe fallback)
                 await Filesystem.mkdir({
@@ -918,11 +1044,9 @@
                     directory: Directory.Data,
                     recursive: true
                 });
-                console.log(`[Filesystem] Created (Sandbox): ${path}`);
                 return { directory: Directory.Data, path };
             } catch (err2) {
-                console.error(`[Filesystem] FATAL: All storage attempts failed for ${path}`, err2.message);
-                throw err2;
+                return { directory: Directory.Data, path };
             }
         }
     }
@@ -936,28 +1060,25 @@
         if (LocalServer) {
             try {
                 const res = await LocalServer.listFiles({ path: dirPath });
-                if (res.exists && res.files) {
+                if (res && res.exists && res.files) {
                     const items = Array.isArray(res.files) ? res.files : Array.from(res.files || []);
                     return items.map(f => ({ name: f.name || '', type: f.type || 'file', uri: f.uri }));
                 }
             } catch (e) {
-                console.warn(`[Bridge/Native] readDirRobust failed for "${dirPath}":`, e.message);
+                // silent fallback
             }
         }
 
-        // Fallback: Capacitor Filesystem
-        const dirsToTry = ['DOCUMENTS', 'EXTERNAL_STORAGE'];
-        for (const d of dirsToTry) {
+        // Fallback: Capacitor Filesystem (DOCUMENTS is primary storage on Android)
+        if (Filesystem) {
             try {
-                if (Filesystem) {
-                    const { files } = await Filesystem.readdir({ path: cleanPath, directory: d });
-                    if (files && files.length > 0) {
-                        return files.map(f => {
-                            const name = typeof f === 'string' ? f : (f.name || '');
-                            const isDir = typeof f === 'string' ? !name.includes('.') : (f.type === 'directory');
-                            return { name, type: isDir ? 'directory' : 'file' };
-                        });
-                    }
+                const res = await Filesystem.readdir({ path: cleanPath, directory: 'DOCUMENTS' });
+                if (res && res.files) {
+                    return res.files.map(f => {
+                        const name = typeof f === 'string' ? f : (f.name || '');
+                        const isDir = typeof f === 'string' ? !name.includes('.') : (f.type === 'directory');
+                        return { name, type: isDir ? 'directory' : 'file' };
+                    });
                 }
             } catch (e) { /* silent fallback */ }
         }
@@ -1249,11 +1370,35 @@
 
                         // Sync profiles to Supabase
                         if (toSave.profiles && Array.isArray(toSave.profiles)) {
+                            // Delete profiles from Supabase that were deleted locally
+                            try {
+                                const { data: dbProfiles } = await client
+                                    .from('account_profiles')
+                                    .select('id')
+                                    .eq('user_id', toSave.user.id);
+                                if (dbProfiles && dbProfiles.length > 0) {
+                                    const localProfileIds = new Set(toSave.profiles.map(p => p.id));
+                                    const toDeleteProfiles = dbProfiles.filter(p => !localProfileIds.has(p.id)).map(p => p.id);
+                                    if (toDeleteProfiles.length > 0) {
+                                        console.log('[Bridge] Deleting removed profiles from Supabase:', toDeleteProfiles);
+                                        await client
+                                            .from('account_profiles')
+                                            .delete()
+                                            .in('id', toDeleteProfiles);
+                                    }
+                                }
+                            } catch (delProfErr) {
+                                console.warn('[Bridge] Failed to delete orphaned profiles:', delProfErr?.message);
+                            }
+
                             for (const profile of toSave.profiles) {
                                 if (profile.user_id && profile.user_id !== toSave.user.id) {
                                     continue;
                                 }
                                 try {
+                                    const cleanAvatar = (!profile.avatar || profile.avatar === 'imgs/avatar.png' || profile.avatar === 'default' || !String(profile.avatar).trim())
+                                        ? 'imgs/avatars/default.png'
+                                        : profile.avatar;
                                     // 1. Direct metadata upsert
                                     const { error: profileError } = await client
                                         .from('account_profiles')
@@ -1261,7 +1406,7 @@
                                             id: profile.id,
                                             user_id: toSave.user.id,
                                             name: profile.name,
-                                            avatar: profile.avatar || null,
+                                            avatar: cleanAvatar,
                                             max_age_rating: typeof profile.max_age_rating !== 'undefined' ? parseInt(profile.max_age_rating, 10) : 18,
                                             profile_pin: profile.vaultPin || profile.pin || null,
                                             banner: profile.banner || null
@@ -2262,6 +2407,53 @@
             try { return await supabaseRpc('admin_mutation', { admin_id: cloudSession?.user?.id, action, payload }); } catch (e) { console.error('[Bridge] admin_mutation RPC failed:', e.message); return { error: e.message }; }
         },
 
+        // --- Media Ratings System ---
+        saveMediaRating: async (payload) => {
+            if (window.api?.saveMediaRating && window.api !== window.bridge) {
+                return await window.api.saveMediaRating(payload);
+            }
+            try {
+                const client = getSupabaseClient();
+                if (!client) return { success: false, error: 'No client' };
+                const { profileId, userId, profileName, mediaId, mediaTitle, rating } = payload || {};
+                const numRating = parseFloat(rating);
+                const { error } = await client.from('media_ratings').upsert({
+                    profile_id: String(profileId || 'default'),
+                    user_id: userId ? String(userId) : null,
+                    profile_name: profileName ? String(profileName) : null,
+                    media_id: String(mediaId),
+                    media_title: mediaTitle || '',
+                    rating: numRating,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'profile_id, media_id' });
+                return { success: !error, rating: numRating, error: error?.message };
+            } catch (e) {
+                return { success: false, error: e.message };
+            }
+        },
+        getMediaRatings: async (payload) => {
+            if (window.api?.getMediaRatings && window.api !== window.bridge) {
+                return await window.api.getMediaRatings(payload);
+            }
+            try {
+                const client = getSupabaseClient();
+                if (!client) return { success: false, ratings: {} };
+                const { profileId, mediaIds } = payload || {};
+                let query = client.from('media_ratings').select('profile_id, profile_name, media_id, rating');
+                if (profileId) query = query.eq('profile_id', profileId);
+                if (Array.isArray(mediaIds) && mediaIds.length > 0) query = query.in('media_id', mediaIds.map(String));
+                const { data, error } = await query;
+                const ratingsMap = {};
+                if (!error && Array.isArray(data)) {
+                    data.forEach(r => {
+                        if (r.media_id && r.rating != null) ratingsMap[r.media_id] = parseFloat(r.rating);
+                    });
+                }
+                return { success: true, ratings: ratingsMap };
+            } catch (e) {
+                return { success: false, ratings: {}, error: e.message };
+            }
+        },
 
         // --- Session helpers ---
         getCloudSession: () => cloudSession,
@@ -2326,11 +2518,138 @@
         tmdbSeasonDetails: async (tvId, seasonNum) => {
             try {
                 const tmdbKey = window.appData?.tmdbKey || '4e44d9029b1270a757cddc766a1bcb63';
-                const url = `https://api.themoviedb.org/3/tv/${tvId}/season/${seasonNum}?api_key=${tmdbKey}`;
-                const resp = await fetch(url).then(r => r.json());
+                let numericId = tvId;
+
+                if (String(tvId).startsWith('tt')) {
+                    try {
+                        const findUrl = `https://api.themoviedb.org/3/find/${tvId}?api_key=${tmdbKey}&external_source=imdb_id`;
+                        const findResp = await fetch(findUrl).then(r => r.json()).catch(() => null);
+                        const match = findResp?.tv_results?.[0];
+                        if (match?.id) numericId = match.id;
+                    } catch (_) {}
+                }
+
+                const url = `https://api.themoviedb.org/3/tv/${numericId}/season/${seasonNum}?api_key=${tmdbKey}`;
+                const resp = await fetch(url).then(r => r.json()).catch(() => null);
+
+                let targetImdbId = String(tvId).startsWith('tt') ? tvId : (window.currentDetailItem?.imdb_id || window.currentDetailItem?.imdbId || null);
+                if (!targetImdbId && /^\d+$/.test(String(numericId))) {
+                    try {
+                        const extUrl = `https://api.themoviedb.org/3/tv/${numericId}/external_ids?api_key=${tmdbKey}`;
+                        const extResp = await fetch(extUrl).then(r => r.json()).catch(() => null);
+                        if (extResp?.imdb_id) targetImdbId = extResp.imdb_id;
+                    } catch (_) {}
+                }
+
+                if (targetImdbId && resp && Array.isArray(resp.episodes) && resp.episodes.length > 0) {
+                    const omdbKeys = ['trilogy', 'b9bd48a6'];
+                    for (const k of omdbKeys) {
+                        try {
+                            const oUrl = `https://www.omdbapi.com/?i=${targetImdbId}&Season=${seasonNum}&apikey=${k}`;
+                            const oRes = await fetch(oUrl).then(r => r.json()).catch(() => null);
+                            if (oRes?.Episodes && Array.isArray(oRes.Episodes) && oRes.Episodes.length > 0) {
+                                const map = {};
+                                oRes.Episodes.forEach(ep => {
+                                    const epNum = Number(ep.Episode);
+                                    const r = parseFloat(ep.imdbRating);
+                                    if (!isNaN(epNum) && !isNaN(r) && r > 0) map[epNum] = r;
+                                });
+                                resp.episodes.forEach(ep => {
+                                    if (map[ep.episode_number]) {
+                                        ep.imdbRating = map[ep.episode_number];
+                                        ep.imdb_rating = map[ep.episode_number];
+                                        ep.vote_average = map[ep.episode_number];
+                                        ep.rating = map[ep.episode_number];
+                                    }
+                                });
+                                break;
+                            }
+                        } catch (_) {}
+                    }
+                }
+
                 return resp;
             } catch (err) {
                 return null;
+            }
+        },
+
+        traktSearch: async (query, type = 'movie') => {
+            const q = String(query || '').trim();
+            if (!q) return { results: [] };
+            const searchType = (type === 'series' || type === 'tv' || type === 'show') ? 'show' : 'movie';
+            try {
+                const url = `https://api.trakt.tv/search/${searchType}?query=${encodeURIComponent(q)}&extended=full`;
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'trakt-api-version': '2',
+                    'trakt-api-key': 'd9f5e01379b335de9ee8e5ebbc1db059f749ef5124b648470bd7659b97f4727f'
+                };
+                let data = null;
+                if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                    const res = await window.Capacitor.Plugins.CapacitorHttp.get({
+                        url,
+                        headers,
+                        connectTimeout: 4000,
+                        readTimeout: 4000
+                    });
+                    data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                } else {
+                    const res = await fetch(url, { headers, signal: AbortSignal.timeout(4000) });
+                    if (res.ok) data = await res.json();
+                }
+
+                if (Array.isArray(data) && data.length > 0) {
+                    const results = data.map(r => {
+                        const item = r[searchType];
+                        if (!item) return null;
+                        return {
+                            id: item.ids?.imdb || (item.ids?.tmdb ? `tmdb:${item.ids.tmdb}` : item.ids?.trakt),
+                            imdb_id: item.ids?.imdb || null,
+                            tmdb_id: item.ids?.tmdb || null,
+                            title: item.title,
+                            name: item.title,
+                            poster: item.ids?.imdb ? `https://images.metahub.space/poster/medium/${item.ids.imdb}/img` : '',
+                            type: searchType === 'show' ? 'tv' : 'movie',
+                            source: 'trakt',
+                            rating: item.rating ? parseFloat(item.rating.toFixed(1)) : 0,
+                            releaseYear: item.year || 0,
+                            synopsis: item.overview || ''
+                        };
+                    }).filter(Boolean);
+                    return { results };
+                }
+            } catch (e) {
+                console.warn('[Bridge Trakt Search] Trakt API failed, falling back:', e.message);
+            }
+
+            // Fallback: Cinemeta search
+            try {
+                const cType = searchType === 'show' ? 'series' : 'movie';
+                const cinemetaUrl = `https://v3-cinemeta.strem.io/catalog/${cType}/top/search=${encodeURIComponent(q)}.json`;
+                let cmData = null;
+                if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                    const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: cinemetaUrl, connectTimeout: 4000, readTimeout: 4000 });
+                    cmData = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                } else {
+                    const res = await fetch(cinemetaUrl, { signal: AbortSignal.timeout(4000) });
+                    if (res.ok) cmData = await res.json();
+                }
+                const metas = cmData?.metas || [];
+                const results = metas.map(m => ({
+                    id: m.id,
+                    imdb_id: m.id,
+                    title: m.name,
+                    name: m.name,
+                    poster: m.poster || `https://images.metahub.space/poster/medium/${m.id}/img`,
+                    type: searchType === 'show' ? 'tv' : 'movie',
+                    rating: m.imdbRating ? parseFloat(m.imdbRating) : 0,
+                    releaseYear: m.releaseInfo ? parseInt(m.releaseInfo.substring(0, 4)) : 0,
+                    synopsis: m.description || ''
+                }));
+                return { results };
+            } catch (_) {
+                return { results: [] };
             }
         },
 
@@ -2358,6 +2677,116 @@
             } catch (err) {
                 console.error('[Bridge Cinemeta Search] Error:', err);
                 return { results: [], error: err.message };
+            }
+        },
+
+        unifiedSearch: async (query) => {
+            try {
+                const q = String(query || '').trim();
+                if (!q || q.length < 2) return { results: [] };
+
+                const appData = (typeof window !== 'undefined' && window.appData) || {};
+                const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
+                const hasCinemeta = installed.some(a => a.enabled !== false && String(a.id || a.name || a.url || '').toLowerCase().includes('cinemeta'));
+                const hasTmdb = installed.some(a => a.enabled !== false && String(a.id || a.name || a.url || '').toLowerCase().includes('tmdb'));
+
+                const promises = [];
+
+                if (hasCinemeta) {
+                    const movieUrl = `https://v3-cinemeta.strem.io/catalog/movie/top/search=${encodeURIComponent(q)}.json`;
+                    const seriesUrl = `https://v3-cinemeta.strem.io/catalog/series/top/search=${encodeURIComponent(q)}.json`;
+                    promises.push(
+                        fetch(movieUrl).then(r => r.json()).then(d => (d?.metas || []).map(m => ({
+                            id: m.id,
+                            imdb_id: m.id,
+                            title: m.name,
+                            poster: m.poster ? (m.poster.startsWith('http') ? m.poster : `https://images.metahub.space/poster/medium/${m.id}/img`) : `https://images.metahub.space/poster/medium/${m.id}/img`,
+                            type: 'movie',
+                            rating: m.imdbRating ? parseFloat(m.imdbRating) : 0,
+                            releaseYear: m.releaseInfo ? parseInt(m.releaseInfo.substring(0, 4)) : 0,
+                            synopsis: m.description || ''
+                        }))).catch(() => [])
+                    );
+                    promises.push(
+                        fetch(seriesUrl).then(r => r.json()).then(d => (d?.metas || []).map(s => ({
+                            id: s.id,
+                            imdb_id: s.id,
+                            title: s.name,
+                            poster: s.poster ? (s.poster.startsWith('http') ? s.poster : `https://images.metahub.space/poster/medium/${s.id}/img`) : `https://images.metahub.space/poster/medium/${s.id}/img`,
+                            type: 'series',
+                            rating: s.imdbRating ? parseFloat(s.imdbRating) : 0,
+                            releaseYear: s.releaseInfo ? parseInt(s.releaseInfo.substring(0, 4)) : 0,
+                            synopsis: s.description || ''
+                        }))).catch(() => [])
+                    );
+                }
+
+                if (hasTmdb) {
+                    promises.push(
+                        fetch(`https://tmdb.elfhosted.com/catalog/movie/top/search=${encodeURIComponent(q)}.json`).then(r => r.json()).then(d => (d?.metas || []).map(m => ({
+                            id: m.id,
+                            title: m.name,
+                            poster: m.poster || '',
+                            type: 'movie',
+                            rating: m.imdbRating ? parseFloat(m.imdbRating) : 0,
+                            synopsis: m.description || ''
+                        }))).catch(() => [])
+                    );
+                    promises.push(
+                        fetch(`https://tmdb.elfhosted.com/catalog/series/top/search=${encodeURIComponent(q)}.json`).then(r => r.json()).then(d => (d?.metas || []).map(s => ({
+                            id: s.id,
+                            title: s.name,
+                            poster: s.poster || '',
+                            type: 'series',
+                            rating: s.imdbRating ? parseFloat(s.imdbRating) : 0,
+                            synopsis: s.description || ''
+                        }))).catch(() => [])
+                    );
+                }
+
+                // Check other custom catalog addons installed by user
+                installed.forEach(addon => {
+                    if (addon.enabled === false) return;
+                    const aid = String(addon.id || addon.name || '').toLowerCase();
+                    if (aid.includes('cinemeta') || aid.includes('tmdb')) return;
+                    if (addon.manifest?.catalogs && Array.isArray(addon.manifest.catalogs)) {
+                        addon.manifest.catalogs.forEach(cat => {
+                            const canSearch = (cat.extra || []).some(e => e.name === 'search');
+                            const transportUrl = addon.transportUrl || addon.url || addon.manifestUrl || '';
+                            if (canSearch && transportUrl) {
+                                const baseUrl = transportUrl.replace(/\/manifest\.json$/, '');
+                                promises.push(
+                                    fetch(`${baseUrl}/catalog/${cat.type}/${cat.id}/search=${encodeURIComponent(q)}.json`, { signal: AbortSignal.timeout(4000) })
+                                        .then(r => r.json())
+                                        .then(d => (d?.metas || []).map(m => ({
+                                            id: m.id,
+                                            imdb_id: m.imdb_id || (String(m.id).startsWith('tt') ? m.id : null),
+                                            kitsu_id: m.kitsu_id || (String(m.id).startsWith('kitsu:') ? String(m.id).replace('kitsu:', '') : null),
+                                            mal_id: m.mal_id || (String(m.id).startsWith('mal:') ? String(m.id).replace('mal:', '') : null),
+                                            aliases: Array.isArray(m.aliases) ? m.aliases : [],
+                                            title: m.name,
+                                            poster: m.poster || '',
+                                            type: cat.type === 'series' || m.type === 'series' ? 'series' : 'movie',
+                                            rating: m.imdbRating ? parseFloat(m.imdbRating) : 0,
+                                            releaseYear: m.releaseInfo ? parseInt(m.releaseInfo.substring(0, 4)) : 0,
+                                            synopsis: m.description || ''
+                                        }))).catch(() => [])
+                                );
+                            }
+                        });
+                    }
+                });
+
+                if (promises.length === 0) {
+                    return { results: [] };
+                }
+
+                const resolved = await Promise.all(promises);
+                const flat = resolved.flat();
+                return { results: flat };
+            } catch (err) {
+                console.warn('[Bridge Unified Search] Error:', err.message);
+                return { results: [] };
             }
         },
 
@@ -2496,65 +2925,30 @@
                 return { success: false, error: 'Invalid YouTube ID' };
             }
 
-            // 1. Try Piped API instances first (Fastest & direct stream URLs)
-            const pipedInstances = [
-                'https://pipedapi.kavin.rocks',
-                'https://api.piped.privacydev.net',
-                'https://pipedapi.tokhmi.xyz',
-                'https://piped-api.garudalinux.org'
-            ];
-            for (const piped of pipedInstances) {
-                try {
-                    const fetchUrl = `${piped}/streams/${vidId}`;
-                    let data = null;
-                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
-                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
-                        data = res.data;
-                    } else {
-                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(4500) });
-                        data = await res.json();
-                    }
-                    if (data && (data.videoStreams || data.audioStreams || data.title)) {
-                        const vidStreams = (data.videoStreams || []).filter(s => s.videoOnly === false);
-                        const bestVid = (vidStreams.length > 0 ? vidStreams : (data.videoStreams || [])).sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))[0];
-                        const bestAud = (data.audioStreams || []).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
-                        const streamUrl = bestVid?.url || bestAud?.url;
-                        if (streamUrl) {
-                            return {
-                                success: true,
-                                details: {
-                                    id: vidId,
-                                    videoId: vidId,
-                                    title: data.title || 'YouTube Video',
-                                    author: data.uploader || 'YouTube',
-                                    duration: data.duration || 0,
-                                    thumbnail: data.thumbnailUrl || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`,
-                                    streamUrl: streamUrl
-                                }
-                            };
-                        }
-                    }
-                } catch (_) {}
-            }
-
-            // 2. Try Healthy Invidious instances
+            // Healthy Invidious public instances (healthy verified nodes)
             const invidiousInstances = [
-                'https://yewtu.be',
-                'https://invidious.flokinet.to',
-                'https://iv.ggtyler.dev',
-                'https://invidious.drgns.space',
-                'https://invidious.private.coffee',
-                'https://inv.nadeko.net'
+                'https://invidious.f5.si',
+                'https://invidious.projectsegfau.lt',
+                'https://yt.artemislena.eu',
+                'https://invidious.lunar.icu',
+                'https://invidious.drgns.space'
             ];
             for (const inst of invidiousInstances) {
                 try {
                     const fetchUrl = `${inst}/api/v1/videos/${vidId}`;
                     let data = null;
                     if (window.Capacitor?.Plugins?.CapacitorHttp) {
-                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({
+                            url: fetchUrl,
+                            connectTimeout: 3500,
+                            readTimeout: 3500
+                        });
                         data = res.data;
+                        if (typeof data === 'string') {
+                            try { data = JSON.parse(data); } catch (_) {}
+                        }
                     } else {
-                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(4500) });
+                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(3500) });
                         data = await res.json();
                     }
                     if (data && (data.formatStreams || data.adaptiveFormats || data.title)) {
@@ -2599,58 +2993,239 @@
             };
         },
 
+        searchMusic: async (query) => {
+            if (!query || !query.trim()) return { success: true, results: [] };
+            const q = query.trim();
+            const results = [];
+            const seen = new Set();
+
+            const parseDuration = (str) => {
+                if (!str) return 0;
+                if (typeof str === 'number') return str;
+                const p = String(str).split(':').map(Number);
+                if (p.length === 2) return p[0] * 60 + p[1];
+                if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
+                return 0;
+            };
+
+            const formatDuration = (seconds) => {
+                if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                const s = Math.floor(seconds % 60);
+                if (h > 0) return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+                return `${m}:${s < 10 ? '0' : ''}${s}`;
+            };
+
+            // 1. High-fidelity YouTube Innertube search API (direct JSON, fast & reliable)
+            try {
+                const searchPayload = {
+                    context: {
+                        client: {
+                            clientName: 'WEB',
+                            clientVersion: '2.20240101.01.00',
+                            hl: 'ar',
+                            gl: 'SA'
+                        }
+                    },
+                    query: q
+                };
+                let searchData = null;
+                if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                    const res = await window.Capacitor.Plugins.CapacitorHttp.post({
+                        url: 'https://www.youtube.com/youtubei/v1/search',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                        },
+                        data: searchPayload
+                    });
+                    searchData = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                } else {
+                    const res = await fetch('https://www.youtube.com/youtubei/v1/search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(searchPayload),
+                        signal: AbortSignal.timeout(6000)
+                    });
+                    searchData = await res.json();
+                }
+
+                const sections = searchData?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
+                for (const section of sections) {
+                    const contents = section?.itemSectionRenderer?.contents || [];
+                    for (const c of contents) {
+                        const v = c.videoRenderer;
+                        if (v && v.videoId && !seen.has(v.videoId)) {
+                            seen.add(v.videoId);
+                            const rawTitle = v.title?.runs?.[0]?.text || v.title?.simpleText || 'Track';
+                            const artist = v.ownerText?.runs?.[0]?.text || v.longBylineText?.runs?.[0]?.text || 'Artist';
+                            const durText = v.lengthText?.simpleText || '';
+                            const durSecs = parseDuration(durText);
+                            const thumb = v.thumbnail?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`;
+                            results.push({
+                                id: v.videoId,
+                                title: rawTitle,
+                                rawTitle,
+                                artist,
+                                album: 'Single',
+                                duration: durSecs,
+                                durationFormatted: durText || formatDuration(durSecs),
+                                thumbnail: thumb,
+                                views: v.viewCountText?.simpleText || ''
+                            });
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[Bridge] YouTube innertube search failed:', err.message);
+            }
+
+            // 2. iTunes Search API fallback (instant official preview catalog)
+            if (results.length < 5) {
+                try {
+                    const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=25`;
+                    let itData = null;
+                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: itunesUrl });
+                        itData = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                    } else {
+                        const res = await fetch(itunesUrl, { signal: AbortSignal.timeout(5000) });
+                        itData = await res.json();
+                    }
+                    if (itData?.results && Array.isArray(itData.results)) {
+                        for (const tr of itData.results) {
+                            const trId = 'itunes_' + tr.trackId;
+                            if (seen.has(trId)) continue;
+                            seen.add(trId);
+                            const durSecs = Math.round((tr.trackTimeMillis || 0) / 1000);
+                            results.push({
+                                id: trId,
+                                title: tr.trackName || 'Track',
+                                rawTitle: tr.trackName || 'Track',
+                                artist: tr.artistName || 'Artist',
+                                album: tr.collectionName || 'Single',
+                                duration: durSecs,
+                                durationFormatted: formatDuration(durSecs),
+                                thumbnail: (tr.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
+                                audioUrl: tr.previewUrl || null,
+                                views: ''
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[Bridge] iTunes fallback failed:', e.message);
+                }
+            }
+
+            return { success: true, results };
+        },
+
+        getTrendingMusic: async (genre = 'all') => {
+            const genreQueryPools = {
+                all: [
+                    'أناشيد إسلامية جديدة بدون موسيقى',
+                    'أفضل أناشيد إسلامية هادفة ومميزة',
+                    'تلاوات وأناشيد راقية بدون إيقاع',
+                    'أجمل الأناشيد والتلاوات المختارة'
+                ],
+                trending: [
+                    'أناشيد إسلامية تريند حديثة',
+                    'أحدث الأناشيد الإسلامية الحصرية',
+                    'تلاوات تريند مؤثرة جدا'
+                ],
+                nasheed: [
+                    'أجمل أناشيد إسلامية هادفة بدون موسيقى',
+                    'أناشيد دينية راقية ومميزة بدون إيقاع',
+                    'روائع الأناشيد الإسلامية الجديدة',
+                    'أناشيد إسلامية قديمة وجديدة بدون موسيقى'
+                ],
+                quran: [
+                    'تلاوات خاشعة مؤثرة جدا قرآن كريم',
+                    'أجمل تلاوات القرآن الكريم لكبار القراء',
+                    'تلاوات نادرة ومؤثرة جدا قرآن كريم',
+                    'تلاوات حجازية ومصرية خاشعة ومريحة للقلب'
+                ],
+                adkar: [
+                    'أذكار الصباح والمساء وأدعية خاشعة',
+                    'أدعية نبوية مأثورة بصوت هادئ',
+                    'أذكار المساء والنوم بصوت مريح للقلب'
+                ],
+                ruqyah: [
+                    'الرقية الشرعية الشاملة لعلاج العين والحسد',
+                    'الرقية الشرعية القوية للسكينة والشفاء',
+                    'رقية شرعية هادئة للراحة والاطمئنان'
+                ],
+                prophet: [
+                    'قصائد ومدائح نبوية في حب النبي صلى الله عليه وسلم',
+                    'أجمل الأناشيد في مدح الرسول عليه الصلاة والسلام',
+                    'مدائح نبوية راقية بدون إيقاع'
+                ],
+                calm: [
+                    'تلاوات هادئة تريح القلب للنوم والاسترخاء',
+                    'قرآن كريم هادئ جدا للنوم والراحة النفسية',
+                    'أصوات طبيعة مع تلاوات هادئة مريحة'
+                ]
+            };
+            const key = String(genre || 'all').toLowerCase();
+            const pool = genreQueryPools[key] || genreQueryPools.all;
+            const randomQuery = pool[Math.floor(Math.random() * pool.length)];
+            return window.api.searchMusic(randomQuery);
+        },
+
+        downloadMusicTrack: async (track) => {
+            if (!track || !track.id) return { success: false, error: 'Track required' };
+            try {
+                let streamUrl = track.audioUrl || null;
+                if (!streamUrl) {
+                    const sRes = await window.api.getMusicStreamUrl(track.id);
+                    if (sRes?.success && sRes.streamUrl) streamUrl = sRes.streamUrl;
+                }
+                if (!streamUrl) return { success: false, error: 'Could not resolve stream URL' };
+                const safeArtist = (track.artist || 'Artist').replace(/[\\/:*?"<>|]/g, '_');
+                const safeTitle = (track.title || 'Track').replace(/[\\/:*?"<>|]/g, '_');
+                const fileName = `${safeArtist} - ${safeTitle}.m4a`;
+                return window.api.startDownload({
+                    url: streamUrl,
+                    name: fileName,
+                    type: 'music'
+                });
+            } catch (err) {
+                return { success: false, error: err.message };
+            }
+        },
+
         getMusicStreamUrl: async (videoId) => {
             const cleanId = String(videoId || '').replace(/^(yt:|youtube:)/, '').trim();
             if (!cleanId) return { success: false, error: 'Track ID required' };
 
-            // 1. Try Piped audio streams first
-            const pipedInstances = [
-                'https://pipedapi.kavin.rocks',
-                'https://api.piped.privacydev.net',
-                'https://pipedapi.tokhmi.xyz',
-                'https://piped-api.garudalinux.org'
-            ];
-            for (const piped of pipedInstances) {
-                try {
-                    const fetchUrl = `${piped}/streams/${cleanId}`;
-                    let data = null;
-                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
-                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
-                        data = res.data;
-                    } else {
-                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(4500) });
-                        data = await res.json();
-                    }
-                    if (data?.audioStreams && data.audioStreams.length > 0) {
-                        const bestAud = [...data.audioStreams].sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
-                        if (bestAud?.url) {
-                            return { success: true, streamUrl: bestAud.url };
-                        }
-                    }
-                } catch (_) {}
-            }
-
-            // 2. Try Invidious adaptive formats
+            // Verified Invidious instances
             const invidiousInstances = [
-                'https://yewtu.be',
-                'https://invidious.flokinet.to',
-                'https://iv.ggtyler.dev',
-                'https://invidious.drgns.space',
-                'https://invidious.private.coffee'
+                'https://invidious.f5.si',
+                'https://invidious.projectsegfau.lt',
+                'https://invidious.lunar.icu'
             ];
+
             for (const inst of invidiousInstances) {
                 try {
                     const fetchUrl = `${inst}/api/v1/videos/${cleanId}`;
                     let data = null;
                     if (window.Capacitor?.Plugins?.CapacitorHttp) {
-                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: fetchUrl });
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({
+                            url: fetchUrl,
+                            connectTimeout: 3500,
+                            readTimeout: 3500
+                        });
                         data = res.data;
+                        if (typeof data === 'string') {
+                            try { data = JSON.parse(data); } catch (_) {}
+                        }
                     } else {
-                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(4500) });
+                        const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(3500) });
                         data = await res.json();
                     }
                     if (data?.adaptiveFormats) {
-                        const audFormats = data.adaptiveFormats.filter(f => f.type?.includes('audio'));
+                        const audFormats = data.adaptiveFormats.filter(f => f.type?.includes('audio') || f.mimeType?.includes('audio'));
                         const best = audFormats.sort((a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0))[0];
                         if (best?.url) {
                             return { success: true, streamUrl: best.url };
@@ -2658,6 +3233,26 @@
                     }
                     if (data?.formatStreams && data.formatStreams.length > 0) {
                         return { success: true, streamUrl: data.formatStreams[0].url };
+                    }
+                } catch (_) {}
+            }
+
+            // Fallback: Piped streams
+            const pipedInstances = ['https://pipedapi.kavin.rocks', 'https://api.piped.privacydev.net'];
+            for (const piped of pipedInstances) {
+                try {
+                    const pUrl = `${piped}/streams/${cleanId}`;
+                    let pData = null;
+                    if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url: pUrl, connectTimeout: 3500, readTimeout: 3500 });
+                        pData = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                    } else {
+                        const res = await fetch(pUrl, { signal: AbortSignal.timeout(3500) });
+                        pData = await res.json();
+                    }
+                    if (Array.isArray(pData?.audioStreams) && pData.audioStreams.length > 0) {
+                        const bestAudio = pData.audioStreams.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+                        if (bestAudio?.url) return { success: true, streamUrl: bestAudio.url };
                     }
                 } catch (_) {}
             }
@@ -2683,10 +3278,18 @@
             let cleanTitle = rawTitle.replace(/\[[^\]]*\]/g, ' ').replace(/\([^)]*\)/g, ' ').replace(/official\s+(music\s+)?(video|audio|lyrics?)/gi, ' ').replace(/[|#@!~_]/g, ' ').trim();
             let cleanArtist = rawArtist.replace(/\s*-\s*Topic/i, '').trim();
 
+            if (cleanTitle.includes(' - ')) {
+                const parts = cleanTitle.split(' - ');
+                if (!cleanArtist || cleanArtist === 'Artist' || cleanArtist === 'Unknown') {
+                    cleanArtist = parts[0].trim();
+                }
+                cleanTitle = parts.slice(1).join(' - ').trim();
+            }
+
             try {
                 let u = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(cleanArtist)}`;
                 if (duration) u += `&duration=${Math.round(duration)}`;
-                const r = await fetch(u);
+                const r = await fetch(u, { signal: AbortSignal.timeout(4000) });
                 if (r.ok) {
                     const d = await r.json();
                     if (d.syncedLyrics || d.plainLyrics) {
@@ -2697,11 +3300,12 @@
 
             try {
                 const sUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + cleanArtist)}`;
-                const sr = await fetch(sUrl);
+                const sr = await fetch(sUrl, { signal: AbortSignal.timeout(4500) });
                 if (sr.ok) {
                     const list = await sr.json();
                     if (Array.isArray(list) && list.length > 0) {
-                        const top = list[0];
+                        // Prioritize matching entries that contain synced lyrics
+                        const top = list.find(x => x.syncedLyrics) || list[0];
                         return { success: true, syncedLyrics: top.syncedLyrics, plainLyrics: top.plainLyrics };
                     }
                 }
@@ -2718,7 +3322,12 @@
 
         searchYouTube: async (args) => {
             const query = typeof args === 'string' ? args : (args?.query || '');
-            if (!query) return [];
+            if (!query) {
+                const empty = [];
+                empty.success = true;
+                empty.results = [];
+                return empty;
+            }
 
             // 1. Try Piped search
             const pipedInstances = ['https://pipedapi.kavin.rocks', 'https://api.piped.privacydev.net', 'https://pipedapi.tokhmi.xyz'];
@@ -2727,14 +3336,21 @@
                     const url = `${piped}/search?q=${encodeURIComponent(query)}&filter=videos`;
                     let data = null;
                     if (window.Capacitor?.Plugins?.CapacitorHttp) {
-                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url });
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({
+                            url,
+                            connectTimeout: 4000,
+                            readTimeout: 4000
+                        });
                         data = res.data;
+                        if (typeof data === 'string') {
+                            try { data = JSON.parse(data); } catch (_) {}
+                        }
                     } else {
-                        const res = await fetch(url, { signal: AbortSignal.timeout(4500) });
+                        const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
                         data = await res.json();
                     }
                     if (data?.items && Array.isArray(data.items)) {
-                        return data.items.map(item => ({
+                        const mapped = data.items.map(item => ({
                             id: (item.url || '').replace('/watch?v=', ''),
                             videoId: (item.url || '').replace('/watch?v=', ''),
                             title: item.title,
@@ -2743,25 +3359,35 @@
                             thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${(item.url || '').replace('/watch?v=', '')}/hqdefault.jpg`,
                             published: item.uploadedDate
                         }));
+                        mapped.success = true;
+                        mapped.results = mapped;
+                        return mapped;
                     }
                 } catch (_) {}
             }
 
             // 2. Try Invidious search
-            const invidiousInstances = ['https://yewtu.be', 'https://invidious.flokinet.to', 'https://iv.ggtyler.dev'];
+            const invidiousInstances = ['https://invidious.f5.si', 'https://invidious.projectsegfau.lt', 'https://invidious.lunar.icu'];
             for (const inst of invidiousInstances) {
                 try {
                     const url = `${inst}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
                     let data = null;
                     if (window.Capacitor?.Plugins?.CapacitorHttp) {
-                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url });
+                        const res = await window.Capacitor.Plugins.CapacitorHttp.get({
+                            url,
+                            connectTimeout: 4000,
+                            readTimeout: 4000
+                        });
                         data = res.data;
+                        if (typeof data === 'string') {
+                            try { data = JSON.parse(data); } catch (_) {}
+                        }
                     } else {
-                        const res = await fetch(url, { signal: AbortSignal.timeout(4500) });
+                        const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
                         data = await res.json();
                     }
                     if (Array.isArray(data)) {
-                        return data.map(item => ({
+                        const mapped = data.map(item => ({
                             id: item.videoId,
                             videoId: item.videoId,
                             title: item.title,
@@ -2770,18 +3396,69 @@
                             thumbnail: item.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
                             published: item.publishedText
                         }));
+                        mapped.success = true;
+                        mapped.results = mapped;
+                        return mapped;
                     }
                 } catch (_) {}
             }
-            return [];
+            const fallback = [];
+            fallback.success = true;
+            fallback.results = [];
+            return fallback;
+        },
+
+        fanartGetImages: async (id, type) => {
+            if (!id) return null;
+            try {
+                const userFanartKey = await storageGet('meem_fanart_key') || window.appData?.fanartKey || window.appData?.fanartApiKey;
+                const fanartKey = userFanartKey || '9b894a8fe501790e488c98a5ee605e34';
+                const fanartType = (type === 'tv' || type === 'series' || type === 'show') ? 'tv' : 'movies';
+                const url = `https://webservice.fanart.tv/v3/${fanartType}/${id}?api_key=${fanartKey}`;
+                let data = null;
+                if (window.Capacitor?.Plugins?.CapacitorHttp) {
+                    const res = await window.Capacitor.Plugins.CapacitorHttp.get({ url });
+                    data = res.data;
+                    if (typeof data === 'string') {
+                        try { data = JSON.parse(data); } catch (_) {}
+                    }
+                } else {
+                    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+                    if (res.ok) data = await res.json();
+                }
+                if (!data || typeof data !== 'object') return null;
+                const bgs = data.moviebackground || data.showbackground || data.tvbackground || [];
+                const lgs = data.hdmovielogo || data.hdtvlogo || data.movielogo || data.clearlogo || [];
+                data.backgrounds = bgs.map(x => ({ url: typeof x === 'string' ? x : x.url }));
+                data.logos = lgs.map(x => ({ url: typeof x === 'string' ? x : x.url }));
+                return data;
+            } catch (e) {
+                console.warn('[Bridge Fanart] Error:', e?.message || e);
+                return null;
+            }
         },
 
         fetchFanartImages: async (type, imdbId) => {
-            if (!imdbId) return { posters: [], backdrops: [], clearlogos: [], banners: [] };
+            const cleanId = (typeof type === 'string' && (type.startsWith('tt') || /^\d+$/.test(type))) ? type : imdbId;
+            const cleanType = cleanId === type ? (imdbId || 'movie') : type;
+            if (!cleanId) return { posters: [], backdrops: [], clearlogos: [], banners: [] };
             try {
-                const cleanType = (type === 'show' || type === 'series' || type === 'tv') ? 'series' : 'movie';
-                const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/${cleanType}/${imdbId}.json`;
-                const res = await fetch(cinemetaUrl).then(r => r.json());
+                const fanartData = await window.api.fanartGetImages(cleanId, cleanType);
+                if (fanartData) {
+                    const posters = (fanartData.movieposter || fanartData.tvposter || []).map(x => x.url || x);
+                    const backdrops = (fanartData.moviebackground || fanartData.showbackground || fanartData.tvbackground || []).map(x => x.url || x);
+                    const clearlogos = (fanartData.hdmovielogo || fanartData.hdtvlogo || fanartData.movielogo || fanartData.clearlogo || []).map(x => x.url || x);
+                    const banners = (fanartData.moviebanner || fanartData.tvbanner || []).map(x => x.url || x);
+                    if (posters.length || backdrops.length || clearlogos.length || banners.length) {
+                        return { posters, backdrops, clearlogos, banners, ...fanartData };
+                    }
+                }
+            } catch (_) {}
+
+            try {
+                const cType = (cleanType === 'show' || cleanType === 'series' || cleanType === 'tv') ? 'series' : 'movie';
+                const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/${cType}/${cleanId}.json`;
+                const res = await fetch(cinemetaUrl, { signal: AbortSignal.timeout(5000) }).then(r => r.json());
                 const meta = res?.meta || {};
                 return {
                     posters: meta.poster ? [meta.poster] : [],
@@ -2955,12 +3632,25 @@
 
         startDownload: async (options) => {
             let { url, name } = options;
-            const id = 'dl_' + Date.now();
+            const id = options.id || ('dl_' + Date.now());
             console.log('[Bridge] startDownload:', name, url);
 
-            if (!url || !url.startsWith('http')) {
-                window.dispatchEvent(new CustomEvent('download-error', { detail: { id, name, error: 'Only direct HTTP links can be downloaded on mobile.' } }));
-                return { success: false, id, error: 'Direct links only on mobile' };
+            if (!url) return { success: false, id, error: 'Empty URL' };
+
+            // Handle Magnet & Torrent files on Mobile by delegating to MEEM Player
+            if (url.startsWith('magnet:') || url.endsWith('.torrent') || url.includes('infoHash=')) {
+                console.log('[Bridge] Magnet/Torrent URL detected on Mobile. Delegating to MEEM Player...');
+                window.dispatchEvent(new CustomEvent('download-progress', {
+                    detail: { id, name: name || 'Torrent Download', percent: 100, status: 'completed', statusText: 'Opening in MEEM Player...' }
+                }));
+                if (window.Capacitor?.Plugins?.App) {
+                    try {
+                        await window.Capacitor.Plugins.App.openUrl({ url });
+                    } catch (_) {}
+                } else {
+                    window.open(url, '_system');
+                }
+                return { success: true, id, message: 'Opened in MEEM Player' };
             }
 
             // --- Serverless Social Downloader Fallback for Capacitor ---
@@ -2974,14 +3664,17 @@
                             const res = await window.Capacitor.Plugins.CapacitorHttp.post({
                                 url: endpoint,
                                 headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                                data: payload
+                                data: payload,
+                                connectTimeout: 3500,
+                                readTimeout: 3500
                             });
-                            return res.data;
+                            return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                         } else {
                             const res = await fetch(endpoint, {
                                 method: 'POST',
                                 headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                                body: JSON.stringify(payload)
+                                body: JSON.stringify(payload),
+                                signal: AbortSignal.timeout(3500)
                             });
                             return await res.json();
                         }
@@ -3013,10 +3706,9 @@
                     // 2. Cobalt API instances for everything else
                     if (!directUrl) {
                         const instances = [
-                            'https://api.cobalt.tools/',
                             'https://cobalt-api.kwiatekm.pl/',
-                            'https://cobalt.xy2401.com/api/json',
-                            'https://cobalt.catbox.video/'
+                            'https://cobalt.xy2401.com/',
+                            'https://api.wuk.sh/'
                         ];
                         for (let apiBase of instances) {
                             const endpoints = [apiBase, apiBase.replace(/\/$/, '') + '/api/json'];
@@ -3028,7 +3720,7 @@
                                         const firstItem = cobRes.picker.find(i => i.type === 'video' || i.url);
                                         if (firstItem && firstItem.url) { directUrl = firstItem.url; break; }
                                     }
-                                } catch(e) {}
+                                } catch(_) {}
                             }
                             if (directUrl) break;
                         }
@@ -3036,7 +3728,7 @@
 
                     if (directUrl) {
                         url = directUrl; // Upgrade the URL to the direct MP4
-                    } else {
+                    } else if (!window.Capacitor?.Plugins?.MeemDownloader) {
                         throw new Error('Could not extract direct video link.');
                     }
                 } catch (err) {
@@ -3045,6 +3737,28 @@
                 }
             }
             // --- End Social Injection ---
+
+            // Native MeemDownloader Capacitor Plugin delegation (now with resolved stream url)
+            if (window.Capacitor?.Plugins?.MeemDownloader) {
+                try {
+                    console.log('[Bridge] Delegating download to Native MeemDownloaderPlugin...');
+                    const res = await window.Capacitor.Plugins.MeemDownloader.startDownload({
+                        id,
+                        url,
+                        name: name || options.fileName || 'download',
+                        type: options.type || (url.startsWith('magnet:') ? 'torrent' : 'direct'),
+                        format: options.format || 'video'
+                    });
+                    return { success: true, id: res?.id || id };
+                } catch (nativeErr) {
+                    console.warn('[Bridge] Native MeemDownloader failed, falling back:', nativeErr.message);
+                }
+            }
+
+            if (!url.startsWith('http')) {
+                window.dispatchEvent(new CustomEvent('download-error', { detail: { id, name, error: 'Unsupported URL protocol.' } }));
+                return { success: false, id, error: 'Unsupported URL protocol' };
+            }
 
 
             const safeName = (name || 'download').replace(/[<>:"/\\|?*]/g, '_');
@@ -3078,8 +3792,8 @@
             
             // On mobile, we save to the public Documents folder so MEEM can scan it.
             const SAVE_DIR = 'DOCUMENTS';
-            const profileName = params.profileName || 'Default';
-            const SAVE_SUBDIR = params.type === 'social' 
+            const profileName = options?.profileName || (typeof window !== 'undefined' && window.currentProfile?.name) || 'Default';
+            const SAVE_SUBDIR = options?.type === 'social' 
                 ? `MEEM/${profileName}/Social` 
                 : `MEEM/${profileName}/Downloads`;
             let progressHandle = null;
@@ -3091,39 +3805,81 @@
                 } catch (e) { /* already exists — safe to ignore */ }
 
                 // Register progress listener BEFORE starting the download.
-                // @capacitor/filesystem v5+ emits { url, bytes, contentLength } per chunk.
+                // @capacitor/filesystem emits { url, bytes, contentLength } per chunk.
+                // Polling timer to track actual file growth and speed in real-time
+                let lastBytes = 0;
+                let lastTime = Date.now();
+                const filePath = `${SAVE_SUBDIR}/${fileName}`;
+                const pollTimer = setInterval(async () => {
+                    try {
+                        const stat = await fs.stat({ path: filePath, directory: SAVE_DIR }).catch(() => null);
+                        if (stat && stat.size > 0) {
+                            const now = Date.now();
+                            const timeDiff = Math.max(0.1, (now - lastTime) / 1000);
+                            const byteDiff = stat.size - lastBytes;
+                            const speed = (byteDiff > 0 && timeDiff > 0) ? `${fmtBytes(byteDiff / timeDiff)}/s` : '';
+                            lastBytes = stat.size;
+                            lastTime = now;
+
+                            const pct = Math.min(99, Math.max(5, (Math.log10(stat.size) * 12))).toFixed(1);
+                            window.dispatchEvent(new CustomEvent('download-progress', {
+                                detail: {
+                                    id,
+                                    name: fileName,
+                                    percent: pct,
+                                    downloaded: fmtBytes(stat.size),
+                                    total: '...',
+                                    speed,
+                                    status: 'downloading',
+                                    statusText: `${fmtBytes(stat.size)} downloaded ${speed ? '(' + speed + ')' : ''}`
+                                }
+                            }));
+                        }
+                    } catch (_) {}
+                }, 600);
+
                 try {
-                    progressHandle = await fs.addListener('progress', (evt) => {
-                        if (evt.url !== url) return;
-                        const pct = evt.contentLength > 0
-                            ? ((evt.bytes / evt.contentLength) * 100).toFixed(1)
-                            : 0;
-                        window.dispatchEvent(new CustomEvent('download-progress', {
-                            detail: {
-                                id, name: fileName,
-                                percent: pct,
-                                downloaded: fmtBytes(evt.bytes),
-                                total: fmtBytes(evt.contentLength),
-                                status: 'downloading',
-                                statusText: `${fmtBytes(evt.bytes)} / ${fmtBytes(evt.contentLength)}`
-                            }
-                        }));
+                    const downloadRes = await fs.downloadFile({
+                        url,
+                        path: filePath,
+                        directory: SAVE_DIR,
+                        progress: true
                     });
-                } catch (e) {
-                    console.warn('[Bridge] Progress listener not supported:', e.message);
+
+                    if (pollTimer) clearInterval(pollTimer);
+
+                    window.dispatchEvent(new CustomEvent('download-complete', {
+                        detail: { id, name: fileName, path: downloadRes.path }
+                    }));
+                    return { success: true, id, path: downloadRes.path };
+
+                } catch (dlErr) {
+                    if (pollTimer) clearInterval(pollTimer);
+                    console.warn('[Bridge] fs.downloadFile failed, trying fetch fallback:', dlErr.message);
+
+                    // Fetch blob fallback for streams / signed URLs
+                    const fRes = await fetch(url);
+                    if (!fRes.ok) throw new Error(`HTTP Error ${fRes.status}: ${fRes.statusText}`);
+                    const blob = await fRes.blob();
+                    const reader = new FileReader();
+                    const base64Data = await new Promise((resolve, reject) => {
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+                    const base64Content = base64Data.split(',')[1];
+                    const writeRes = await fs.writeFile({
+                        path: filePath,
+                        data: base64Content,
+                        directory: SAVE_DIR,
+                        recursive: true
+                    });
+
+                    window.dispatchEvent(new CustomEvent('download-complete', {
+                        detail: { id, name: fileName, path: writeRes.uri || filePath }
+                    }));
+                    return { success: true, id, path: writeRes.uri || filePath };
                 }
-
-                const downloadRes = await fs.downloadFile({
-                    url,
-                    path: `${SAVE_SUBDIR}/${fileName}`,
-                    directory: SAVE_DIR,
-                    progress: true
-                });
-
-                window.dispatchEvent(new CustomEvent('download-complete', {
-                    detail: { id, name: fileName, path: downloadRes.path }
-                }));
-                return { success: true, id, path: downloadRes.path };
 
             } catch (err) {
                 console.error('[Bridge] Download failed:', err);
@@ -3191,19 +3947,20 @@
                     for (const folder of folders) {
                         const path = `MEEM/${profileName}/${folder}`;
                         try {
-                            await fs.stat({ path, directory: 'DOCUMENTS' });
-                        } catch (_) {
-                            await fs.mkdir({
-                                path: path,
-                                directory: 'DOCUMENTS',
-                                recursive: true
-                            }).catch(() => {});
-                        }
+                            const statRes = await fs.stat({ path, directory: 'DOCUMENTS' }).catch(() => null);
+                            if (!statRes) {
+                                await fs.mkdir({
+                                    path: path,
+                                    directory: 'DOCUMENTS',
+                                    recursive: true
+                                }).catch(() => {});
+                            }
+                        } catch (_) {}
                     }
                 }
                 return true;
             } catch (err) {
-                return false;
+                return true;
             }
         },
 
@@ -3278,14 +4035,32 @@
             if (channel === 'tmdb-discover-by-genre') return window.api.tmdbDiscoverByGenre(args[0]);
             if (channel === 'tmdb-verify-key') return window.api.tmdbVerifyKey(args[0]);
             if (channel === 'tmdb-season-details') return window.api.tmdbSeasonDetails(args[0], args[1]);
-            if (channel === 'fanart-images') return window.api.fetchFanartImages(args[0], args[1]);
+            if (channel === 'fanart-images') {
+                const id = args[1] || args[0];
+                const type = args[1] ? args[0] : (args[1] || 'movie');
+                return window.api.fanartGetImages(id, type);
+            }
+            if (channel === 'fanart-get-images') {
+                const target = args[0];
+                const imdbId = (typeof target === 'object' ? target?.imdbId : target) || args[0];
+                const type = (typeof target === 'object' ? target?.type : args[1]) || args[1] || 'movie';
+                return window.api.fanartGetImages(imdbId, type);
+            }
             if (channel === 'anilist-media-assets') return window.api.fetchAniListAssets(args[0]);
             if (channel === 'anilist-search') return window.api.fetchAniListAssets(args[0]);
             if (channel === 'get-smart-recommendations') return window.api.fetchSmartRecommendations(args[0]);
-            if (channel === 'unified-search') return window.api.fetchSmartRecommendations(args[0]);
+            if (channel === 'unified-search') return window.api.unifiedSearch(args[0]);
+            if (channel === 'trakt-search') {
+                const query = typeof args[0] === 'string' ? args[0] : (args[0]?.query || '');
+                const type = typeof args[0] === 'object' ? (args[0]?.type || 'movie') : (args[1] || 'movie');
+                return window.api.traktSearch(query, type);
+            }
             if (channel === 'youtube-get-video-info') return window.api.resolveYouTubeVideo(args[0]);
             if (channel === 'resolve-trailer-stream') return window.api.resolveTrailerStream(args[0]);
             if (channel === 'youtube-search') return window.api.searchYouTube(args[0]);
+            if (channel === 'music-search') return window.api.searchMusic(args[0]);
+            if (channel === 'music-trending') return window.api.getTrendingMusic(args[0]);
+            if (channel === 'music-download-track') return window.api.downloadMusicTrack(args[0]);
             if (channel === 'music-get-stream-url') return window.api.getMusicStreamUrl(args[0]);
             if (channel === 'music-get-lyrics') return window.api.getMusicLyrics(args[0]?.title || args[0], args[0]?.artist || args[1], args[0]?.duration || args[2], args[0]?.videoId || args[3]);
             if (channel === 'mal-details') return window.api.malDetails(typeof args[0] === 'object' ? args[0]?.id : args[0]);
@@ -3338,6 +4113,8 @@
             if (channel === 'cloud-verify-profile-pin') return window.api.cloudVerifyProfilePin(args[0]?.profile_id, args[0]?.pin);
             if (channel === 'save-playback-position') return window.api.savePlaybackPosition(args[0]?.profileId, args[0]?.key, args[0]?.entry);
             if (channel === 'get-playback-position') return window.api.getPlaybackPosition(args[0]?.profileId, args[0]?.key);
+            if (channel === 'save-media-rating') return (window.api?.saveMediaRating ? window.api.saveMediaRating(args[0]) : window.bridge?.saveMediaRating?.(args[0]));
+            if (channel === 'get-media-ratings') return (window.api?.getMediaRatings ? window.api.getMediaRatings(args[0]) : window.bridge?.getMediaRatings?.(args[0]));
             if (channel === 'get-hardware-id') return window.api.getHardwareId();
             if (channel === 'cloud-fetch-requests') return window.api.cloudFetchRequests();
             if (channel === 'cloud-create-request') return window.api.cloudCreateRequest(args[0]?.title);
@@ -3993,7 +4770,7 @@
                 return { movies: [], shows: [] };
             }
         },
-        downloadImage: async (url, id) => null,
+        downloadImage: async (url, id) => url,
         cleanMissingDownloads: async (history) => history || [],
         renameFile: async (oldPath, newName) => ({ success: false, error: 'Renaming not supported on mobile' }),
         fetchUrlMetadata: async (url) => ({ success: false }),
@@ -4135,14 +4912,15 @@
                     for (const sub of ['Movies', 'Series', 'Social', 'Music', 'Downloads', 'Subtitles', 'Banners']) {
                         const path = `MEEM/${profileName}/${sub}`;
                         try {
-                            await fs.stat({ path, directory: 'DOCUMENTS' });
-                        } catch (_) {
-                            await fs.mkdir({
-                                path: path,
-                                directory: 'DOCUMENTS',
-                                recursive: true
-                            }).catch(() => {});
-                        }
+                            const statRes = await fs.stat({ path, directory: 'DOCUMENTS' }).catch(() => null);
+                            if (!statRes) {
+                                await fs.mkdir({
+                                    path: path,
+                                    directory: 'DOCUMENTS',
+                                    recursive: true
+                                }).catch(() => {});
+                            }
+                        } catch (_) {}
                     }
                 }
             } catch (_) {}
@@ -4425,30 +5203,84 @@
         const viewHistory = [];
         const mainViews = ['discover', 'movies', 'shows', 'library', 'music', 'social', 'settings', 'downloads', 'watchlist', 'sync'];
         
-        // Hook into switchView to build history
-        const originalSwitchView = window.switchView;
+        // Helper functions for Mobile Bottom Sheet Expansion and Category Chips
+        window.toggleMobileBottomSheet = function(show) {
+            const sheet = document.getElementById('mobile-bottom-sheet');
+            if (!sheet) return;
+            if (show === undefined) show = !sheet.classList.contains('active');
+            sheet.classList.toggle('active', show);
+            if (show) {
+                document.body.classList.add('mobile-sheet-open');
+            } else {
+                document.body.classList.remove('mobile-sheet-open');
+            }
+        };
+
+        window.syncMobileCategoryChips = function(name) {
+            const chips = document.querySelectorAll('.mobile-category-chip');
+            if (!chips.length) return;
+            chips.forEach(chip => {
+                const cat = chip.getAttribute('data-category');
+                let isActive = false;
+                if (cat === 'discover' && name === 'discover') isActive = true;
+                else if (cat === 'movies' && name === 'movies') isActive = true;
+                else if (cat === 'shows' && name === 'shows') isActive = true;
+                else if (cat === 'anime-schedule' && name === 'anime-schedule') isActive = true;
+                else if (cat === 'social' && (name === 'social' || name === 'music')) isActive = true;
+                chip.classList.toggle('active', isActive);
+            });
+        };
+
+        // Hook into switchView to build history and sync mobile category chips
         const patchBackNav = () => {
             if (typeof window.switchView === 'function' && !window.switchView._patched) {
                 const origFn = window.switchView;
                 window.switchView = function(name) {
-                    // Don't push duplicates
-                    if (viewHistory.length === 0 || viewHistory[viewHistory.length - 1] !== window.currentView) {
-                        if (window.currentView) viewHistory.push(window.currentView);
+                    if (name !== 'vault' && (viewHistory.length === 0 || viewHistory[viewHistory.length - 1] !== window.currentView)) {
+                        if (window.currentView && window.currentView !== 'vault') viewHistory.push(window.currentView);
                     }
-                    // Keep history manageable
                     if (viewHistory.length > 20) viewHistory.splice(0, viewHistory.length - 20);
-                    return origFn.call(this, name);
+                    const res = origFn.call(this, name);
+                    if (typeof window.syncMobileCategoryChips === 'function') {
+                        window.syncMobileCategoryChips(name);
+                    }
+                    return res;
                 };
                 window.switchView._patched = true;
             }
         };
         
-        // Patch after renderer.js sets up switchView
-        setTimeout(patchBackNav, 2000);
-        setTimeout(patchBackNav, 5000);
+        patchBackNav();
+        const patchInterval = setInterval(patchBackNav, 200);
+        setTimeout(() => clearInterval(patchInterval), 10000);
         
         let lastBackPress = 0;
         window.Capacitor.Plugins.App.addListener('backButton', () => {
+            // 0. Close Expanded Mobile Dock if open
+            try {
+                const nav = document.getElementById('mobile-bottom-nav');
+                if (nav && nav.classList.contains('expanded')) {
+                    if (typeof window.toggleMobileDockExpansion === 'function') {
+                        window.toggleMobileDockExpansion(false);
+                        return;
+                    }
+                }
+            } catch (e) {}
+
+            // 0. Close Fullscreen Music Player Modal if open
+            try {
+                const fsMusicModal = document.getElementById('fullscreen-music-modal');
+                if (fsMusicModal && (fsMusicModal.classList.contains('active') || window.getComputedStyle(fsMusicModal).display !== 'none')) {
+                    if (typeof window.closeFullscreenMusicModal === 'function') {
+                        window.closeFullscreenMusicModal();
+                    } else {
+                        fsMusicModal.classList.remove('active');
+                        fsMusicModal.style.display = 'none';
+                    }
+                    return;
+                }
+            } catch (e) {}
+
             // 0. Close ANY open modal overlay first (edit music, settings, profile, etc.)
             try {
                 const modals = document.querySelectorAll('.modal-overlay');

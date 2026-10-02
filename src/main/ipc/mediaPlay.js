@@ -226,6 +226,11 @@ function extractSeasonEpisode(filename) {
   if (eMatch) {
     return { season: 1, episode: parseInt(eMatch[1], 10) };
   }
+  // Anime format: " - 06 " or " - 06." or " 06 [1080p]"
+  const animeMatch = clean.match(/[-_\s]+(\d{1,3})(?:v\d+)?\s*(?:\[|\(|\.mkv|\.mp4|\.avi|\.webm|\.ts)/i);
+  if (animeMatch) {
+    return { season: 1, episode: parseInt(animeMatch[1], 10) };
+  }
   return null;
 }
 
@@ -245,14 +250,22 @@ async function openInMeemPlayer(args) {
     poster = `https://image.tmdb.org/t/p/w500${poster}`;
   }
 
-  const showTitle = opts.showTitle || opts.seriesTitle || opts.item?.showTitle || opts.item?.seriesTitle || opts.show?.title || opts.show?.name;
-  const season = opts.season ?? opts.item?.season;
-  const episode = opts.episode ?? opts.item?.episode;
+  let showTitle = opts.showTitle || opts.seriesTitle || opts.item?.showTitle || opts.item?.seriesTitle || opts.show?.title || opts.show?.name || opts.item?.showName || opts.show?.showName || opts.item?.cleanTitle;
+  if (!showTitle && opts.title) {
+    const titleParts = opts.title.split(/\s*[-–—]\s*(?:S\d+|Season\s*\d+|Episode\s*\d+|Ep\s*\d+|\d{1,3})/i);
+    if (titleParts.length > 1 && titleParts[0].trim()) {
+      showTitle = titleParts[0].trim();
+    }
+  }
+
+  const season = opts.season ?? opts.item?.season ?? opts.item?.season_number;
+  const episode = opts.episode ?? opts.item?.episode ?? opts.item?.episode_number;
+  const resolvedStartTime = Number(opts.startTime ?? opts.resumeTime ?? opts.time ?? opts.currentTime ?? opts.item?.startTime ?? opts.item?.resumeTime ?? opts.item?.time ?? opts.item?.currentTime ?? 0) || 0;
   const subTitle = showTitle ? (season != null && episode != null ? `${showTitle} • S${season}E${episode}` : `${showTitle}`) : (opts.subtitle || opts.subTitle || null);
 
   // Resolve TMDB & IMDb IDs
-  const resolvedTmdbId = opts.tmdbId || opts.item?.tmdbId || opts.item?.id || opts.show?.id || (opts.id && !String(opts.id).startsWith('tt') ? opts.id : null);
-  const resolvedImdbId = opts.imdbId || opts.item?.imdb_id || opts.item?.imdbId || (opts.id && String(opts.id).startsWith('tt') ? opts.id : null);
+  let resolvedTmdbId = opts.tmdbId || opts.item?.tmdbId || opts.item?.id || opts.show?.id || (opts.id && !String(opts.id).startsWith('tt') ? opts.id : null);
+  let resolvedImdbId = opts.imdbId || opts.item?.imdb_id || opts.item?.imdbId || (opts.id && String(opts.id).startsWith('tt') ? opts.id : null);
 
   // Read preferred YouTube playback quality & API Keys from settings
   let preferredQuality = '1080';
@@ -400,7 +413,7 @@ async function openInMeemPlayer(args) {
     cliArgs.push(config.script);
   }
 
-  const isTvShow = Boolean(season != null || (opts.type && opts.type !== 'movie') || (showTitle && showTitle !== opts.title));
+  const isTvShow = Boolean(season != null || (opts.type && opts.type !== 'movie') || (showTitle && showTitle !== opts.title) || (torrentFiles && torrentFiles.length > 1));
 
   // Check if a full playlist array was provided (e.g. from TV show details screen)
   let playlistItems = [];
@@ -416,7 +429,7 @@ async function openInMeemPlayer(args) {
         show_title: item.show_title || item.showTitle || showTitle || '',
         season: item.season != null ? item.season : (season || 0),
         episode: item.episode != null ? item.episode : (episode || 0),
-        thumbnail: thumb || poster || '',
+        thumbnail: thumb || poster || opts.thumbnail || opts.item?.thumbnail || opts.item?.poster || '',
         tmdb_id: item.tmdb_id || item.tmdbId || (resolvedTmdbId ? String(resolvedTmdbId) : ''),
         imdb_id: item.imdb_id || item.imdbId || (resolvedImdbId ? String(resolvedImdbId) : ''),
         overview: item.overview || ''
@@ -433,7 +446,21 @@ async function openInMeemPlayer(args) {
     let episodeMetadataMap = {};
     if (isTvShow) {
       const axios = require('axios');
-      const targetSeason = season || 1;
+      const firstEpParsed = (torrentFiles && torrentFiles.length > 0) ? extractSeasonEpisode(torrentFiles[0].name) : null;
+      const targetSeason = season || firstEpParsed?.season || 1;
+
+      // 0. If resolvedImdbId is missing, resolve it quickly via Cinemeta search using showTitle
+      if ((!resolvedImdbId || !String(resolvedImdbId).startsWith('tt')) && showTitle) {
+        try {
+          const sResp = await axios.get(`https://v3-cinemeta.strem.io/catalog/series/top/search=${encodeURIComponent(showTitle)}.json`, { timeout: 2500 }).catch(() => null);
+          if (sResp?.data?.metas?.[0]?.id) {
+            resolvedImdbId = sResp.data.metas[0].id;
+            if (!poster && sResp.data.metas[0].poster) {
+              poster = sResp.data.metas[0].poster;
+            }
+          }
+        } catch (_) {}
+      }
 
       // 1. Check Cinemeta first (free, instant, no API key needed, has full episode stills)
       if (resolvedImdbId && String(resolvedImdbId).startsWith('tt')) {
@@ -444,12 +471,14 @@ async function openInMeemPlayer(args) {
             cResp.data.meta.videos.forEach(v => {
               const vSeason = v.season != null ? v.season : (v.seasonNumber || 1);
               const vEp = v.episode != null ? v.episode : (v.number != null ? v.number : v.episodeNumber);
-              if (vSeason === targetSeason && vEp != null) {
-                episodeMetadataMap[vEp] = {
-                  name: v.title || v.name || '',
-                  still: v.thumbnail || v.still || '',
-                  overview: v.overview || ''
-                };
+              if ((vSeason === targetSeason || targetSeason === 1) && vEp != null) {
+                if (!episodeMetadataMap[vEp] || !episodeMetadataMap[vEp].still) {
+                  episodeMetadataMap[vEp] = {
+                    name: v.title || v.name || '',
+                    still: v.thumbnail || v.still || '',
+                    overview: v.overview || ''
+                  };
+                }
               }
             });
           }
@@ -514,13 +543,15 @@ async function openInMeemPlayer(args) {
       }
     }
 
+    const fallbackCover = poster || opts.thumbnail || opts.item?.thumbnail || opts.item?.poster || opts.show?.poster || '';
+
     playlistItems = torrentFiles.map((f, i) => {
       const parsedEp = extractSeasonEpisode(f.name);
       const epNum = parsedEp ? parsedEp.episode : (f.idx + 1);
       const snNum = parsedEp ? parsedEp.season : (season || 1);
       const epMeta = episodeMetadataMap[epNum];
       const epTitle = (epMeta && epMeta.name) ? epMeta.name : ((!isTvShow || torrentFiles.length === 1) ? (opts.title || f.name) : f.name);
-      const epThumb = (epMeta && epMeta.still) ? epMeta.still : (poster || '');
+      const epThumb = (epMeta && epMeta.still) ? epMeta.still : fallbackCover;
 
       return {
         path: `http://127.0.0.1:${streamPort}/${f.idx}/${encodeURIComponent(f.name)}`,
@@ -540,9 +571,14 @@ async function openInMeemPlayer(args) {
   if (playlistItems.length > 0) {
     try {
       const initialIdx = opts.playlistIndex != null ? opts.playlistIndex : (torrentSelectedIdx || 0);
-      if (initialIdx >= 0 && initialIdx < playlistItems.length && targetPath) {
-        playlistItems[initialIdx].path = targetPath;
-        playlistItems[initialIdx].url = targetPath;
+      if (initialIdx >= 0 && initialIdx < playlistItems.length) {
+        if (targetPath) {
+          playlistItems[initialIdx].path = targetPath;
+          playlistItems[initialIdx].url = targetPath;
+        }
+        if (resolvedStartTime > 0) {
+          playlistItems[initialIdx].startTime = resolvedStartTime;
+        }
       }
       const os = require('os');
       tempPlaylistPath = path.join(os.tmpdir(), `meem_playlist_${Date.now()}.json`);
@@ -556,7 +592,7 @@ async function openInMeemPlayer(args) {
 
   if (targetPath) cliArgs.push(targetPath);
   if (opts.title || opts.name) cliArgs.push(`--title=${opts.title || opts.name}`);
-  if (opts.startTime && opts.startTime > 0) cliArgs.push(`--start-time=${opts.startTime}`);
+  if (resolvedStartTime > 0) cliArgs.push(`--start-time=${resolvedStartTime}`);
   if (opts.subtitle || opts.subPath) cliArgs.push(`--sub=${opts.subtitle || opts.subPath}`);
   if (poster) cliArgs.push(`--poster=${poster}`);
   if (subTitle) cliArgs.push(`--subtitle=${subTitle}`);
@@ -610,7 +646,7 @@ async function openInMeemPlayer(args) {
       path: targetPath || '',
       sub: opts.subtitle || opts.subPath || '',
       audio: extraAudioUrl || '',
-      startTime: opts.startTime || 0,
+      startTime: resolvedStartTime,
       pbKey: pbKey || '',
       profileId: profileId || '',
       videoId: resolvedVideoId || '',

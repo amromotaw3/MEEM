@@ -26,9 +26,10 @@
 
   function hasAddon(addons, patterns) {
     if (!Array.isArray(addons)) return false;
-    const urls = addons.map(a => normalizeAddonUrl(a.url || a.manifestUrl || ''));
-    const ids = addons.map(a => String(a.id || '').toLowerCase());
-    const names = addons.map(a => String(a.name || '').toLowerCase());
+    const activeAddons = addons.filter(a => a && a.enabled !== false);
+    const urls = activeAddons.map(a => normalizeAddonUrl(a.url || a.manifestUrl || ''));
+    const ids = activeAddons.map(a => String(a.id || '').toLowerCase());
+    const names = activeAddons.map(a => String(a.name || '').toLowerCase());
 
     return patterns.some(p =>
       urls.some(u => u.includes(p)) ||
@@ -44,8 +45,8 @@
     const hasKitsuAddon = hasAddon(addons, ['kitsu', 'kitsu-anime', 'com.meem.kitsu', 'com.mediavault.kitsu']);
     const hasTmdbAddon = hasAddon(addons, ['tmdb', 'tmdb-addon', 'tmdb.elfhosted', 'com.meem.tmdb', 'com.mediavault.tmdb']);
     const hasFanartAddon = hasAddon(addons, ['fanart', 'fanart.tv', 'com.meem.fanart', 'com.mediavault.fanart']);
-    const hasCinemetaAddon = hasAddon(addons, ['cinemeta', 'stremio-cinemeta']);
-    const hasCatalogAddon = hasCinemetaAddon || hasTmdbAddon;
+    const hasCinemetaAddon = hasAddon(addons, ['cinemeta', 'stremio-cinemeta', 'com.linvo.cinemeta']);
+    const hasCatalogAddon = hasCinemetaAddon || hasTmdbAddon || hasAddon(addons, ['catalog', 'cyberflix', 'elfhosted', 'strem', 'torrentio', 'yts']);
     const hasSubAddon = hasAddon(addons, ['subdl', 'opensubtitles', 'subscene']);
     const hasYoutubeAddon = addons.some(a => {
       if (a.enabled === false) return false;

@@ -583,6 +583,9 @@
       channelsList.unshift(channel);
     }
 
+    const container = document.getElementById('iptv-main-container') || document.querySelector('.iptv-container');
+    if (container) container.classList.add('has-active-playback');
+
     // Update active highlight in DOM
     document.querySelectorAll('.iptv-channel-card').forEach(card => card.classList.remove('active'));
     renderChannelList();
@@ -672,18 +675,40 @@
     };
 
     if (window.Hls && window.Hls.isSupported()) {
+      let HlsLoaderClass = window.Hls.DefaultConfig.loader;
+      if (HlsLoaderClass) {
+        class CustomHlsLoader extends HlsLoaderClass {
+          load(context, config, callbacks) {
+            if (context && context.url) {
+              if (context.url.startsWith('https://localhost/') || context.url.startsWith('http://localhost/') || context.url.startsWith('capacitor://localhost/')) {
+                try {
+                  const parsedStream = new URL(streamUrl);
+                  const parsedLocal = new URL(context.url);
+                  context.url = parsedStream.origin + parsedLocal.pathname + parsedLocal.search;
+                } catch (_) {}
+              }
+            }
+            super.load(context, config, callbacks);
+          }
+        }
+        HlsLoaderClass = CustomHlsLoader;
+      }
+
       hlsInstance = new window.Hls({
         enableWorker: !isMobile, // Disable workers on Android WebView to prevent worker thread crashes
         lowLatencyMode: false,
         backBufferLength: 60,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
-        manifestLoadingTimeOut: 20000,
-        manifestLoadingMaxRetry: 4,
-        levelLoadingTimeOut: 20000,
-        levelLoadingMaxRetry: 4,
-        fragLoadingTimeOut: 20000,
-        fragLoadingMaxRetry: 6,
+        manifestLoadingTimeOut: 15000,
+        manifestLoadingMaxRetry: 2,
+        levelLoadingTimeOut: 15000,
+        levelLoadingMaxRetry: 2,
+        fragLoadingTimeOut: 15000,
+        fragLoadingMaxRetry: 3,
+        loader: HlsLoaderClass,
+        fLoader: HlsLoaderClass,
+        pLoader: HlsLoaderClass,
         xhrSetup: function (xhr, url) {
           xhr.withCredentials = false;
         }
@@ -700,17 +725,40 @@
         });
       });
 
+      let networkErrorCount = 0;
+      let mediaErrorCount = 0;
+
       hlsInstance.on(window.Hls.Events.ERROR, (event, data) => {
         console.warn('[IPTV HLS Error]', data);
+        if (data.details === 'fragLoadError' || data.details === 'levelLoadError' || data.details === 'manifestLoadError') {
+          networkErrorCount++;
+          if (networkErrorCount >= 2) {
+            console.warn('[IPTV HLS] Load error threshold reached, switching to native playback...');
+            tryNativePlayback();
+            return;
+          }
+        }
         if (data.fatal) {
           switch (data.type) {
             case window.Hls.ErrorTypes.NETWORK_ERROR:
-              console.log('[IPTV HLS] Network error encountered, retrying...');
-              hlsInstance.startLoad();
+              networkErrorCount++;
+              if (networkErrorCount >= 2) {
+                console.warn('[IPTV HLS] Fatal network error limit reached, falling back to native video playback...');
+                tryNativePlayback();
+              } else {
+                console.log(`[IPTV HLS] Network error encountered, retrying (${networkErrorCount}/2)...`);
+                hlsInstance.startLoad();
+              }
               break;
             case window.Hls.ErrorTypes.MEDIA_ERROR:
-              console.log('[IPTV HLS] Media error encountered, recovering...');
-              hlsInstance.recoverMediaError();
+              mediaErrorCount++;
+              if (mediaErrorCount >= 2) {
+                console.warn('[IPTV HLS] Fatal media error limit reached, falling back to native video playback...');
+                tryNativePlayback();
+              } else {
+                console.log(`[IPTV HLS] Media error encountered, recovering (${mediaErrorCount}/2)...`);
+                hlsInstance.recoverMediaError();
+              }
               break;
             default:
               console.warn('[IPTV HLS] Fatal error, trying native video fallback...');
@@ -1150,6 +1198,8 @@
       } catch (e) {}
     }
     activeChannel = null;
+    const container = document.getElementById('iptv-main-container') || document.querySelector('.iptv-container');
+    if (container) container.classList.remove('has-active-playback');
     const noChannel = document.getElementById('iptv-no-channel');
     if (noChannel) noChannel.style.display = 'flex';
     const bar = document.getElementById('radio-player-bar');

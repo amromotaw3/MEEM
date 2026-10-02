@@ -611,12 +611,12 @@ function initAddonsIpc(ipcMain, store) {
             const installed = Array.isArray(appData.installedAddons) ? appData.installedAddons : [];
             const tmdbKey = appData.tmdbKey || null;
 
-            // Cinemeta is the universal default catalog unless specifically disabled
-            const cinemetaDisabled = installed.some(a => {
-                const id = String(a.id || a.name || '').toLowerCase();
-                return id.includes('cinemeta') && a.enabled === false;
+            // Cinemeta is only queried if explicitly installed and enabled
+            const hasCinemeta = installed.some(a => {
+                if (a.enabled === false) return false;
+                const id = String(a.id || a.name || a.url || '').toLowerCase();
+                return id.includes('cinemeta');
             });
-            const hasCinemeta = !cinemetaDisabled;
 
             const hasTmdbAddon = installed.some(a => {
                 if (a.enabled === false) return false;
@@ -730,11 +730,14 @@ function initAddonsIpc(ipcMain, store) {
                     axios.get(`https://anime-kitsu.strem.fun/catalog/anime/kitsu-anime-list/search=${q}.json`, { timeout: 2500 })
                         .then(resp => (resp.data?.metas || []).map(ani => ({
                             id: ani.id,
+                            imdb_id: ani.imdb_id || (String(ani.id).startsWith('tt') ? ani.id : null),
                             kitsu_id: ani.kitsu_id || (String(ani.id).startsWith('kitsu:') ? String(ani.id).replace('kitsu:', '') : ani.id),
+                            mal_id: ani.mal_id || (Array.isArray(ani.links) ? ani.links.find(l => l.url && l.url.includes('myanimelist'))?.url?.match(/anime\/(\d+)/)?.[1] : null),
                             title: ani.name || ani.title,
+                            aliases: Array.isArray(ani.aliases) ? ani.aliases : [],
                             poster: ani.poster ? (ani.poster.startsWith('http') ? ani.poster : `https://images.metahub.space/poster/medium/${ani.id}/img`) : '',
                             backdrop: ani.background || ani.backdrop || '',
-                            type: 'series',
+                            type: (ani.type === 'movie' || ani.animeType === 'movie') ? 'movie' : 'series',
                             isAnime: true,
                             source: 'kitsu',
                             rating: ani.imdbRating ? parseFloat(ani.imdbRating) : (ani.rating ? parseFloat(ani.rating) : 0),
@@ -763,13 +766,18 @@ function initAddonsIpc(ipcMain, store) {
 
                 let existing = null;
                 for (const m of merged) {
-                    const mTitle = (m.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
                     const sameId = String(m.id).toLowerCase() === idKey ||
                                    (m.imdb_id && item.imdb_id && m.imdb_id === item.imdb_id) ||
                                    (m.tmdb_id && item.tmdb_id && m.tmdb_id === item.tmdb_id) ||
                                    (m.kitsu_id && item.kitsu_id && m.kitsu_id === item.kitsu_id) ||
                                    (m.mal_id && item.mal_id && m.mal_id === item.mal_id);
-                    const sameTitleYear = titleClean && mTitle && titleClean === mTitle && (
+
+                    const mAliases = [m.title, ...(Array.isArray(m.aliases) ? m.aliases : [])].map(t => (t || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim()).filter(Boolean);
+                    const itemAliases = [item.title, ...(Array.isArray(item.aliases) ? item.aliases : [])].map(t => (t || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim()).filter(Boolean);
+                    const hasAliasMatch = mAliases.some(ma => itemAliases.includes(ma)) ||
+                                          mAliases.some(ma => itemAliases.some(ia => ma.length > 5 && ia.length > 5 && (ma.includes(ia) || ia.includes(ma))));
+
+                    const sameTitleYear = hasAliasMatch && (
                         !m.releaseYear || !item.releaseYear || Math.abs(m.releaseYear - item.releaseYear) <= 1
                     );
                     if (sameId || sameTitleYear) {
@@ -791,8 +799,15 @@ function initAddonsIpc(ipcMain, store) {
                     if (!existing.backdrop && item.backdrop) existing.backdrop = item.backdrop;
                     if (!existing.poster && item.poster) existing.poster = item.poster;
                     if ((!existing.rating || existing.rating === 0) && item.rating > 0) existing.rating = item.rating;
+                    if (!existing.imdbRating && item.imdbRating) existing.imdbRating = item.imdbRating;
+                    if (!existing.malScore && item.malScore) existing.malScore = item.malScore;
                     if (!existing.synopsis && item.synopsis) existing.synopsis = item.synopsis;
                     if (item.isAnime) existing.isAnime = true;
+                    if (item.type === 'movie' && existing.type !== 'movie') existing.type = 'movie';
+                    if (Array.isArray(item.aliases) && item.aliases.length > 0) {
+                        existing.aliases = existing.aliases || [];
+                        item.aliases.forEach(al => { if (!existing.aliases.includes(al)) existing.aliases.push(al); });
+                    }
                 }
             };
 

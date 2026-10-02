@@ -4434,10 +4434,20 @@ section#view-addons.active {
   display: none; /* Chrome/Safari */
 }
 .recommendations-row .media-card {
-  flex: 0 0 130px !important;
-  width: 130px !important;
-  min-width: 130px !important;
+  flex: 0 0 120px !important;
+  width: 120px !important;
+  min-width: 120px !important;
   scroll-snap-align: start !important;
+}
+
+.recommendations-row .media-card .card-poster {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 2 / 3 !important;
+  padding-top: 0 !important;
+  border-radius: 10px 10px 0 0 !important;
+  overflow: hidden !important;
+  position: relative !important;
 }
 
 .nav-arrow-btn:hover {
@@ -4447,10 +4457,10 @@ section#view-addons.active {
 
 /* ── Full-Width Watchlist Library Grid ── */
 .watchlist-grid-cinematic {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) !important;
-  gap: 24px !important;
-  width: 100% !important;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 24px;
+  width: 100%;
 }
 
 /* --- Account Top Banner --- */
@@ -4834,9 +4844,9 @@ section#view-addons.active {
 
 #custom-list-grid, 
 #view-custom-list-detail .card-grid {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)) !important;
-  gap: 20px !important;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 20px;
   width: 100% !important;
   max-width: 100% !important;
   box-sizing: border-box !important;

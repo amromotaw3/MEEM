@@ -13,10 +13,11 @@
     href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=Cairo:wght@400;600;700;800&display=swap"
     rel="stylesheet">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self' 'unsafe-inline' https: http: data: blob: local-file: media-img:; worker-src 'self' blob: file: data:; child-src 'self' blob: file: data:; media-src 'self' media: blob: data: https: http: local-file: media-img: file:; connect-src 'self' https: http: wss: ws: blob: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; img-src 'self' data: https: http: blob: local-file: media-img:;">
+    content="default-src 'self' 'unsafe-inline' https: http: data: blob: local-file: media-img:; worker-src 'self' blob: file: data:; child-src 'self' blob: file: data: https://www.youtube.com https://www.youtube-nocookie.com; frame-src 'self' blob: file: https://www.youtube.com https://www.youtube-nocookie.com; media-src 'self' media: blob: data: https: http: local-file: media-img: file:; connect-src 'self' https: http: wss: ws: blob: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://www.youtube.com https://s.ytimg.com; img-src 'self' data: https: http: blob: local-file: media-img:;">
 
-  <!-- HLS.js — required for .m3u8 IPTV & Radio streams -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <!-- HLS.js — required for .m3u8 IPTV & Radio streams (local first, CDN fallback) -->
+  <script src="lib/hls.min.js" onerror="console.warn('[HLS] Local failed, loading CDN')"></script>
+  <script>if (!window.Hls) { var s = document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js'; document.head.appendChild(s); }</script>
 
 
   <!-- Global Polyfills for older WebViews -->
@@ -1028,10 +1029,12 @@
         </button>
         <button class="nav-btn" data-view="social" id="nav-social-music">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="23 7 16 12 23 17 23 7"></polygon>
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
           </svg>
-          <span>Social</span><span class="nav-badge" id="badge-social"></span>
+          <span>Social Videos</span><span class="nav-badge" id="badge-social"></span>
         </button>
       </div>
 
@@ -1063,7 +1066,8 @@
         </button>
         <button class="nav-btn" data-view="ai" id="nav-ai">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"></path>
+            <path d="M20 3L20.8 5.2L23 6L20.8 6.8L20 9L19.2 6.8L17 6L19.2 5.2L20 3Z"></path>
           </svg>
           <span>MEEM AI</span>
           <span class="nav-badge" style="background: rgba(255, 255, 255, 0.15); font-size: 9px; padding: 2px 6px; border-radius: 6px; font-weight: 800; color: #ffffff;">PRO</span>
@@ -1221,14 +1225,11 @@
       <!-- Centered Mobile Title -->
       <div id="mobile-nav-header" class="mobile-view-title">
         <div class="mobile-nav-left-group">
-          <button id="mobile-hamburger-btn" class="mobile-nav-btn-icon" title="Open Menu">
-            <i class="fas fa-bars-staggered"></i>
-          </button>
           <button id="mobile-header-search-btn" class="mobile-nav-btn-icon" title="Search" onclick="switchView('search')">
             <i class="fas fa-search"></i>
           </button>
         </div>
-        <h2 id="mobile-nav-title">Dashboard</h2>
+        <h2 id="mobile-nav-title">MEEM</h2>
         <div style="width: 38px;"></div> <!-- balance spaces -->
       </div>
 
@@ -1633,7 +1634,7 @@
               </div>
 
               <!-- Now in Cinemas Shelf -->
-              <div id="in-cinemas-section" class="discover-section">
+              <div id="in-cinemas-section" class="discover-section" style="display: none;">
                 <div class="discover-section-header">
                   <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
                     <i class="fas fa-ticket-alt" style="font-size: 15px; color: #ffffff !important;"></i>
@@ -1649,7 +1650,7 @@
               </div>
 
               <!-- Top 10 TV Shows Shelf -->
-              <div id="top10-tv-section" class="discover-section">
+              <div id="top10-tv-section" class="discover-section" style="display: none;">
                 <div class="discover-section-header">
                   <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
                     <i class="fas fa-tv" style="font-size: 15px; color: #ffffff !important;"></i>
@@ -1665,7 +1666,7 @@
               </div>
 
               <!-- Top 10 Movies Shelf -->
-              <div id="top10-movie-section" class="discover-section">
+              <div id="top10-movie-section" class="discover-section" style="display: none;">
                 <div class="discover-section-header">
                   <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
                     <i class="fas fa-film" style="font-size: 15px; color: #ffffff !important;"></i>
@@ -1680,7 +1681,7 @@
                 <div class="discover-row" id="top10-movie-row"></div>
               </div>
 
-              <div class="discover-section">
+              <div id="popular-movies-section" class="discover-section" style="display: none;">
                 <div class="discover-section-header">
                   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#ffffff" stroke-width="2"
                     stroke-linecap="round" style="color: #ffffff !important;">
@@ -1730,7 +1731,7 @@
               </div>
 
               <!-- Popular TV Shows Shelf -->
-              <div id="popular-series-section" class="discover-section">
+              <div id="popular-series-section" class="discover-section" style="display: none;">
                 <div class="discover-section-header">
                   <div class="section-title-icon" style="display: inline-flex; align-items: center; justify-content: center; color: #ffffff;">
                     <i class="fas fa-tv" style="font-size: 15px; color: #ffffff !important;"></i>
@@ -1841,20 +1842,20 @@
         </div>
       </section>
 
-      <!-- MEEM AI Copilot View -->
+      <!-- MEEM AI View -->
       <section id="view-ai" class="view" style="display: none;">
         <!-- AI Header -->
         <div class="ai-header">
           <div class="ai-header-left">
-            <button class="mobile-hamburger-nav-btn" title="Open Menu">
+            <button class="mobile-hamburger-nav-btn" id="ai-mobile-menu-btn" onclick="if(typeof window.toggleMobileAIChatsDrawer==='function') window.toggleMobileAIChatsDrawer();" title="Chats History">
               <i class="fas fa-bars"></i>
             </button>
             <div class="ai-avatar-icon">
               <img src="imgs/meem-ai.jpg" alt="MEEM AI" class="ai-avatar-img">
             </div>
             <div class="ai-header-title">
-              <h2>MEEM AI <span class="ai-model-badge">COPILOT</span></h2>
-              <p>Your intelligent media copilot for discovery, lists, and live streams</p>
+              <h2>MEEM AI</h2>
+              <p>Your intelligent media assistant for discovery, lists, and live streams</p>
             </div>
           </div>
           <div class="ai-header-actions">
@@ -2034,8 +2035,8 @@
             </button>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" id="anime-schedule-day-filters">
-            <button class="anime-schedule-filter-btn active" data-day="" onclick="window.loadAnimeSchedule('')" style="padding: 7px 16px; border-radius: 20px; background: #ffffff; color: #000000; font-weight: 700; border: 1px solid #ffffff; cursor: pointer; box-shadow: 0 0 12px rgba(255, 255, 255, 0.35);">All</button>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 4px; max-width: 100%;" id="anime-schedule-day-filters">
+            <button class="anime-schedule-filter-btn active" data-day="" onclick="window.loadAnimeSchedule('')" style="padding: 7px 16px; border-radius: 20px; background: #ffffff; color: #000000; font-weight: 700; border: 1px solid #ffffff; cursor: pointer; box-shadow: 0 0 12px rgba(255, 255, 255, 0.35); flex-shrink: 0; white-space: nowrap;">All</button>
             <button class="anime-schedule-filter-btn" data-day="upcoming" onclick="window.loadAnimeSchedule('upcoming')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Upcoming</button>
             <button class="anime-schedule-filter-btn" data-day="monday" onclick="window.loadAnimeSchedule('monday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Mon</button>
             <button class="anime-schedule-filter-btn" data-day="tuesday" onclick="window.loadAnimeSchedule('tuesday')" style="padding: 7px 16px; border-radius: 20px; background: rgba(255,255,255,0.06); color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,0.12); cursor: pointer;">Tue</button>
@@ -2049,6 +2050,8 @@
 
         <style>
           .anime-schedule-filter-btn {
+            flex-shrink: 0 !important;
+            white-space: nowrap !important;
             transition: all 0.2s ease !important;
             user-select: none !important;
           }
@@ -2814,12 +2817,13 @@
                 <div class="settings-account-status-dot" title="Active Session"></div>
               </div>
               <div class="settings-account-info">
-                <h3 id="settings-user-name">My Account</h3>
+                <h3 id="settings-user-name">Account Details</h3>
                 <p id="settings-user-email">Tap to view account details</p>
                 <span class="settings-account-hint" style="font-size: 0.8rem; color: rgba(255,255,255,0.65); margin-top: 4px; display: flex; align-items: center; gap: 6px; font-weight: 500;">
-                  <i class="fas fa-hand-pointer" style="color: var(--accent); font-size: 12px;"></i> Click to open Account Settings
+                  <i class="fas fa-user-gear" style="color: var(--accent); font-size: 12px;"></i> Account Details
                 </span>
               </div>
+              <i class="fas fa-chevron-right" style="color: rgba(255,255,255,0.6); font-size: 16px; margin-left: auto;"></i>
             </div>
           </div>
 
@@ -3062,46 +3066,6 @@
             </div>
           </div>
 
-          <!-- Mobile Only: Default Actions & Recommended Apps -->
-          <div class="settings-card hide-on-pc">
-            <h3 style="display:flex; align-items:center; gap:10px;">
-              <i class="fas fa-mobile-alt" style="color:var(--accent);"></i>
-              Mobile Preferences
-            </h3>
-            <div class="dl-form" style="margin-top:15px">
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <div style="font-size: 13px; font-weight: 600; color: #fff;">Always use Internal Downloader</div>
-                <label class="switch">
-                  <input type="checkbox" id="mobile-internal-downloader" checked>
-                  <span class="slider"></span>
-                </label>
-              </div>
-              <p class="setting-hint" style="margin-top:10px">If disabled, the app will ask you to choose an external
-                app for downloading. Playback is always handled by your preferred external player (VLC, MX Player,
-                etc.).</p>
-            </div>
-          </div>
-
-          <div class="settings-card hide-on-pc">
-            <h3 style="margin-bottom:15px"><i class="fas fa-external-link-alt"
-                style="color:var(--accent); margin-right:8px"></i>Recommended Apps</h3>
-            <div class="apps-link-grid" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:10px;">
-              <button class="btn-outline"
-                onclick="window.api.invoke('open-external', 'https://play.google.com/store/apps/details?id=com.amnis&pcampaignid=web_share')"
-                style="justify-content:flex-start; padding:12px; flex-direction: column; align-items: center; gap: 8px; height: auto;">
-                <i class="fas fa-play-circle" style="font-size: 24px; color:#a855f7"></i>
-                <span style="font-size: 12px; font-weight: 700;">Amnis</span>
-              </button>
-              <button class="btn-outline"
-                onclick="window.api.invoke('open-external', 'https://play.google.com/store/apps/details?id=org.proninyaroslav.libretorrent')"
-                style="justify-content:flex-start; padding:12px; flex-direction: column; align-items: center; gap: 8px; height: auto;">
-                <i class="fas fa-magnet" style="font-size: 24px; color:#10b981"></i>
-                <span style="font-size: 12px; font-weight: 700;">LibreTorrent</span>
-              </button>
-            </div>
-          </div>
-
-
           <!-- Smart Auto-Play & Stream Preferences Card -->
           <div class="settings-card" id="smart-autoplay-settings-card">
             <h3 style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
@@ -3176,45 +3140,51 @@
               </div>
             </div>
           </div>
-          <div class="settings-card">
-            <h3 style="display:flex; align-items:center; gap:10px;">
-              <i class="fas fa-microchip" style="color:#ffffff; font-size: 0.9em;"></i>
+
+          <div class="settings-card" style="position: relative; overflow: hidden;">
+            <h3 style="display:flex; align-items:center; gap:10px; margin-bottom: 16px;">
+              <i class="fas fa-code-branch" style="color:#ffffff; font-size: 0.95em;"></i>
               Software Updates
             </h3>
 
             <div class="update-info-row"
-              style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px; margin-bottom: 16px;">
-              <div style="display: flex; align-items: center; gap: 12px;">
+              style="display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; margin-bottom: 16px; gap: 14px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 14px;">
                 <div
-                  style="width: 38px; height: 38px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.22); display: flex; align-items: center; justify-content: center; color: #ffffff;">
-                  <i class="fas fa-code-branch"></i>
+                  style="width: 42px; height: 42px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 16px; flex-shrink: 0;">
+                  <i class="fas fa-cube"></i>
                 </div>
                 <div>
-                  <div id="app-version-label" style="font-size: 13px; font-weight: 700; color: #fff;">MEEM v3.10.2</div>
-                  <div id="update-status-detail" style="font-size: 11px; color: var(--text-muted);">Build is up to date</div>
+                  <div id="app-version-label" style="font-size: 14px; font-weight: 800; color: #ffffff; letter-spacing: -0.2px;">MEEM v11.2.0</div>
+                  <div style="display: flex; align-items: center; gap: 6px; margin-top: 3px;">
+                    <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                    <span id="update-status-detail" style="font-size: 11.5px; color: rgba(255,255,255,0.6); font-weight: 500;">Build is up to date</span>
+                  </div>
                 </div>
               </div>
-              <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                <button id="btn-whats-new" class="btn-outline-sm" style="padding: 8px 14px; border-radius: 8px; font-size: 12px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #fff; cursor: pointer; display: flex; align-items: center; gap: 5px;"><i class="fas fa-sparkles" style="color: #f59e0b;"></i> What's New</button>
-                <button id="btn-check-updates" class="btn-primary-sm" style="padding: 8px 16px; border-radius: 8px;">Check Now</button>
-                <button id="btn-do-update" class="btn-primary-sm" style="padding: 8px 16px; border-radius: 8px; display: none; background: #2ed573; border-color: #2ed573;">Update</button>
+              <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <button id="btn-whats-new" class="btn-outline-sm" style="padding: 8px 14px; border-radius: 10px; font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.9); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s;"><i class="fas fa-sparkles" style="color: #f59e0b; font-size: 11px;"></i> What's New</button>
+                <button id="btn-check-updates" class="btn-primary-sm" style="padding: 8px 16px; border-radius: 10px; font-size: 12px; font-weight: 700; background: #ffffff; color: #000000; border: none; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 14px rgba(0,0,0,0.3); transition: all 0.2s;"><i class="fas fa-arrows-rotate" style="font-size: 11px;"></i> Check Now</button>
+                <button id="btn-do-update" class="btn-primary-sm" style="padding: 8px 16px; border-radius: 10px; font-size: 12px; font-weight: 700; display: none; background: #10b981; color: #ffffff; border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">Update Now</button>
               </div>
             </div>
 
             <div id="settings-update-progress" style="display: none; margin-bottom: 16px; padding: 0 14px;">
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <span style="font-size: 11px; font-weight: 700; color: var(--accent);">DOWNLOADING</span>
-                <span id="settings-update-percent" style="font-size: 11px; font-weight: 700; color: #fff;">0%</span>
+                <span style="font-size: 11px; font-weight: 700; color: #ffffff;">DOWNLOADING UPDATE</span>
+                <span id="settings-update-percent" style="font-size: 11px; font-weight: 700; color: #10b981;">0%</span>
               </div>
-              <div style="height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden;">
-                <div id="settings-update-bar" style="height: 100%; width: 0%; background: var(--accent); transition: width 0.3s;"></div>
+              <div style="height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                <div id="settings-update-bar" style="height: 100%; width: 0%; background: #10b981; transition: width 0.3s ease;"></div>
               </div>
             </div>
 
             <div
-              style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 16px; margin-top: 4px;">
-              <div style="font-size: 13px; color: var(--text-primary); font-weight: 500;">Auto-check for updates on
-                startup</div>
+              style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 14px; margin-top: 4px;">
+              <div>
+                <div style="font-size: 13px; color: var(--text-primary); font-weight: 600;">Auto-check for updates on startup</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Automatically check for new versions and improvements</div>
+              </div>
               <label class="switch">
                 <input type="checkbox" id="update-auto-check" checked>
                 <span class="slider"></span>
@@ -5415,29 +5385,95 @@
     </div>
   </div>
 
-  <!-- Premium Mobile Bottom Dock (Hidden - replaced by 3-bars hamburger drawer) -->
-  <nav id="mobile-dock" style="display: none !important;">
-    <button class="nav-btn active" data-view="discover">
-      <i class="fas fa-compass"></i>
-      <span>Discover</span>
-    </button>
-    <button class="nav-btn" data-view="movies">
-      <i class="fas fa-folder-open"></i>
-      <span>My Space</span>
-    </button>
-    <button class="nav-btn" data-view="watchlist">
-      <i class="fas fa-bookmark"></i>
-      <span>My List</span>
-    </button>
-    <button class="nav-btn" data-view="settings">
-      <i class="fas fa-cog"></i>
-      <span>Settings</span>
-    </button>
-    <button class="nav-btn" data-view="account">
-      <i class="fas fa-user"></i>
-      <span>Account</span>
-    </button>
+  <!-- High-Contrast Dark Mode Seamless Expanding Bottom Navigation Dock -->
+  <nav id="mobile-bottom-nav" class="mobile-bottom-nav hide-on-pc">
+    <!-- Primary 5 Navigation Bar Items -->
+    <div class="mobile-nav-bar-primary">
+      <button class="mobile-nav-item nav-btn active" data-view="discover" onclick="switchView('discover')" title="Home">
+        <i class="fas fa-house"></i>
+        <span>Home</span>
+      </button>
+      <button class="mobile-nav-item nav-btn" data-view="search" onclick="switchView('search')" title="Search">
+        <i class="fas fa-search"></i>
+        <span>Search</span>
+      </button>
+      <button class="mobile-nav-item nav-btn mobile-ai-center-btn" data-view="ai" onclick="switchView('ai')" title="MEEM AI">
+        <i class="fas fa-sparkles"></i>
+        <span>MEEM AI</span>
+      </button>
+      <button class="mobile-nav-item nav-btn" data-view="watchlist" onclick="switchView('watchlist')" title="My List">
+        <i class="fas fa-bookmark"></i>
+        <span>My List</span>
+      </button>
+      <button class="mobile-nav-item nav-btn" id="mobile-more-btn" onclick="toggleMobileDockExpansion(true)" title="More Options">
+        <i class="fas fa-bars-staggered"></i>
+        <span>More</span>
+      </button>
+    </div>
+
+    <!-- Seamless Expanded Menu Grid (Directly within bottom dock frame) -->
+    <div class="mobile-nav-bar-expanded" style="display: none;">
+      <div class="mobile-dock-expanded-header">
+        <span class="mobile-dock-expanded-title">More Features</span>
+        <button class="mobile-dock-collapse-btn" onclick="toggleMobileDockExpansion(false)" title="Close Menu" aria-label="Close">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="mobile-dock-expanded-grid">
+        <button class="mobile-sheet-item" data-view="movies" onclick="handleMobileSheetNavigation('movies', event);">
+          <i class="fas fa-film"></i>
+          <span>Movies</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="shows" onclick="handleMobileSheetNavigation('shows', event);">
+          <i class="fas fa-tv"></i>
+          <span>TV Shows</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="social" onclick="handleMobileSheetNavigation('social', event);">
+          <i class="fas fa-video"></i>
+          <span>Social Videos</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="anime-schedule" onclick="handleMobileSheetNavigation('anime-schedule', event);">
+          <i class="fas fa-calendar-alt"></i>
+          <span>Anime Schedule</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="music" onclick="handleMobileSheetNavigation('music', event);">
+          <i class="fas fa-music"></i>
+          <span>Music</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="iptv" onclick="handleMobileSheetNavigation('iptv', event);">
+          <i class="fas fa-broadcast-tower"></i>
+          <span>Live TV</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="radio" onclick="handleMobileSheetNavigation('radio', event);">
+          <i class="fas fa-radio"></i>
+          <span>Live Radio</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="downloads" onclick="handleMobileSheetNavigation('downloads', event);">
+          <i class="fas fa-download"></i>
+          <span>Downloads</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="addons" onclick="handleMobileSheetNavigation('addons', event);">
+          <i class="fas fa-puzzle-piece"></i>
+          <span>Add-on Store</span>
+        </button>
+        <button class="mobile-sheet-item" onclick="handleMobileSheetNavigation('bug-report', event);">
+          <i class="fas fa-bug"></i>
+          <span>Bug Report</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="settings" onclick="handleMobileSheetNavigation('settings', event);">
+          <i class="fas fa-cog"></i>
+          <span>Settings</span>
+        </button>
+        <button class="mobile-sheet-item" data-view="account" onclick="handleMobileSheetNavigation('account', event);">
+          <i class="fas fa-user-gear"></i>
+          <span>Account Details</span>
+        </button>
+      </div>
+    </div>
   </nav>
+
+  <!-- Dark Backdrop when More Expansion is Active -->
+  <div id="mobile-dock-backdrop" class="mobile-dock-backdrop hide-on-pc" onclick="toggleMobileDockExpansion(false)"></div>
 
   <!-- Floating Search Button for Mobile (Hidden) -->
   <button id="floating-search-btn" class="floating-search-btn" title="Quick Search" style="display: none !important;">
@@ -5485,7 +5521,7 @@
   <script>
     (function () {
       const _splashStartTime = Date.now();
-      const MIN_SPLASH_TIME = 1800; // Minimum 1.8s delay to allow full UI & background modules to stabilize
+      const MIN_SPLASH_TIME = 250; // Fast 250ms animation threshold for instant responsive startup
 
       window.hideSplash = () => {
         const elapsed = Date.now() - _splashStartTime;
@@ -5620,6 +5656,7 @@
   <script src="js/supabase-public.js"></script>
   <script src="js/supabase.js"></script>
   <script src="js/bridge.js"></script>
+  <script src="js/download-manager.js"></script>
   <script src="FanartService.js"></script>
   <script src="js/detail-unified.js"></script>
   <link rel="stylesheet" href="css/chat-media-renderer.css">
@@ -5748,6 +5785,9 @@
           </button>
         </div>
         <div class="fs-top-right-actions">
+          <button class="fs-translate-trigger-btn" id="fs-top-sleep-btn" title="Sleep Timer" style="margin-right: 6px;" onclick="document.getElementById('fs-tool-timer-btn')?.click()">
+            <i class="fas fa-moon"></i>
+          </button>
           <div class="fs-translate-menu-wrap" id="fs-translate-menu-wrap">
             <button class="fs-translate-trigger-btn" id="fs-translate-trigger-btn" title="Lyrics Translation">
               <i class="fas fa-language"></i>
@@ -6186,6 +6226,29 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- MEEM AI Mobile Chat History Drawer Modal -->
+  <div id="ai-chats-drawer-modal" class="modal-overlay" style="display:none; position:fixed; inset:0; z-index:2000000; background:rgba(0,0,0,0.75); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:flex-end; justify-content:center;" onclick="if(event.target===this) window.toggleMobileAIChatsDrawer(false);">
+    <div class="ai-chats-drawer-sheet" style="width:100%; max-height:80vh; background:#121218; border-top:1px solid rgba(255,255,255,0.15); border-radius:24px 24px 0 0; padding:20px; display:flex; flex-direction:column; gap:16px; box-shadow:0 -10px 40px rgba(0,0,0,0.8);">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <img src="imgs/meem-ai.jpg" alt="MEEM AI" style="width:22px; height:22px; border-radius:6px; object-fit:cover;">
+          <span style="font-size:16px; font-weight:700; color:#ffffff;">Chat History</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button id="ai-drawer-new-btn" onclick="if(typeof window.aiCreateNewChatSession==='function') { window.aiCreateNewChatSession(); if(typeof window.toggleMobileAIChatsDrawer==='function') window.toggleMobileAIChatsDrawer(false); }" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:#fff; padding:6px 12px; border-radius:12px; font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            <i class="fas fa-plus"></i> New Chat
+          </button>
+          <button onclick="if(typeof window.toggleMobileAIChatsDrawer==='function') window.toggleMobileAIChatsDrawer(false);" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#fff; width:30px; height:30px; border-radius:50%; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center;">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+      </div>
+      <div id="ai-drawer-sessions-list" class="ai-sessions-list" style="overflow-y:auto; flex:1; max-height:calc(80vh - 80px); display:flex; flex-direction:column; gap:8px;">
+        <!-- Populated dynamically by renderSidebarSessions -->
+      </div>
     </div>
   </div>
 

@@ -196,14 +196,17 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       } catch (e) {}
     }
 
-    // Check localStorage cache for remote banners/images
+    // On mobile (Capacitor), just return HTTP URLs directly — no local download needed
     if (cleanP.startsWith('http')) {
+      if (window.Capacitor) {
+        return cleanP;
+      }
       const cached = localStorage.getItem('cache_banner_' + cleanP);
       if (cached) {
         return cached;
       }
-      // Trigger background cache download if running in Electron
-      if (window.api && window.api.downloadImage) {
+      // Trigger background cache download if running in Electron only
+      if (window.api && window.api.downloadImage && window.api.isElectron) {
         const cacheKey = 'cache_banner_' + cleanP;
         if (!window._downloadingBanners) window._downloadingBanners = new Set();
         if (!window._downloadingBanners.has(cleanP)) {
@@ -227,9 +230,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
                 localUrl = "local-file://" + encodeURI(safePath).replace(/#/g, "%23").replace(/\?/g, "%3F");
               }
               localStorage.setItem(cacheKey, localUrl);
-              console.log('[CACHE] Cached remote banner locally:', localUrl);
-              
-              // Find and update active banner containers in DOM immediately
               const activeView = $('#view-account');
               if (activeView && activeView.style.display !== 'none') {
                 const bannerContainer = activeView.querySelector('#account-banner-container');
@@ -244,7 +244,6 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             }
           }).catch(err => {
             window._downloadingBanners.delete(cleanP);
-            console.warn('[CACHE] Failed to cache banner:', err);
           });
         }
       }
@@ -2669,6 +2668,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           }
         }
 
+        if (window.bridge && typeof window.bridge.getMediaRatings === 'function' && currentProfile?.id) {
+          try {
+            const ratingsMap = await window.bridge.getMediaRatings({ profileId: currentProfile.id });
+            if (ratingsMap) {
+              currentProfile.ratings = { ...(currentProfile.ratings || {}), ...ratingsMap };
+              window.mediaRatingsCache = { ...(window.mediaRatingsCache || {}), ...ratingsMap };
+            }
+          } catch (re) {
+            console.warn('[PROFILES] Failed to hydrate media ratings:', re);
+          }
+        }
+
         closeProfilePickerOverlay();
 
         if (!skipAnimation) {
@@ -2877,7 +2888,11 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       ageInput.value = (profile && typeof profile.max_age_rating !== 'undefined') ? profile.max_age_rating : '18';
     }
 
-    selectedAvatar = profile ? profile.avatar : AVATARS[0];
+    let rawAv = profile ? profile.avatar : AVATARS[0];
+    if (!rawAv || rawAv === 'imgs/avatar.png' || rawAv === 'imgs/avatars/default.png' || rawAv === 'default' || !String(rawAv).trim()) {
+      rawAv = AVATARS[0];
+    }
+    selectedAvatar = rawAv;
 
     const picker = $('#profile-picker');
     if (picker) {
@@ -2923,16 +2938,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       selector.appendChild(img);
     });
 
-    // If selectedAvatar is a custom one (not in default list), show it too
-    if (selectedAvatar && !AVATARS.includes(selectedAvatar)) {
+    // If selectedAvatar is a custom one (not in default list and not a default avatar variant), show it too
+    const isDefaultAvatar = !selectedAvatar || selectedAvatar === AVATARS[0] || selectedAvatar === 'imgs/avatar.png' || selectedAvatar === 'imgs/avatars/default.png' || selectedAvatar === 'default';
+    if (!isDefaultAvatar && !AVATARS.includes(selectedAvatar)) {
       const img = document.createElement('img');
       img.src = localImg(selectedAvatar);
-      img.className = 'avatar-opt selected';
+      img.className = 'avatar-opt selected custom-avatar';
       img.onerror = () => { img.onerror = null; img.src = DEFAULT_AVATAR_SVG; };
       img.onclick = () => {
         selector.querySelectorAll('.avatar-opt').forEach(el => el.classList.remove('selected'));
         img.classList.add('selected');
-        selectedAvatar = profile ? profile.avatar : selectedAvatar;
         const targetId = editingProfileId || (currentProfile ? currentProfile.id : null) || appData.activeProfileId;
         const prof = targetId ? appData.profiles?.find(p => p.id === targetId) : appData.profiles?.[0];
         if (prof) {
@@ -4537,13 +4552,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
   const floatContainer = $('#edit-profiles-container');
   if (floatTriggerBtn && floatContainer) {
     floatTriggerBtn.onclick = (e) => {
-      e.stopPropagation();
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
       floatContainer.classList.toggle('open');
     };
     document.addEventListener('click', (e) => {
       if (floatContainer && !floatContainer.contains(e.target)) {
         floatContainer.classList.remove('open');
       }
+    });
+    floatContainer.querySelectorAll('.profile-float-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        floatContainer.classList.remove('open');
+      });
     });
   }
 
@@ -5123,6 +5146,10 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       wrapper.parentNode.appendChild(bd);
       bd.onclick = () => toggleMobileDrawer(false);
     }
+
+    // Clear any inline drag transforms
+    wrapper.style.transform = '';
+    wrapper.style.transition = '';
     
     const targetState = open !== undefined ? open : !wrapper.classList.contains('drawer-open');
     if (targetState) {
@@ -5146,6 +5173,111 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
   }
   window.toggleMobileDrawer = toggleMobileDrawer;
+
+  // ── Fluid Swipe-from-Left Edge Gesture for Mobile Drawer ──
+  (function setupMobileDrawerSwipeGesture() {
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let isTracking = false;
+    let isEdgeSwipe = false;
+    let isCloseSwipe = false;
+    let drawerWidth = 310;
+
+    window.addEventListener('touchstart', (e) => {
+      if (currentView === 'player' || !e.touches || e.touches.length !== 1) return;
+      const x = e.touches[0].clientX;
+      const y = e.touches[0].clientY;
+      const wrapper = document.querySelector('.sidebar-wrapper');
+      if (!wrapper) return;
+
+      drawerWidth = wrapper.offsetWidth || 310;
+      const isOpen = wrapper.classList.contains('drawer-open');
+
+      if (!isOpen && x < 45) {
+        // Edge swipe from left
+        isEdgeSwipe = true;
+        isCloseSwipe = false;
+        isTracking = true;
+        touchStartX = x;
+        touchStartY = y;
+      } else if (isOpen) {
+        // Swipe left to close anywhere on drawer or screen
+        isEdgeSwipe = false;
+        isCloseSwipe = true;
+        isTracking = true;
+        touchStartX = x;
+        touchStartY = y;
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!isTracking || !e.touches || e.touches.length !== 1) return;
+      const currentX = e.touches[0].clientX;
+      const currentY = e.touches[0].clientY;
+      const diffX = currentX - touchStartX;
+      const diffY = Math.abs(currentY - touchStartY);
+
+      if (diffY > Math.abs(diffX) * 1.5 && Math.abs(diffX) < 20) {
+        // Dominant vertical scroll — cancel tracking
+        isTracking = false;
+        return;
+      }
+
+      const wrapper = document.querySelector('.sidebar-wrapper');
+      let bd = document.getElementById('mobile-drawer-backdrop');
+      if (!wrapper) return;
+
+      if (isEdgeSwipe && diffX > 0) {
+        const offset = Math.min(0, -drawerWidth + diffX);
+        const progress = Math.min(1, Math.max(0, diffX / drawerWidth));
+        wrapper.style.transition = 'none';
+        wrapper.style.transform = `translateX(${offset}px)`;
+        if (bd) {
+          bd.style.visibility = 'visible';
+          bd.style.pointerEvents = 'auto';
+          bd.style.opacity = String(progress);
+        }
+      } else if (isCloseSwipe && diffX < 0) {
+        const offset = Math.max(-drawerWidth, Math.min(0, diffX));
+        const progress = Math.min(1, Math.max(0, 1 + (diffX / drawerWidth)));
+        wrapper.style.transition = 'none';
+        wrapper.style.transform = `translateX(${offset}px)`;
+        if (bd) {
+          bd.style.opacity = String(progress);
+        }
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchend', (e) => {
+      if (!isTracking) return;
+      isTracking = false;
+      const endX = e.changedTouches ? e.changedTouches[0].clientX : touchStartX;
+      const diffX = endX - touchStartX;
+      const wrapper = document.querySelector('.sidebar-wrapper');
+      if (!wrapper) return;
+
+      wrapper.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+
+      if (isEdgeSwipe) {
+        if (diffX > 75) {
+          toggleMobileDrawer(true);
+        } else {
+          wrapper.style.transform = `translateX(-105%)`;
+          let bd = document.getElementById('mobile-drawer-backdrop');
+          if (bd) bd.style.opacity = '0';
+          setTimeout(() => toggleMobileDrawer(false), 300);
+        }
+      } else if (isCloseSwipe) {
+        if (diffX < -65) {
+          toggleMobileDrawer(false);
+        } else {
+          wrapper.style.transform = 'translateX(0)';
+          let bd = document.getElementById('mobile-drawer-backdrop');
+          if (bd) bd.style.opacity = '1';
+        }
+      }
+    }, { passive: true });
+  })();
 
   // Delegated click listener for mobile drawer and elements
   document.addEventListener('click', (e) => {
@@ -7265,21 +7397,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     btnSettings.onclick = (e) => {
       e.stopPropagation();
       if (dropdownMore) dropdownMore.style.display = 'none';
-      dropdownSettings.style.display = dropdownSettings.style.display === 'none' ? 'flex' : 'none';
+      const isVisible = dropdownSettings.style.display === 'flex' || (!dropdownSettings.style.display && window.getComputedStyle(dropdownSettings).display !== 'none');
+      dropdownSettings.style.display = isVisible ? 'none' : 'flex';
     };
   }
   if (btnMore && dropdownMore) {
     btnMore.onclick = (e) => {
       e.stopPropagation();
       if (dropdownSettings) dropdownSettings.style.display = 'none';
-      dropdownMore.style.display = dropdownMore.style.display === 'none' ? 'flex' : 'none';
+      const isVisible = dropdownMore.style.display === 'flex' || (!dropdownMore.style.display && window.getComputedStyle(dropdownMore).display !== 'none');
+      dropdownMore.style.display = isVisible ? 'none' : 'flex';
     };
   }
   document.addEventListener('click', (e) => {
-    if (dropdownSettings && !dropdownSettings.contains(e.target) && e.target !== btnSettings) {
+    if (dropdownSettings && !dropdownSettings.contains(e.target) && !btnSettings?.contains(e.target)) {
       dropdownSettings.style.display = 'none';
     }
-    if (dropdownMore && !dropdownMore.contains(e.target) && e.target !== btnMore) {
+    if (dropdownMore && !dropdownMore.contains(e.target) && !btnMore?.contains(e.target)) {
       dropdownMore.style.display = 'none';
     }
   });
@@ -9543,14 +9677,21 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           }
 
           if (magnet && typeof playVideo === 'function') {
+            const combinedMeta = pb?.meta || {};
             playVideo({
+              ...combinedMeta,
               ...item,
               path: null,
               url: null,
               torrentMagnet: magnet,
               fileIdx: fIdx,
               source: 'torrent',
-              startTime: resumeTime
+              startTime: resumeTime,
+              showTitle: item.showTitle || combinedMeta.showTitle || item.showName || combinedMeta.showName || item.seriesTitle || combinedMeta.seriesTitle || '',
+              season: item.season ?? combinedMeta.season,
+              episode: item.episode ?? combinedMeta.episode,
+              imdb_id: item.imdb_id || item.imdbId || combinedMeta.imdb_id || combinedMeta.imdbId || null,
+              thumbnail: item.thumbnail || combinedMeta.thumbnail || item.still_path || combinedMeta.still_path || item.poster || combinedMeta.poster || ''
             }, null, { startTime: resumeTime });
             return;
           }
@@ -9572,7 +9713,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           }
 
           if (rawPath && typeof playVideo === 'function') {
-            playVideo({ ...item, path: rawPath, startTime: resumeTime }, null, { startTime: resumeTime });
+            const combinedMeta = pb?.meta || {};
+            playVideo({
+              ...combinedMeta,
+              ...item,
+              path: rawPath,
+              startTime: resumeTime,
+              showTitle: item.showTitle || combinedMeta.showTitle || item.showName || combinedMeta.showName || item.seriesTitle || combinedMeta.seriesTitle || '',
+              season: item.season ?? combinedMeta.season,
+              episode: item.episode ?? combinedMeta.episode,
+              imdb_id: item.imdb_id || item.imdbId || combinedMeta.imdb_id || combinedMeta.imdbId || null,
+              thumbnail: item.thumbnail || combinedMeta.thumbnail || item.still_path || combinedMeta.still_path || item.poster || combinedMeta.poster || ''
+            }, null, { startTime: resumeTime });
             return;
           }
 
@@ -10931,7 +11083,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       if (libSec) libSec.style.display = hasInvitations ? 'block' : 'none';
       
     } catch (e) {
-      console.error('[COLLAB] Failed to load pending invitations:', e.message);
+      if (!e.message?.includes('No active authenticated session')) {
+        console.warn('[COLLAB] Failed to load pending invitations:', e.message);
+      }
     }
   }
 
@@ -13690,6 +13844,36 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
 
     const grid = $('#genre-grid');
     grid.innerHTML = '';
+
+    const hasCatalog = (window.AppCapabilities && typeof window.AppCapabilities.can === 'function')
+      ? window.AppCapabilities.can('catalog')
+      : (appData.installedAddons || []).some(a => {
+          if (a.enabled === false) return false;
+          const u = (a.url || a.manifestUrl || '').toLowerCase();
+          const cid = (a.id || '').toLowerCase();
+          const cn = (a.name || '').toLowerCase();
+          return u.includes('cinemeta') || u.includes('tmdb') || cid.includes('cinemeta') || cid.includes('tmdb') || cn.includes('cinemeta') || cn.includes('tmdb');
+        });
+
+    if (!hasCatalog) {
+      grid.innerHTML = `
+        <div class="empty-media-source-container" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 70px 24px; text-align:center; min-height: 50vh; background: radial-gradient(circle at center, rgba(99, 102, 241, 0.08) 0%, rgba(18, 20, 29, 0) 70%); border-radius: 24px; margin: 20px 0; border: 1px dashed rgba(255, 255, 255, 0.08); grid-column: 1 / -1;">
+          <div style="width: 72px; height: 72px; border-radius: 20px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+            <i class="fas fa-film" style="font-size: 32px; color: var(--accent, #6366f1);"></i>
+          </div>
+          <h2 style="font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 10px;">Cinemeta Add-on Required</h2>
+          <p style="font-size: 13.5px; color: rgba(255,255,255,0.65); max-width: 440px; line-height: 1.6; margin-bottom: 24px;">
+            Install the Cinemeta add-on from the Addons Store to explore ${escapeHTML(name || '')} movies and TV series.
+          </p>
+          <button class="btn btn-primary" onclick="if(typeof switchView==='function') switchView('addons')" style="padding: 10px 24px; font-weight: 700; border-radius: 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; background: linear-gradient(135deg, var(--accent, #6366f1), #8b5cf6); color: #fff; border: none; box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);">
+            <i class="fas fa-puzzle-piece"></i>
+            <span>Install Cinemeta</span>
+          </button>
+        </div>
+      `;
+      return;
+    }
+
     for (let i = 0; i < 12; i++) {
       const skel = document.createElement('div');
       skel.className = 'discover-card-skeleton';
@@ -13944,6 +14128,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     allowedItems.forEach(item => {
       const card = document.createElement('div');
       card.className = 'discover-card';
+      card.setAttribute('data-id', item.id || item.imdb_id || item.imdbId || item.path || '');
       const title = item.title || item.name || 'Unknown';
       const inLib = localTitles.has(title.toLowerCase());
       let posterUrl = item.poster || item.poster_path || item.bannerPath || item.banner || item.customPoster || item.cover || '';
@@ -13996,6 +14181,222 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
     });
   }
+
+  let isDiscoverLoading = false;
+
+  async function loadDiscover(force = false) {
+    if (isDiscoverLoading && !force) return;
+    isDiscoverLoading = true;
+
+    const hasCatalog = (window.AppCapabilities && typeof window.AppCapabilities.can === 'function')
+      ? window.AppCapabilities.can('catalog')
+      : (appData.installedAddons || []).some(a => {
+          if (a.enabled === false) return false;
+          const u = (a.url || a.manifestUrl || '').toLowerCase();
+          const cid = (a.id || '').toLowerCase();
+          const cn = (a.name || '').toLowerCase();
+          return u.includes('cinemeta') || u.includes('tmdb') || cid.includes('cinemeta') || cid.includes('tmdb') || cn.includes('cinemeta') || cn.includes('tmdb');
+        });
+
+    const catalogSectionIds = [
+      'in-cinemas-section',
+      'top10-tv-section',
+      'top10-movie-section',
+      'popular-movies-section',
+      'popular-series-section'
+    ];
+
+    const stickyBar = document.getElementById('discover-sticky-bar');
+
+    if (!hasCatalog) {
+      // Hide sticky genre pills on Home when catalog is not available
+      if (stickyBar) stickyBar.style.display = 'none';
+
+      // Hide all catalog shelves
+      catalogSectionIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+
+      // Clear row contents
+      ['in-cinemas-row', 'top10-tv-row', 'top10-movie-row', 'popular-movies-row', 'popular-series-row'].forEach(id => {
+        const row = document.getElementById(id);
+        if (row) row.innerHTML = '';
+      });
+
+      // Stop hero slider and clear items
+      if (discoverHeroInterval) {
+        clearInterval(discoverHeroInterval);
+        discoverHeroInterval = null;
+      }
+      discoverHeroItems = [];
+      discoverHeroIndex = 0;
+
+      // Populate hero with neutral MEEM launcher card if not already rendered
+      const hero = document.getElementById('discover-hero');
+      if (hero && (!hero.querySelector('.bento-hero-welcome') || force)) {
+        hero.onclick = null;
+        hero.onmouseenter = null;
+        hero.onmouseleave = null;
+        hero.innerHTML = `
+          <div class="bento-hero-welcome" style="display:flex; flex-direction:column; justify-content:center; align-items:flex-start; padding:32px 28px; height:100%; width:100%; position:relative; z-index:2; background: #0c0d12; border:1px solid rgba(255,255,255,0.08); border-radius:inherit; box-sizing:border-box;">
+            <div style="display:inline-flex; align-items:center; gap:8px; padding:5px 12px; border-radius:20px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); margin-bottom:14px;">
+              <i class="fas fa-layer-group" style="color:#ffffff; font-size:12px;"></i>
+              <span style="font-size:11px; font-weight:700; color:#ffffff; letter-spacing:0.5px; text-transform:uppercase;">Media Hub</span>
+            </div>
+            <h1 style="font-size:24px; font-weight:800; color:#ffffff; margin-bottom:8px; line-height:1.2; letter-spacing:-0.5px;">Welcome to MEEM</h1>
+            <p style="font-size:13px; color:rgba(255,255,255,0.7); max-width:480px; line-height:1.5; margin-bottom:20px;">
+              Your all-in-one cross-platform media workspace. Stream movies, TV shows, music, podcasts, and manage your local library seamlessly across all your devices.
+            </p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button class="btn btn-primary" onclick="if(typeof switchView==='function') switchView('addons')" style="padding:9px 18px; font-size:12.5px; font-weight:700; border-radius:10px; display:inline-flex; align-items:center; gap:8px; cursor:pointer; background:#ffffff; border:none; color:#000000; box-shadow:0 4px 14px rgba(0,0,0,0.4);">
+                <i class="fas fa-store"></i>
+                <span>Addons Store</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      // Display empty catalog state prompt under Bento dashboard
+      let noCatalogBanner = document.getElementById('discover-no-catalog-banner');
+      if (!noCatalogBanner) {
+        noCatalogBanner = document.createElement('div');
+        noCatalogBanner.id = 'discover-no-catalog-banner';
+        const bentoWrapper = document.querySelector('#discover-content .bento-dashboard-wrapper');
+        if (bentoWrapper && bentoWrapper.parentNode) {
+          bentoWrapper.parentNode.insertBefore(noCatalogBanner, bentoWrapper.nextSibling);
+        } else {
+          const dc = document.getElementById('discover-content');
+          if (dc) dc.appendChild(noCatalogBanner);
+        }
+      }
+      noCatalogBanner.style.display = 'block';
+      noCatalogBanner.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 48px 24px; text-align:center; background: rgba(255, 255, 255, 0.02); border-radius: 20px; margin: 25px 0; border: 1px dashed rgba(255, 255, 255, 0.12); width: 100%; box-sizing: border-box;">
+          <div style="width: 60px; height: 60px; border-radius: 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);">
+            <i class="fas fa-cubes" style="font-size: 26px; color: #ffffff;"></i>
+          </div>
+          <h3 style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 8px; letter-spacing: -0.3px;">Discover Movies & Series</h3>
+          <p style="font-size: 13.5px; color: rgba(255,255,255,0.65); max-width: 440px; line-height: 1.6; margin-bottom: 22px;">
+            You have not installed any catalog add-ons yet. Enable catalog add-ons from the Add-ons Store to browse top movies, TV series, and cinema releases on your feed.
+          </p>
+          <button class="btn btn-primary" onclick="if(typeof switchView==='function') switchView('addons')" style="padding: 10px 24px; font-weight: 700; border-radius: 12px; font-size: 13.5px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; background: #ffffff; color: #000000; border: none; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);">
+            <i class="fas fa-store" style="font-size: 14px;"></i>
+            <span>Open Addons Store</span>
+          </button>
+        </div>
+      `;
+
+      isDiscoverLoading = false;
+      return;
+    }
+
+    // Catalog IS available: clean up banner and restore sections
+    const noCatalogBanner = document.getElementById('discover-no-catalog-banner');
+    if (noCatalogBanner) noCatalogBanner.style.display = 'none';
+
+    if (stickyBar) stickyBar.style.removeProperty('display');
+
+    catalogSectionIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.removeProperty('display');
+    });
+
+    const tmdbKey = (window.appData && window.appData.tmdbKey) || '4e44d9029b1270a757cddc766a1bcb63';
+
+    // Helper to render skeleton placeholders
+    function showSkeletons(rowId, count = 8) {
+      const row = document.getElementById(rowId);
+      if (!row) return;
+      row.innerHTML = '';
+      for (let i = 0; i < count; i++) {
+        const sk = document.createElement('div');
+        sk.className = 'discover-card-skeleton';
+        sk.innerHTML = '<div class="discover-poster-wrap" style="aspect-ratio:2/3;background:rgba(255,255,255,0.07);border-radius:12px;animation:pulse 1.5s infinite"></div>';
+        row.appendChild(sk);
+      }
+    }
+
+    // Helper to build full poster URL
+    function makePoster(path) {
+      if (!path) return '';
+      if (path.startsWith('http')) return path;
+      if (path.startsWith('/')) return `https://image.tmdb.org/t/p/w342${path}`;
+      return `https://image.tmdb.org/t/p/w342/${path}`;
+    }
+
+    // Show skeletons immediately
+    showSkeletons('in-cinemas-row');
+    showSkeletons('top10-tv-row');
+    showSkeletons('top10-movie-row');
+    showSkeletons('popular-movies-row');
+    showSkeletons('popular-series-row');
+
+    try {
+      const headers = { 'Accept': 'application/json' };
+
+      // Fetch all sections in parallel
+      const [nowPlayingRes, topTvRes, topMovieRes, popularMovieRes, popularTvRes] = await Promise.allSettled([
+        fetch(`https://api.themoviedb.org/3/movie/now_playing?api_key=${tmdbKey}&language=en-US&page=1`, { headers }).then(r => r.json()).catch(() => ({ results: [] })),
+        fetch(`https://api.themoviedb.org/3/tv/top_rated?api_key=${tmdbKey}&language=en-US&page=1`, { headers }).then(r => r.json()).catch(() => ({ results: [] })),
+        fetch(`https://api.themoviedb.org/3/movie/top_rated?api_key=${tmdbKey}&language=en-US&page=1`, { headers }).then(r => r.json()).catch(() => ({ results: [] })),
+        fetch(`https://api.themoviedb.org/3/movie/popular?api_key=${tmdbKey}&language=en-US&page=1`, { headers }).then(r => r.json()).catch(() => ({ results: [] })),
+        fetch(`https://api.themoviedb.org/3/tv/popular?api_key=${tmdbKey}&language=en-US&page=1`, { headers }).then(r => r.json()).catch(() => ({ results: [] }))
+      ]);
+
+      const nowPlaying = (nowPlayingRes.status === 'fulfilled' ? nowPlayingRes.value?.results : null) || [];
+      const topTv = (topTvRes.status === 'fulfilled' ? topTvRes.value?.results : null) || [];
+      const topMovie = (topMovieRes.status === 'fulfilled' ? topMovieRes.value?.results : null) || [];
+      const popularMovies = (popularMovieRes.status === 'fulfilled' ? popularMovieRes.value?.results : null) || [];
+      const popularTv = (popularTvRes.status === 'fulfilled' ? popularTvRes.value?.results : null) || [];
+
+      // Populate hero with top trending items
+      discoverHeroItems = [];
+      discoverHeroIndex = 0;
+      const heroSource = nowPlaying.length ? nowPlaying : (popularMovies.length ? popularMovies : topMovie);
+      heroSource.slice(0, 8).forEach(item => {
+        if (item && (item.backdrop_path || item.poster_path)) {
+          addDiscoverHeroItem({
+            ...item,
+            title: item.title || item.name,
+            media_type: item.media_type || (item.first_air_date ? 'tv' : 'movie'),
+            poster: makePoster(item.poster_path),
+            poster_path: item.poster_path,
+            backdrop_path: item.backdrop_path
+          });
+        }
+      });
+
+      // Render each row
+      function renderRow(rowId, items, mediaType) {
+        const row = document.getElementById(rowId);
+        if (!row) return;
+        const filtered = items.filter(it => it && (it.poster_path || it.backdrop_path) && it.adult !== true);
+        if (typeof renderDiscoverGrid === 'function') {
+          renderDiscoverGrid('#' + rowId, filtered.map(m => ({
+            ...m,
+            title: m.title || m.name,
+            media_type: mediaType || m.media_type || (m.first_air_date ? 'tv' : 'movie'),
+            poster: makePoster(m.poster_path),
+            poster_path: makePoster(m.poster_path)
+          })));
+        }
+      }
+
+      renderRow('in-cinemas-row', nowPlaying, 'movie');
+      renderRow('top10-tv-row', topTv, 'tv');
+      renderRow('top10-movie-row', topMovie, 'movie');
+      renderRow('popular-movies-row', popularMovies, 'movie');
+      renderRow('popular-series-row', popularTv, 'tv');
+
+    } catch (err) {
+      console.error('[loadDiscover] Error:', err);
+    } finally {
+      isDiscoverLoading = false;
+    }
+  }
+  window.loadDiscover = loadDiscover;
 
   let discoverHeroItems = [];
   let discoverHeroIndex = 0;
@@ -14097,8 +14498,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       nextContent.innerHTML = `
         <div class="hero-badge">Featured ${type}</div>
         ${item.logoUrl ? 
-          `<img id="hero-logo" src="${(typeof window.localImg === 'function') ? window.localImg(item.logoUrl) : item.logoUrl}" onerror="this.style.display='none'; const sibling = this.parentElement?.querySelector('.hero-fallback-title'); if(sibling) sibling.style.display='block';" style="display: block; max-width: 320px; max-height: 80px; object-fit: contain; margin-bottom: 12px; transition: opacity 0.25s ease;">
-           <h1 class="hero-title hero-fallback-title" style="display:none">${escapeHTML(title)}</h1>` : 
+          `<img id="hero-logo" src="${(typeof window.localImg === 'function') ? window.localImg(item.logoUrl) : item.logoUrl}" onerror="this.style.display='none';" style="display: block; max-width: 320px; max-height: 80px; object-fit: contain; margin-bottom: 8px; transition: opacity 0.25s ease;">
+           <h1 class="hero-title">${escapeHTML(title)}</h1>` : 
           `<h1 class="hero-title">${escapeHTML(title)}</h1>`
         }
         <div class="hero-meta">
@@ -15471,6 +15872,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       const isAct = v === name;
       b.classList.toggle('active', isAct);
     });
+    if (typeof window.syncMobileCategoryChips === 'function') {
+      window.syncMobileCategoryChips(name);
+    }
 
     const liveWrap = $('#nav-live-wrapper');
     if (liveWrap) {
@@ -15552,13 +15956,22 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       }
     });
 
-    // Handle Sidebar Visibility for Immersive Views
+    // Handle Sidebar & Mobile Navigation Visibility for Immersive Views
     const sidebar = $('#sidebar');
     if (sidebar) {
       if (name === 'discover-detail' || name === 'player') {
         sidebar.style.display = 'none';
       } else {
         sidebar.style.display = 'flex';
+      }
+    }
+
+    const mobNav = document.getElementById('mobile-bottom-nav');
+    if (mobNav) {
+      if (name.includes('detail') || name.includes('player')) {
+        mobNav.style.setProperty('display', 'none', 'important');
+      } else {
+        mobNav.style.removeProperty('display');
       }
     }
 
@@ -15719,69 +16132,12 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         }
       }
 
-      // --- Contextual Dock Swap ---
-      // When inside MySpace sub-views, the bottom dock transforms to show
-      // page-specific tabs (Movies, Series, Social, etc.) + a Step Back button.
-      // When leaving to a global view, the original dock is restored.
-      if (mobileDock) {
-        // Save the original global dock HTML on first call
-        if (!window._originalDockHTML) {
-          window._originalDockHTML = mobileDock.innerHTML;
-        }
-
-        if (isMySpaceView) {
-          const myspaceTabs = [
-            { view: 'movies', icon: 'fa-film', label: 'Movies' },
-            { view: 'shows', icon: 'fa-tv', label: 'Series' },
-            { view: 'music', icon: 'fa-music', label: 'Music' },
-            { view: 'social', icon: 'fa-share-nodes', label: 'Social' }
-          ];
-
-          let dockHTML = '<button class="nav-btn dock-back-btn" data-view="__step_back__">'
-            + '<i class="fas fa-arrow-left"></i>'
-            + '<span>Back</span>'
-            + '</button>';
-
-          myspaceTabs.forEach(tab => {
-            const isActive = name === tab.view ? ' active' : '';
-            dockHTML += '<button class="nav-btn' + isActive + '" data-view="' + tab.view + '">'
-              + '<i class="fas ' + tab.icon + '"></i>'
-              + '<span>' + tab.label + '</span>'
-              + '</button>';
-          });
-
-          mobileDock.innerHTML = dockHTML;
-
-          // Re-bind click handlers for contextual dock
-          mobileDock.querySelectorAll('.nav-btn').forEach(btn => {
-            btn.onclick = () => {
-              const targetView = btn.dataset.view;
-              if (targetView === '__step_back__') {
-                // Step Back → go to the global "Explore" view
-                switchView('discover');
-              } else {
-                switchView(targetView);
-              }
-            };
-          });
-        } else {
-          // Restore original global dock when not in MySpace
-          if (window._originalDockHTML) {
-            mobileDock.innerHTML = window._originalDockHTML;
-            // Re-bind global dock click handlers
-            mobileDock.querySelectorAll('.nav-btn').forEach(btn => {
-              btn.onclick = () => {
-                mobileDock.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                switchView(btn.dataset.view);
-              };
-            });
-            // Highlight the active global tab
-            mobileDock.querySelectorAll('.nav-btn').forEach(b => {
-              b.classList.toggle('active', b.dataset.view === name);
-            });
-          }
-        }
+      const mobNavPrimary = document.getElementById('mobile-bottom-nav');
+      if (mobNavPrimary) {
+        mobNavPrimary.querySelectorAll('.mobile-nav-bar-primary .mobile-nav-item').forEach(btn => {
+          const targetView = btn.getAttribute('data-view');
+          btn.classList.toggle('active', targetView === name);
+        });
       }
 
       // Update the Dashboard Hero name too if in library view
@@ -17149,6 +17505,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       } else {
         // Movies & Series
         card.className = `bento-wl-card ${isShow ? 'bento-wl-card-series' : 'bento-wl-card-movie'}`;
+        card.setAttribute('data-id', item.id || item.imdb_id || item.imdbId || item.path || '');
         card.innerHTML = `
           <div class="bento-wl-poster-wrap">
             ${posterUrl ? `<img src="${posterUrl}" class="bento-wl-poster" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
@@ -17213,6 +17570,23 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     ];
     if (Array.isArray(i.title_synonyms)) list.push(...i.title_synonyms);
     if (Array.isArray(i.aliases)) list.push(...i.aliases);
+
+    // Also include clean titles without parenthesized text or season/part suffixes
+    const cleanAdditions = [];
+    for (const t of list) {
+      if (!t || typeof t !== 'string') continue;
+      const stripped = t
+        .replace(/\s*\([^)]*\)/g, '')
+        .replace(/\s*\[[^\]]*\]/g, '')
+        .replace(/[:\-–—]\s*(season|part|cour|the final season|final season).*/i, '')
+        .replace(/\s+(season|part|cour)\s+\d+.*/i, '')
+        .trim();
+      if (stripped && stripped !== t && stripped.length >= 2) {
+        cleanAdditions.push(stripped);
+      }
+    }
+    list.push(...cleanAdditions);
+
     return list.filter(Boolean).map(t => String(t).toLowerCase().replace(/[^a-z0-9]/g, '').trim()).filter(t => t.length >= 2);
   }
 
@@ -17250,7 +17624,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       // 5. Title + Release Year Match across all aliases (e.g. "Call of the Night" vs "Yofukashi no Uta")
       const titlesA = getAllItemTitles(a);
       const titlesB = getAllItemTitles(b);
-      const hasCommonTitle = titlesA.some(ta => titlesB.includes(ta));
+      const hasCommonTitle = titlesA.some(ta => titlesB.includes(ta)) ||
+                             titlesA.some(ta => titlesB.some(tb => ta.length > 5 && tb.length > 5 && (ta.includes(tb) || tb.includes(ta))));
       if (hasCommonTitle) {
         const yearA = (a.release_date || a.first_air_date || a.releaseYear || a.year || '').toString().slice(0, 4);
         const yearB = (b.release_date || b.first_air_date || b.releaseYear || b.year || '').toString().slice(0, 4);
@@ -17745,31 +18120,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     if (!grid) return;
 
     const addons = appData.installedAddons || [];
-    const hasMediaAddon = addons.some(a => {
-      const u = (a.url || a.manifestUrl || '').toLowerCase();
-      const id = (a.id || '').toLowerCase();
-      const n = (a.name || '').toLowerCase();
-      return u.includes('cinemeta') || u.includes('tmdb') || id.includes('cinemeta') || id.includes('tmdb') || n.includes('cinemeta') || n.includes('tmdb');
-    });
-
-    if (!hasMediaAddon) {
-      grid.innerHTML = `
-        <div class="empty-media-source-container" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 70px 24px; text-align:center; min-height: 60vh; background: radial-gradient(circle at center, rgba(99, 102, 241, 0.08) 0%, rgba(18, 20, 29, 0) 70%); border-radius: 24px; margin: 20px 0; border: 1px dashed rgba(255, 255, 255, 0.08); grid-column: 1 / -1;">
-          <div style="width: 84px; height: 84px; border-radius: 24px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2)); border: 1px solid rgba(255, 255, 255, 0.15); display: flex; align-items: center; justify-content: center; margin-bottom: 24px; box-shadow: 0 15px 35px rgba(99, 102, 241, 0.25); backdrop-filter: blur(10px);">
-            <i class="fas fa-cubes" style="font-size: 36px; color: #a855f7;"></i>
-          </div>
-          <h2 style="font-size: 26px; font-weight: 800; color: #fff; margin-bottom: 12px; letter-spacing: -0.5px; font-family: var(--font);">No Search Provider Available</h2>
-          <p style="font-size: 14px; color: rgba(255,255,255,0.65); max-width: 480px; line-height: 1.6; margin-bottom: 30px;">
-            You don't have any search catalog addons installed yet. Visit the Addons Store to enable Cinemeta, TMDB, or custom search addons.
-          </p>
-          <button class="btn btn-primary" onclick="switchView('addons')" style="padding: 12px 28px; font-weight: 700; border-radius: 14px; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; background: linear-gradient(135deg, var(--accent), #8b5cf6); color: #fff; border: none; box-shadow: 0 10px 25px rgba(99, 102, 241, 0.35); transition: transform 0.2s ease, box-shadow 0.2s ease;">
-            <i class="fas fa-store" style="font-size: 15px;"></i>
-            <span>Open Addons Store</span>
-          </button>
-        </div>
-      `;
-      return;
-    }
+    const hasMediaAddon = (window.AppCapabilities && typeof window.AppCapabilities.can === 'function')
+      ? (window.AppCapabilities.can('catalog') || window.AppCapabilities.can('youtube'))
+      : true;
 
     const history = appData.searchHistory || [];
     
@@ -17906,34 +18259,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
     }
 
     grid.innerHTML = `
-      <div class="search-empty-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 30px; width: 100%; padding: 10px 0; animation: premiumFadeSlide 0.4s cubic-bezier(0.22, 1, 0.36, 1);">
-        <!-- MEEM AI Smart Suggestions Banner -->
-        <div class="search-ai-prompts-card" style="display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.35);">
-          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <div style="width: 38px; height: 38px; border-radius: 12px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 0;">
-                <img src="imgs/meem-ai.jpg" alt="MEEM AI" style="width: 100%; height: 100%; object-fit: cover; display: block;">
-              </div>
-              <div>
-                <h4 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #ffffff; display: flex; align-items: center; gap: 8px;">
-                  Smart Search Suggestions <span style="font-size: 0.65rem; background: rgba(255, 255, 255, 0.12); color: #ffffff; padding: 2px 8px; border-radius: 6px; font-weight: 800;">MEEM AI</span>
-                </h4>
-                <p style="margin: 2px 0 0; font-size: 0.8rem; color: rgba(255,255,255,0.65);">Search by plot, vibes, or ask for personalized recommendations</p>
-              </div>
-            </div>
-            <button onclick="switchView('ai')" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18); color: #ffffff; padding: 7px 16px; border-radius: 12px; font-size: 0.82rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
-              <img src="imgs/meem-ai.jpg" alt="MEEM AI" style="width: 16px; height: 16px; border-radius: 4px; object-fit: cover;"> Open MEEM AI
-            </button>
-          </div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Recommend top mind-bending sci-fi movies with unexpected twists')">🚀 Mind-bending Sci-Fi</div>
-            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Best Korean mystery and crime thriller series')">🕵️ Korean Crime Thrillers</div>
-            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Top rated horror and thriller movies of 2024')">👻 Best 2024 Horror</div>
-            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Heartwarming family comedy movies to watch together')">🍿 Family Comedy</div>
-            <div class="ai-search-quick-chip" onclick="window.askMeemAIFromSearch && window.askMeemAIFromSearch('Play BBC World Service radio live stream')">📻 BBC World Radio</div>
-          </div>
-        </div>
-
+      <div class="search-empty-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 24px; width: 100%; padding: 10px 0; animation: premiumFadeSlide 0.4s cubic-bezier(0.22, 1, 0.36, 1);">
         <!-- Search History / Continue Watching -->
         <div style="display: flex; flex-direction: column; gap: 15px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -17952,7 +18278,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
         <!-- Suggestions / Similar Items -->
         <div style="display: flex; flex-direction: column; gap: 15px;">
           <h3 id="search-suggestions-title" style="font-size: 1.1rem; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 1.5px; border-left: 3px solid var(--accent); padding-left: 10px; margin: 0;">Suggested for You</h3>
-          <div id="search-suggestions-grid" class="tmdb-result-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 20px; width: 100%;">
+          <div id="search-suggestions-grid" class="card-grid watchlist-grid-cinematic search-suggestions-grid">
             <div style="grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--text-muted);"><i class="fas fa-spinner fa-spin fa-2x" style="color: var(--accent);"></i></div>
           </div>
         </div>
@@ -18127,6 +18453,16 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
       let recs = [];
       let sectionTitle = 'Suggested for You';
       
+      const hasCatalog = (window.AppCapabilities && typeof window.AppCapabilities.can === 'function')
+        ? window.AppCapabilities.can('catalog')
+        : (appData.installedAddons || []).some(a => {
+            if (a.enabled === false) return false;
+            const u = (a.url || a.manifestUrl || '').toLowerCase();
+            const cid = (a.id || '').toLowerCase();
+            const cn = (a.name || '').toLowerCase();
+            return u.includes('cinemeta') || cid.includes('cinemeta') || cn.includes('cinemeta');
+          });
+
       if (history.length > 0) {
         const lastQuery = history[0];
         sectionTitle = `Suggested based on "${lastQuery}"`;
@@ -18134,7 +18470,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           const res = await window.api.invoke('get-smart-recommendations', lastQuery).catch(() => null);
           recs = res?.results || [];
         }
-        if (!recs.length) {
+        if (!recs.length && hasCatalog) {
           const cinemetaResp = await fetch('https://v3-cinemeta.strem.io/catalog/movie/top.json').then(r => r.json()).catch(() => null);
           if (cinemetaResp?.metas?.length) {
             recs = cinemetaResp.metas.map(m => ({
@@ -18147,8 +18483,8 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             }));
           }
         }
-      } else {
-        // Fetch trending/top movies - try Cinemeta catalog directly
+      } else if (hasCatalog) {
+        // Fetch trending/top movies - try Cinemeta catalog directly ONLY if installed
         sectionTitle = 'Trending Movies & TV Shows';
         let recItems = [];
         try {
@@ -18183,6 +18519,18 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           console.warn('[EmptySearch] Cinemeta catalog fetch error:', e);
         }
         recs = recItems;
+      } else {
+        // Cinemeta not installed: show saved items
+        sectionTitle = 'Your Saved Media';
+        const localPool = [...(currentProfile?.watchlist || []), ...(appData.movies || []), ...(appData.shows || [])];
+        recs = localPool.slice(0, 16).map(item => ({
+          id: item.id || item.imdbId,
+          title: item.title || item.name,
+          poster: item.poster || item.poster_path || '',
+          type: item.type || 'movie',
+          rating: item.rating || 0,
+          releaseYear: item.year || 0
+        }));
       }
 
 
@@ -18212,9 +18560,9 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
             return hasExplicitPoster || Boolean(resolvedImdb && String(resolvedImdb).startsWith('tt'));
           });
 
-        allowedRecs.slice(0, 18).forEach(item => {
+        allowedRecs.slice(0, 16).forEach(item => {
           const card = document.createElement('div');
-          card.className = 'discover-card search-result-card';
+          card.className = 'media-card search-result-card';
           const itemTitle = item.title || item.name || 'Unknown';
           
           let posterUrl = '';
@@ -18249,7 +18597,7 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           
           const isChannelOrLogo = item.type === 'iptv' || item.type === 'radio' || item.type === 'channel' || item.isLive || item.isIptv || item.isRadio || !!item.logo || (typeof posterUrl === 'string' && (posterUrl.includes('logo') || posterUrl.includes('channel') || posterUrl.includes('aljazeera') || posterUrl.includes('radio') || posterUrl.includes('iptv') || posterUrl.includes('svg')));
 
-          const imgClass = `discover-poster search-poster-img${isChannelOrLogo ? ' is-channel-logo' : ''}`;
+          const imgClass = `dynamic-imdb-poster search-poster-img${isChannelOrLogo ? ' is-channel-logo' : ''}`;
 
           // If no posterUrl and no imdb ID to fetch from, do not render card
           if (!posterUrl && (!resolvedImdb || !String(resolvedImdb).startsWith('tt'))) {
@@ -18257,20 +18605,20 @@ const SVG_MUSIC = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" s
           }
 
           card.innerHTML = `
-            <div class="discover-poster-wrap">
-              <div class="discover-poster-placeholder" style="${posterUrl ? 'display:none;' : ''}">
+            <div class="card-poster">
+              <div class="card-poster-placeholder" style="${posterUrl ? 'display:none;' : ''}">
                 <i class="fas fa-film"></i>
                 <span class="placeholder-title">${escapeHTML(itemTitle)}</span>
               </div>
               ${posterUrl ? `<img src="${posterUrl}" class="${imgClass}" loading="lazy" onerror="this.style.display='none';">` : ''}
               ${inLib ? '<div class="lib-poster-badge"><i class="fas fa-check-circle"></i> LIB</div>' : ''}
             </div>
-            <div class="discover-info">
-              <div class="discover-title" title="${escapeHTML(itemTitle)}">${escapeHTML(itemTitle)}</div>
-              <div class="discover-meta">
+            <div class="card-info">
+              <div class="card-title" title="${escapeHTML(itemTitle)}">${escapeHTML(itemTitle)}</div>
+              <div class="card-meta">
                 ${getBadgeHTML(item)}
                 <span>${year || 'N/A'}</span>
-                ${rating ? `<span class="discover-rating-stars"><i class="fas fa-star" style="font-size:8px"></i> ${parseFloat(rating).toFixed(1)}</span>` : ''}
+                ${rating ? `<span class="card-rating" style="display:inline-flex;align-items:center;gap:3px;"><i class="fas fa-star" style="font-size:8px;color:#f59e0b;"></i> ${parseFloat(rating).toFixed(1)}</span>` : ''}
               </div>
             </div>
           `;
@@ -18409,7 +18757,13 @@ function performUnifiedSearch(q) {
               if (!existing.tmdb_id && item.tmdb_id) existing.tmdb_id = item.tmdb_id;
               if (!existing.tmdbId && (item.tmdbId || item.tmdb_id)) existing.tmdbId = item.tmdbId || item.tmdb_id;
               if (!existing.kitsu_id && item.kitsu_id) existing.kitsu_id = item.kitsu_id;
+              if (!existing.kitsuId && (item.kitsuId || item.kitsu_id)) existing.kitsuId = item.kitsuId || item.kitsu_id;
               if (!existing.mal_id && item.mal_id) existing.mal_id = item.mal_id;
+              if (!existing.malId && (item.malId || item.mal_id)) existing.malId = item.malId || item.mal_id;
+              if (item.aliases && Array.isArray(item.aliases)) {
+                existing.aliases = existing.aliases || [];
+                item.aliases.forEach(al => { if (!existing.aliases.includes(al)) existing.aliases.push(al); });
+              }
               const existingHasRealPoster = existing.poster && !existing.poster.match(/^\/tt\d+$/) && existing.poster !== '';
               const newHasRealPoster = item.poster && !item.poster.match(/^\/tt\d+$/) && item.poster !== '';
               if (!existingHasRealPoster && newHasRealPoster) {
@@ -18420,9 +18774,11 @@ function performUnifiedSearch(q) {
               }
               if (!existing.synopsis && item.synopsis) existing.synopsis = item.synopsis;
               if ((!existing.rating || existing.rating === 0) && item.rating > 0) existing.rating = item.rating;
+              if (!existing.imdbRating && item.imdbRating) existing.imdbRating = item.imdbRating;
+              if (!existing.malScore && item.malScore) existing.malScore = item.malScore;
               if (!existing.releaseYear && item.releaseYear) existing.releaseYear = item.releaseYear;
               if (!existing.year && item.year) existing.year = item.year;
-              if (item.isAnime) existing.isAnime = true;
+              if (item.isAnime || item.source === 'kitsu' || item.source === 'mal') existing.isAnime = true;
               continue;
             }
             merged.push(item);
@@ -18726,14 +19082,20 @@ function performUnifiedSearch(q) {
           });
         };
 
-        // ─── Fire all enabled search providers concurrently ────
-        const canCatalog = window.AppCapabilities?.can('catalog');
-        const canYT = window.AppCapabilities?.can('youtube');
+        // ─── Fire all enabled search providers concurrently (Fully Decoupled) ────
+        const canCatalog = window.AppCapabilities ? window.AppCapabilities.can('catalog') : true;
+        const canYT = window.AppCapabilities ? window.AppCapabilities.can('youtube') : true;
 
-        const catalogPromise = canCatalog ? window.api.invoke('unified-search', qClean).catch(() => null) : Promise.resolve(null);
-        const ytPromise = canYT ? window.api.invoke('youtube-search', { query: qClean, filter: 'video' }).catch(() => null) : Promise.resolve(null);
-        const traktMoviesPromise = canCatalog ? window.api.invoke('trakt-search', { query: qClean, type: 'movie' }).catch(() => null) : Promise.resolve(null);
-        const traktShowsPromise = canCatalog ? window.api.invoke('trakt-search', { query: qClean, type: 'series' }).catch(() => null) : Promise.resolve(null);
+        const catalogPromise = canCatalog
+          ? window.api.invoke('unified-search', qClean).catch(() => ({ results: [] }))
+          : Promise.resolve({ results: [] });
+
+        const ytPromise = canYT
+          ? window.api.invoke('youtube-search', { query: qClean, filter: 'video' }).catch(() => ({ success: false, results: [] }))
+          : Promise.resolve({ success: false, results: [] });
+
+        const traktMoviesPromise = window.api.invoke('trakt-search', { query: qClean, type: 'movie' }).catch(() => ({ results: [] }));
+        const traktShowsPromise = window.api.invoke('trakt-search', { query: qClean, type: 'series' }).catch(() => ({ results: [] }));
 
         // Minimum visual duration (280ms) ensures smooth shimmer transition and prevents instant jarring flash
         const minDisplayPromise = new Promise(r => setTimeout(r, 280));
@@ -18759,8 +19121,10 @@ function performUnifiedSearch(q) {
         const traktShows = (traktShowsRes?.results || []).map(r => ({ ...r, type: 'tv' }));
 
         const unifiedMovies = mergeDedup([...localMatchesMovies, ...allUnified.filter(r => r.type === 'movie'), ...traktMovies]).filter(isAgeAllowed);
-        const unifiedSeries = mergeDedup([...localMatchesShows, ...allUnified.filter(r => r.type === 'series' || r.type === 'tv'), ...traktShows]).filter(isAgeAllowed);
-        const ytVideos = (ytSearchRes && ytSearchRes.success && ytSearchRes.results) ? ytSearchRes.results : [];
+        const rawSeries = mergeDedup([...localMatchesShows, ...allUnified.filter(r => r.type === 'series' || r.type === 'tv'), ...traktShows]).filter(isAgeAllowed);
+        const unifiedSeries = rawSeries.filter(s => !unifiedMovies.some(m => isSameItem(m, s)));
+        const rawYt = (ytSearchRes && ytSearchRes.results) ? ytSearchRes.results : (Array.isArray(ytSearchRes) ? ytSearchRes : []);
+        const ytVideos = Array.isArray(rawYt) ? rawYt : [];
 
         // Show results now (clear skeleton)
         grid.innerHTML = '';
@@ -20531,30 +20895,7 @@ function performUnifiedSearch(q) {
     setTimeout(() => document.addEventListener('mousedown', closePopout), 10);
   }
 
-  // Android Hardware Back Button Handling
-  if (window.Capacitor?.Plugins?.App) {
-    window.Capacitor.Plugins.App.addListener('backButton', () => {
-      // 1. Close any open modals
-      const activeModal = document.querySelector('.modal[style*="display: flex"], .modal[style*="display: block"]');
-      if (activeModal) {
-        activeModal.style.display = 'none';
-        return;
-      }
-      // 2. If in details view, go back to previous view
-      if (currentView === 'details') {
-        $('#btn-back-discover')?.click();
-        return;
-      }
-      // 3. If not on Vault home, go there
-      if (currentView !== 'vault') {
-        switchView('vault');
-        return;
-      }
-      // 4. Exit if already on vault
-      window.Capacitor.Plugins.App.exitApp();
-    });
-  }
-
+  // Android Hardware Back Button Handling is centrally managed in bridge.js
   $('#ctx-regen-thumb').onclick = () => {
     $('#context-menu').style.display = 'none';
     if (!contextTarget) return;
@@ -20929,7 +21270,23 @@ function performUnifiedSearch(q) {
   } else {
     setTimeout(initFlyoutMenus, 0);
   }
-  window.initFlyoutMenus = initFlyoutMenus;
+
+  // Global Delegated Card Hover Star Rating
+  document.addEventListener('mouseover', (e) => {
+    const card = e.target.closest('.discover-card, .card, .bento-wl-card, .continue-card, .media-card, .search-result-card, .show-card, .movie-card, .cw-card');
+    if (!card || card.querySelector('.card-hover-star-badge')) return;
+    const mediaId = card.getAttribute('data-id') || card.getAttribute('data-item-id') || card.dataset?.id || card.dataset?.itemId;
+    if (!mediaId) return;
+    const profile = window.currentProfile || (window.appData?.profiles?.find(p => p.id === window.appData?.activeProfileId));
+    const rating = (profile?.ratings && profile.ratings[mediaId]) || (window.mediaRatingsCache && window.mediaRatingsCache[mediaId]) || 0;
+    if (rating > 0) {
+      const badge = document.createElement('div');
+      badge.className = 'card-hover-star-badge';
+      badge.title = `Your Rating: ${rating}/5`;
+      badge.innerHTML = `<i class="fas fa-star"></i> <span>${rating}/5</span>`;
+      card.appendChild(badge);
+    }
+  }, { passive: true });
 
 })();
 

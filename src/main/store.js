@@ -456,7 +456,7 @@ async function fetchNormalizedProfileDataByHardware(hardwareId, profileId) {
       const isYt = /^[a-zA-Z0-9_-]{11}$/.test(row.media_id) || String(row.media_id).startsWith('yt:');
       const vId = isYt ? String(row.media_id).replace(/^yt[:_]/, '') : null;
       const localMeta = existingProfile?.playback?.[row.media_id]?.meta;
-      let meta = localMeta;
+      let meta = (row.item_meta && Object.keys(row.item_meta).length > 0) ? row.item_meta : localMeta;
       if (!meta && isYt) {
         const ytThumb = `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
         meta = {
@@ -476,6 +476,7 @@ async function fetchNormalizedProfileDataByHardware(hardwareId, profileId) {
         duration: row.duration ? Number(row.duration) : 0,
         lastWatched: row.last_watched_at ? new Date(row.last_watched_at).getTime() : Date.now(),
         watched: row.watched || false,
+        torrentMagnet: row.torrent_magnet || row.item_meta?.torrentMagnet || localMeta?.torrentMagnet || null,
         ...(meta ? { meta } : {})
       };
     });
@@ -1456,7 +1457,9 @@ function initStoreIpc(ipcMain) {
                   progress: entry?.time ? Number(entry.time) : 0,
                   duration: entry?.duration ? Number(entry.duration) : 0,
                   last_watched_at: entry?.lastWatched ? new Date(entry.lastWatched).toISOString() : new Date().toISOString(),
-                  watched: entry?.watched ? true : false
+                  watched: entry?.watched ? true : false,
+                  torrent_magnet: entry?.torrentMagnet || entry?.meta?.torrentMagnet || null,
+                  item_meta: entry?.meta || {}
                 }, { onConflict: 'profile_id,media_id' }).then(res => {
                   if (res.error) console.error('[STORE] save-playback upsert failed:', res.error.message);
                   else console.log('[STORE] save-playback upsert success to Supabase');
@@ -3064,6 +3067,142 @@ function initStoreIpc(ipcMain) {
     } catch (err) {
       console.error('[STORE] cloud-update-profile-avatar-color failed:', err.message);
       return { success: false, error: err.message };
+    }
+  });
+
+  // Media Ratings: Star rating system synced to Supabase media_ratings by profile_id
+  ipcMain.handle('save-media-rating', async (e, payload) => {
+    try {
+      const { profileId, userId, profileName, mediaId, mediaTitle, rating } = payload || {};
+      if (!mediaId || rating == null) return { success: false, error: 'mediaId and rating are required' };
+
+      const numRating = parseFloat(rating);
+      if (isNaN(numRating) || numRating < 0 || numRating > 5) {
+        return { success: false, error: 'Rating must be between 0 and 5' };
+      }
+
+      const session = getInMemorySession() || {};
+      const targetProfileId = String(profileId || session.activeProfileId || (session.profiles && session.profiles[0]?.id) || 'default');
+
+      // 1. Update in-memory session so auto-saves do not overwrite ratings
+      if (inMemorySession && Array.isArray(inMemorySession.profiles)) {
+        const prof = inMemorySession.profiles.find(p => p.id === targetProfileId) || inMemorySession.profiles[0];
+        if (prof) {
+          prof.ratings = prof.ratings || {};
+          prof.ratings[mediaId] = numRating;
+        }
+      }
+
+      // 2. Write to local JSON storage file
+      try {
+        const local = readLocalAppData();
+        if (local && Array.isArray(local.profiles)) {
+          const prof = local.profiles.find(p => p.id === targetProfileId) || local.profiles[0];
+          if (prof) {
+            prof.ratings = prof.ratings || {};
+            prof.ratings[mediaId] = numRating;
+            writeLocalAppData(local, true);
+          }
+        }
+      } catch (locErr) {
+        console.warn('[STORE] save-media-rating local write warning:', locErr.message);
+      }
+
+      // 3. Sync to Supabase table `media_ratings` by profile_id
+      try {
+        const { getClient } = require('../shared/supabaseClient');
+        const client = getClient();
+        if (client) {
+          const upsertData = {
+            profile_id: targetProfileId,
+            media_id: String(mediaId),
+            media_title: mediaTitle || '',
+            rating: numRating,
+            updated_at: new Date().toISOString()
+          };
+          if (userId) upsertData.user_id = String(userId);
+          if (profileName) upsertData.profile_name = String(profileName);
+
+          const { error } = await client
+            .from('media_ratings')
+            .upsert(upsertData, { onConflict: 'profile_id, media_id' });
+
+          if (error) {
+            console.warn('[STORE] save-media-rating supabase upsert error:', error.message);
+          } else {
+            console.log(`[STORE] ✓ Rating saved for profile ${targetProfileId} media ${mediaId} (${numRating}★) on Supabase`);
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('[STORE] save-media-rating supabase sync failed:', cloudErr.message);
+      }
+
+      return { success: true, rating: numRating };
+    } catch (err) {
+      console.error('[STORE] save-media-rating error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-media-ratings', async (e, { profileId, mediaIds } = {}) => {
+    try {
+      const session = getInMemorySession() || {};
+      const targetProfileId = String(profileId || session.activeProfileId || (session.profiles && session.profiles[0]?.id) || 'default');
+      const ratingsMap = {};
+
+      // 1. Read from memory session
+      if (session && Array.isArray(session.profiles)) {
+        const prof = session.profiles.find(p => p.id === targetProfileId) || session.profiles[0];
+        if (prof && prof.ratings) {
+          Object.assign(ratingsMap, prof.ratings);
+        }
+      }
+
+      // 2. Read from local JSON storage
+      try {
+        const local = readLocalAppData();
+        if (local && Array.isArray(local.profiles)) {
+          const prof = local.profiles.find(p => p.id === targetProfileId) || local.profiles[0];
+          if (prof && prof.ratings) {
+            Object.assign(ratingsMap, prof.ratings);
+          }
+        }
+      } catch (_) {}
+
+      // 3. Fetch from Supabase `media_ratings` table by profile_id
+      try {
+        const { getClient } = require('../shared/supabaseClient');
+        const client = getClient();
+        if (client) {
+          let query = client.from('media_ratings').select('profile_id, profile_name, media_id, rating').eq('profile_id', targetProfileId);
+          if (Array.isArray(mediaIds) && mediaIds.length > 0) {
+            query = query.in('media_id', mediaIds.map(String));
+          }
+          const { data, error } = await query;
+          if (!error && Array.isArray(data)) {
+            data.forEach(r => {
+              if (r.media_id && r.rating != null) {
+                ratingsMap[r.media_id] = parseFloat(r.rating);
+              }
+            });
+
+            // Keep in-memory ratings map in sync with fetched cloud ratings
+            if (session && Array.isArray(session.profiles)) {
+              const prof = session.profiles.find(p => p.id === targetProfileId) || session.profiles[0];
+              if (prof) {
+                prof.ratings = { ...(prof.ratings || {}), ...ratingsMap };
+              }
+            }
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('[STORE] get-media-ratings supabase fetch failed:', cloudErr.message);
+      }
+
+      return { success: true, ratings: ratingsMap };
+    } catch (err) {
+      console.error('[STORE] get-media-ratings error:', err.message);
+      return { success: false, error: err.message, ratings: {} };
     }
   });
 }

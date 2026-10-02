@@ -6,12 +6,51 @@
         --dock-h: 58px;
     }
 
+    /* Mobile Performance & Smooth Scrolling Optimizations */
+    * {
+        -webkit-tap-highlight-color: transparent !important;
+    }
+
+    /* Disable heavy real-time GPU blurs on mobile to achieve 60FPS smooth scrolling */
+    .mobile-nav-dock,
+    .mobile-header-bar,
+    .dd-hero-banner,
+    .dd-action-pill,
+    .modal-content,
+    .dropdown-menu,
+    .flyout-panel {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background-color: rgba(13, 13, 18, 0.96) !important;
+    }
+
+    /* Hardware compositing for smooth scroll containers */
+    .view,
+    .card-grid,
+    .discover-grid,
+    .mal-grid,
+    .tmdb-result-grid,
+    .library-grid,
+    #main-content {
+        -webkit-overflow-scrolling: touch !important;
+        transform: translateZ(0);
+        -webkit-transform: translateZ(0);
+    }
+
+    /* Optimize offscreen card DOM rendering */
+    .media-card,
+    .discover-card {
+        content-visibility: auto;
+        contain-intrinsic-size: 200px 300px;
+    }
+
     /* 1. Global Reset */
     #app-body {
         flex-direction: column !important; /* Stack vertically */
     }
 
-    #sidebar:not(.drawer-open) {
+    #sidebar,
+    #sidebar.drawer-open {
         display: none !important;
     }
 
@@ -94,7 +133,10 @@
 
     .media-card .card-poster, .discover-card .card-poster {
         width: 100% !important;
-        padding-top: 145% !important;
+        aspect-ratio: 2 / 3 !important;
+        padding-top: 0 !important;
+        height: auto !important;
+        object-fit: cover !important;
         border-radius: 11px 11px 0 0 !important;
         overflow: hidden !important;
         position: relative !important;
@@ -123,7 +165,226 @@
         text-overflow: ellipsis !important;
     }
 
-    /* 3. Hide Mobile Bottom Dock (Replaced by Top-Left 3-Bars Hamburger Drawer) */
+    /* Hide 3-line hamburger buttons on mobile everywhere except inside #view-ai */
+    .mobile-hamburger-nav-btn:not(#view-ai *),
+    #mobile-hamburger-btn:not(#view-ai *) {
+        display: none !important;
+    }
+
+    /* 3. Modern Minimalist High-Contrast Dark Mode Bottom Navigation System (Seamless Expanding Dock) */
+    #mobile-bottom-nav {
+        display: flex !important;
+        flex-direction: column !important;
+        position: fixed !important;
+        bottom: max(10px, env(safe-area-inset-bottom, 10px)) !important;
+        left: 14px !important;
+        right: 14px !important;
+        width: calc(100% - 28px) !important;
+        background: #0A0A0A !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        border-radius: 24px !important;
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+        z-index: 99995 !important;
+        padding: 4px 6px !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+        transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        box-sizing: border-box !important;
+    }
+
+    #mobile-bottom-nav .mobile-nav-bar-primary {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-around !important;
+        width: 100% !important;
+        height: 54px !important;
+        transition: opacity 0.2s ease !important;
+    }
+
+    #mobile-bottom-nav .mobile-nav-bar-expanded {
+        display: none !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        gap: 12px !important;
+        padding: 6px 8px 10px !important;
+        animation: dockExpandIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    }
+
+    #mobile-bottom-nav.expanded .mobile-nav-bar-expanded {
+        display: flex !important;
+    }
+
+    #mobile-bottom-nav.expanded .mobile-nav-bar-primary {
+        display: none !important;
+    }
+
+    @keyframes dockExpandIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .mobile-dock-expanded-header {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        padding: 4px 6px 8px !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+
+    .mobile-dock-expanded-title {
+        font-size: 14px !important;
+        font-weight: 800 !important;
+        color: #FFFFFF !important;
+        letter-spacing: -0.3px !important;
+    }
+
+    .mobile-dock-collapse-btn {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        color: #FFFFFF !important;
+        width: 30px !important;
+        height: 30px !important;
+        border-radius: 50% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 12px !important;
+        cursor: pointer !important;
+    }
+
+    .mobile-dock-expanded-grid {
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 10px !important;
+    }
+
+    .mobile-dock-backdrop {
+        position: fixed !important;
+        inset: 0 !important;
+        background: rgba(0, 0, 0, 0.75) !important;
+        backdrop-filter: blur(6px) !important;
+        -webkit-backdrop-filter: blur(6px) !important;
+        z-index: 99990 !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        transition: opacity 0.25s ease !important;
+    }
+
+    .mobile-dock-backdrop.active {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+
+    .mobile-nav-item {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 3px !important;
+        background: transparent !important;
+        border: none !important;
+        color: #A1A1AA !important;
+        padding: 6px 10px !important;
+        border-radius: 18px !important;
+        cursor: pointer !important;
+        transition: all 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+        position: relative !important;
+        flex: 1 !important;
+        max-width: 68px !important;
+        height: 48px !important;
+        text-decoration: none !important;
+    }
+
+    .mobile-nav-item i,
+    .mobile-nav-item svg {
+        font-size: 17px !important;
+        transition: transform 0.2s ease, color 0.2s ease !important;
+        color: #A1A1AA !important;
+    }
+
+    .mobile-nav-item span {
+        font-size: 10px !important;
+        font-weight: 600 !important;
+        letter-spacing: -0.2px !important;
+        white-space: nowrap !important;
+        color: #A1A1AA !important;
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
+    /* Active Item Style: Glowing White Pill Indicator (#FFFFFF) with Bold Black Icon & Text */
+    .mobile-nav-item.active {
+        background: #FFFFFF !important;
+        color: #000000 !important;
+        box-shadow: 0 0 20px rgba(255, 255, 255, 0.35), 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+        border-radius: 18px !important;
+    }
+
+    .mobile-nav-item.active i,
+    .mobile-nav-item.active svg {
+        color: #000000 !important;
+        transform: scale(1.08) !important;
+    }
+
+    .mobile-nav-item.active span {
+        color: #000000 !important;
+        font-weight: 900 !important;
+    }
+
+    /* MEEM AI Center Action Halo Effect */
+    .mobile-nav-item.mobile-ai-center-btn {
+        position: relative !important;
+    }
+
+    .mobile-nav-item.mobile-ai-center-btn::before {
+        content: '' !important;
+        position: absolute !important;
+        inset: -3px !important;
+        border-radius: 20px !important;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0) 70%) !important;
+        opacity: 0.6 !important;
+        pointer-events: none !important;
+        animation: aiHaloPulse 2.8s infinite ease-in-out !important;
+    }
+
+    @keyframes aiHaloPulse {
+        0%, 100% { opacity: 0.35; transform: scale(0.98); }
+        50% { opacity: 0.85; transform: scale(1.08); }
+    }
+
+    .mobile-sheet-item {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 8px !important;
+        padding: 14px 8px !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+        border-radius: 18px !important;
+        color: #FFFFFF !important;
+        cursor: pointer !important;
+        transition: all 0.18s ease !important;
+    }
+
+    .mobile-sheet-item i {
+        font-size: 18px !important;
+        color: #FFFFFF !important;
+    }
+
+    .mobile-sheet-item span {
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        color: rgba(255, 255, 255, 0.9) !important;
+        text-align: center !important;
+    }
+
+    .mobile-sheet-item:active {
+        background: rgba(255, 255, 255, 0.14) !important;
+        transform: scale(0.96) !important;
+    }
     #mobile-dock,
     #mobile-dock.active,
     .mobile-dock-contextual,
@@ -847,8 +1108,13 @@
         touch-action: none !important; /* Prevent panning */
     }
 
-    #view-discover-detail .dd-backdrop {
-        height: 50vh !important;
+    #view-discover-detail .dd-backdrop,
+    .dd-backdrop,
+    .dd-backdrop-img,
+    #dd-backdrop-img {
+        height: 36vh !important;
+        object-position: center center !important;
+        background-position: center center !important;
         -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%) !important;
         mask-image: linear-gradient(to bottom, black 60%, transparent 100%) !important;
     }
@@ -856,9 +1122,9 @@
     #view-discover-detail .dd-main {
         display: flex !important;
         flex-direction: column !important;
-        padding: 20px !important;
-        margin-top: 30vh !important;
-        gap: 25px !important;
+        padding: 12px 16px !important;
+        margin-top: 10vh !important;
+        gap: 12px !important;
         align-items: center !important;
     }
 
@@ -1697,21 +1963,22 @@
         overflow-y: visible !important;
     }
 
-    #discover-content {
-        display: flex;
-        flex-direction: column;
-        gap: 25px;
+    #discover-content, .discover-content {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 6px !important;
+        padding-top: 6px !important;
     }
 
     .discover-section {
-        margin-bottom: 20px;
+        margin-bottom: 10px !important;
     }
 
     .discover-section-header {
         display: flex;
         align-items: center;
-        gap: 12px;
-        margin-bottom: 18px;
+        gap: 8px;
+        margin-bottom: 10px !important;
         padding-left: 4px;
     }
 
@@ -1734,7 +2001,7 @@
         display: flex !important;
         gap: 16px !important;
         overflow-x: auto !important;
-        padding: 10px 0 25px !important;
+        padding: 4px 0 8px !important;
         margin: 0 !important;
         scrollbar-width: none;
     }
@@ -1802,6 +2069,8 @@
     #watchlist-grid .media-card,
     #watched-grid .media-card,
     #view-custom-list-detail .media-card,
+    #custom-list-grid .media-card,
+    .watchlist-grid-cinematic .media-card,
     .watchlist-grid .media-card,
     #view-social .media-card,
     .library-grid .media-card {
@@ -1810,6 +2079,8 @@
         width: 100% !important;
         max-width: none !important;
         min-width: 0 !important;
+        height: auto !important;
+        align-self: start !important;
     }
 
     #view-movies .card-poster,
@@ -1818,9 +2089,14 @@
     #shows-grid .card-poster,
     #view-watchlist .card-poster,
     #watchlist-grid .card-poster,
-    #watched-grid .card-poster {
+    #watched-grid .card-poster,
+    #custom-list-grid .card-poster,
+    .watchlist-grid-cinematic .card-poster {
         width: 100% !important;
-        padding-top: 142% !important; /* Standard 2:3 compact poster aspect ratio matching My List */
+        padding-top: 0 !important;
+        height: auto !important;
+        aspect-ratio: 2 / 3 !important;
+        position: relative !important;
         border-radius: 11px 11px 0 0 !important;
         overflow: hidden !important;
     }
@@ -2453,174 +2729,176 @@
     #dd-streams-list {
         display: flex !important;
         flex-direction: column !important;
-        gap: 10px !important;
-        padding: 0 !important;
+        gap: 8px !important;
+        padding: 4px 10px 24px 10px !important;
         width: 100% !important;
+        box-sizing: border-box !important;
     }
 
     .stream-card {
-        background: rgba(255, 255, 255, 0.03) !important;
-        border: 1px solid rgba(255, 255, 255, 0.06) !important;
-        border-radius: 16px !important;
-        padding: 12px !important;
-        width: calc(100% - 20px) !important;
-        margin: 6px 10px !important;
-        box-shadow: 0 6px 16px rgba(0,0,0,0.25) !important;
+        background: #0d0d12 !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 14px !important;
+        padding: 12px 14px !important;
+        width: 100% !important;
+        margin: 0 !important;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
         box-sizing: border-box !important;
         display: flex !important;
-        flex-direction: column !important;
-        gap: 10px !important;
-        transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 12px !important;
+        transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease !important;
+        cursor: pointer !important;
     }
 
     .stream-card:active {
         transform: scale(0.98) !important;
-        background: rgba(255, 255, 255, 0.06) !important;
-        border-color: rgba(168, 85, 247, 0.3) !important;
-    }
-
-    .stream-top {
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        gap: 12px !important;
-        margin-bottom: 0 !important;
-        width: 100% !important;
+        background: #181922 !important;
+        border-color: rgba(255, 255, 255, 0.3) !important;
     }
 
     .stream-icon-box {
-        width: 80px !important;
-        height: 52px !important;
+        width: 40px !important;
+        height: 40px !important;
         border-radius: 10px !important;
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.18)) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         flex-shrink: 0 !important;
-        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.3) !important;
     }
 
     .stream-icon-box svg {
-        stroke: #c084fc !important;
-        filter: drop-shadow(0 2px 4px rgba(168, 85, 247, 0.3)) !important;
-        width: 22px !important;
-        height: 22px !important;
+        stroke: #ffffff !important;
+        width: 19px !important;
+        height: 19px !important;
     }
 
     .stream-main-info {
         flex: 1 !important;
         display: flex !important;
         flex-direction: column !important;
-        gap: 4px !important;
+        gap: 5px !important;
         min-width: 0 !important;
+        overflow: hidden !important;
     }
 
     .stream-title {
         font-size: 13px !important;
         font-weight: 700 !important;
-        line-height: 1.3 !important;
-        color: #fff !important;
+        line-height: 1.35 !important;
+        color: #ffffff !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
-        margin-bottom: 0 !important;
-        word-break: normal !important;
+        margin: 0 !important;
         display: block !important;
     }
 
+    .stream-meta-row,
     .stream-badges {
         display: flex !important;
         gap: 6px !important;
         flex-direction: row !important;
         align-items: center !important;
+        flex-wrap: wrap !important;
     }
 
     .quality-badge, .source-badge {
-        font-size: 9px !important;
-        font-weight: 600 !important;
-        padding: 2px 6px !important;
+        font-size: 10px !important;
+        font-weight: 800 !important;
+        padding: 2px 7px !important;
         border-radius: 4px !important;
+        text-transform: uppercase !important;
+        line-height: 1.2 !important;
     }
 
     .quality-badge {
-        background: rgba(168, 85, 247, 0.15) !important;
-        color: #e9d5ff !important;
-        border: 1px solid rgba(168, 85, 247, 0.3) !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        border: 1px solid #ffffff !important;
     }
 
     .source-badge {
-        background: rgba(255, 255, 255, 0.05) !important;
-        color: rgba(255, 255, 255, 0.7) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    }
-
-    .stream-footer {
-        display: flex !important;
-        justify-content: space-between !important;
-        align-items: center !important;
-        border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
-        padding-top: 8px !important;
-        width: 100% !important;
-    }
-
-    .stream-stats {
-        display: flex !important;
-        gap: 6px !important;
-        align-items: center !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        color: #ffffff !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
     }
 
     .stream-stat-badge {
         background: rgba(255, 255, 255, 0.04) !important;
         border: 1px solid rgba(255, 255, 255, 0.06) !important;
-        border-radius: 6px !important;
-        padding: 3px 6px !important;
-        font-size: 10px !important;
+        border-radius: 5px !important;
+        padding: 2px 5px !important;
+        font-size: 9.5px !important;
+        font-weight: 600 !important;
         color: rgba(255, 255, 255, 0.6) !important;
-        display: flex !important;
+        display: inline-flex !important;
         align-items: center !important;
+        white-space: nowrap !important;
     }
 
     .stream-stat-badge svg {
-        margin-right: 4px !important;
-        opacity: 0.8 !important;
+        margin-right: 3px !important;
+        width: 11px !important;
+        height: 11px !important;
     }
+
+    .stream-stat-badge.seeds { color: #4ade80 !important; }
+    .stream-stat-badge.size { color: #94a3b8 !important; }
 
     .stream-actions-group {
         display: flex !important;
-        gap: 8px !important;
+        gap: 6px !important;
         align-items: center !important;
+        flex-shrink: 0 !important;
     }
 
     .stream-btn-download, .stream-btn-play {
-        width: 32px !important;
-        height: 32px !important;
-        border-radius: 50% !important;
+        width: 34px !important;
+        height: 34px !important;
+        border-radius: 9px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        transition: background 0.2s ease, transform 0.1s ease !important;
+        transition: transform 0.15s ease, background-color 0.15s ease !important;
+        cursor: pointer !important;
     }
 
     .stream-btn-play {
-        background: #fff !important;
-        color: #000 !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    .stream-btn-play svg {
+        fill: #000000 !important;
+        width: 14px !important;
+        height: 14px !important;
     }
 
     .stream-btn-play:active {
-        transform: scale(0.9) !important;
-        background: rgba(255, 255, 255, 0.8) !important;
+        transform: scale(0.92) !important;
+        background: rgba(255, 255, 255, 0.85) !important;
     }
 
     .stream-btn-download {
-        background: rgba(255, 255, 255, 0.06) !important;
-        color: #fff !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        background: rgba(255, 255, 255, 0.07) !important;
+        color: #ffffff !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    }
+
+    .stream-btn-download svg {
+        stroke: #ffffff !important;
+        width: 14px !important;
+        height: 14px !important;
     }
 
     .stream-btn-download:active {
-        transform: scale(0.9) !important;
-        background: rgba(255, 255, 255, 0.12) !important;
+        transform: scale(0.92) !important;
+        background: rgba(255, 255, 255, 0.15) !important;
     }
 
     .stream-lang-badge {
@@ -3571,7 +3849,7 @@ body.modal-open .modal-overlay {
         margin-top: auto !important;
         padding-top: 10px !important;
         border-top: none !important;
-        margin-bottom: 12px !important;
+        margin-bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 12px) !important;
     }
 
     .sidebar-wrapper #sidebar .sidebar-separator:last-of-type {
@@ -3580,10 +3858,13 @@ body.modal-open .modal-overlay {
     }
 
     .sidebar-wrapper #sidebar #nav-settings,
-    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar #nav-settings {
+    .sidebar-wrapper:not(:hover):not(.hovered) #sidebar #nav-settings,
+    #sidebar #nav-settings {
         margin-top: 0 !important;
+        min-height: 44px !important;
         background: rgba(255, 255, 255, 0.04) !important;
         border: 1px solid rgba(255, 255, 255, 0.09) !important;
+        border-radius: 12px !important;
     }
 
     .sidebar-wrapper #sidebar #nav-settings.active {
@@ -3637,9 +3918,13 @@ body.modal-open .modal-overlay {
     .iptv-container:not([data-mobile-step="categories"]):not([data-mobile-step="channels"]) #iptv-categories-view,
     .iptv-container[data-mobile-step="sources"] #iptv-categories-view,
     .iptv-container:not([data-mobile-step="categories"]):not([data-mobile-step="channels"]) .iptv-middle-panel,
-    .iptv-container[data-mobile-step="sources"] .iptv-middle-panel,
-    .iptv-container:not([data-mobile-step="categories"]):not([data-mobile-step="channels"]) .iptv-right-panel,
-    .iptv-container[data-mobile-step="sources"] .iptv-right-panel {
+    .iptv-container[data-mobile-step="sources"] .iptv-middle-panel {
+        display: none !important;
+    }
+
+    .iptv-container:not([data-mobile-step="channels"]):not(.has-active-playback) .iptv-right-panel,
+    .iptv-container[data-mobile-step="sources"]:not(.has-active-playback) .iptv-right-panel,
+    .iptv-container[data-mobile-step="categories"]:not(.has-active-playback) .iptv-right-panel {
         display: none !important;
     }
 
@@ -3666,9 +3951,25 @@ body.modal-open .modal-overlay {
         display: flex !important;
     }
 
-    .iptv-container[data-mobile-step="categories"] .iptv-middle-panel,
-    .iptv-container[data-mobile-step="categories"] .iptv-right-panel {
+    .iptv-container[data-mobile-step="categories"] .iptv-middle-panel {
         display: none !important;
+    }
+
+    /* Persistent player when stream is active */
+    .iptv-container.has-active-playback .iptv-right-panel {
+        display: flex !important;
+        order: -1 !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        flex: none !important;
+        border-radius: 16px !important;
+        overflow: hidden !important;
+        background: #09090f !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        margin-bottom: 12px !important;
     }
 
     /* Step 3: Channels & Live Player */
@@ -4075,37 +4376,40 @@ body.modal-open .modal-overlay {
         justify-content: space-between !important;
         width: 100% !important;
         margin-bottom: 8px !important;
-        flex-shrink: 0 !important;
+        padding: 4px 0 !important;
+        z-index: 10 !important;
     }
 
     #fullscreen-music-modal .fullscreen-close-btn {
-        width: 36px !important;
-        height: 36px !important;
-        min-width: 36px !important;
-        min-height: 36px !important;
-        font-size: 14px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 40px !important;
+        height: 40px !important;
+        min-width: 40px !important;
+        border-radius: 50% !important;
+        background: rgba(255, 255, 255, 0.15) !important;
+        border: 1px solid rgba(255, 255, 255, 0.25) !important;
+        color: #ffffff !important;
+        font-size: 16px !important;
+        cursor: pointer !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
     }
 
     #fullscreen-music-modal .fullscreen-nav-pills {
-        padding: 3px !important;
+        display: flex !important;
         gap: 2px !important;
-        background: rgba(0, 0, 0, 0.6) !important;
+        padding: 3px !important;
+        border-radius: 500px !important;
+        background: rgba(0, 0, 0, 0.45) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
     }
 
     #fullscreen-music-modal .fs-tab-btn {
-        font-size: 0.74rem !important;
-        padding: 5px 9px !important;
-        gap: 4px !important;
-    }
-
-    #fullscreen-music-modal .fs-top-right-actions {
-        display: flex !important;
-        align-items: center !important;
-        gap: 6px !important;
-    }
-
-    #fullscreen-music-modal .fs-alt-close-btn {
-        display: none !important;
+        padding: 6px 12px !important;
+        font-size: 11px !important;
+        border-radius: 500px !important;
     }
 
     #fullscreen-music-modal .fs-translate-trigger-btn {
@@ -4230,9 +4534,10 @@ body.modal-open .modal-overlay {
     #fullscreen-music-modal .music-bar-controls {
         display: flex !important;
         align-items: center !important;
-        justify-content: space-between !important;
+        justify-content: center !important;
+        gap: 18px !important;
         width: 100% !important;
-        max-width: 320px !important;
+        max-width: 100% !important;
         margin: 0 auto !important;
     }
 
@@ -4254,10 +4559,10 @@ body.modal-open .modal-overlay {
         width: 100% !important;
         min-width: 0 !important;
         display: flex !important;
-        justify-content: space-around !important;
-        gap: 6px !important;
-        padding-top: 6px !important;
-        border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+        justify-content: center !important;
+        gap: 16px !important;
+        padding-top: 4px !important;
+        border-top: none !important;
     }
 
     #fullscreen-music-modal .fs-bar-right .music-vol-wrap {
@@ -4350,27 +4655,63 @@ body.modal-open .modal-overlay {
        ACCOUNT DETAILS MOBILE OVERHAUL
        ══════════════════════════════════════════════════════════════ */
     #view-account {
-        padding: 12px 12px calc(var(--dock-h, 60px) + 30px) !important;
+        padding: 0 0 calc(var(--dock-h, 60px) + 30px) 0 !important;
         overflow-y: auto !important;
         box-sizing: border-box !important;
     }
 
+    #view-account .view-header {
+        padding: max(14px, env(safe-area-inset-top, 14px)) 16px 10px 16px !important;
+    }
+
     #view-account > div[style*="padding: 20px 40px"] {
-        padding: 6px 0 !important;
+        padding: 0 14px 20px 14px !important;
         width: 100% !important;
+        box-sizing: border-box !important;
     }
 
     #view-account .settings-card {
         max-width: 100% !important;
         width: 100% !important;
-        padding: 18px 14px !important;
-        border-radius: 18px !important;
+        padding: 20px 16px !important;
+        border-radius: 20px !important;
         box-sizing: border-box !important;
         gap: 16px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
     }
 
     #view-account #account-banner-container {
-        height: 200px !important;
+        height: 130px !important;
+        border-radius: 0 0 18px 18px !important;
+        margin-bottom: -45px !important;
+    }
+
+    #view-account #account-page-avatar {
+        width: 86px !important;
+        height: 86px !important;
+        min-width: 86px !important;
+        min-height: 86px !important;
+        border-radius: 50% !important;
+        border: 3px solid #ffffff !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), 0 0 20px rgba(255, 255, 255, 0.15) !important;
+        margin-top: 10px !important;
+        position: relative !important;
+        z-index: 3 !important;
+    }
+
+    #view-account #account-page-name {
+        font-size: 20px !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.3px !important;
+        margin-bottom: 2px !important;
+    }
+
+    #view-account #account-page-email {
+        font-size: 13px !important;
+        opacity: 0.7 !important;
     }
 
     #view-account .account-actions-grid {
@@ -4383,15 +4724,30 @@ body.modal-open .modal-overlay {
 
     #view-account .account-square-btn {
         width: 100% !important;
-        min-height: 74px !important;
-        padding: 12px 8px !important;
+        min-height: 66px !important;
+        height: auto !important;
+        padding: 10px 8px !important;
         border-radius: 14px !important;
         display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
         justify-content: center !important;
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        gap: 6px !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+        box-sizing: border-box !important;
+    }
+
+    #view-account .account-square-btn i {
+        font-size: 14px !important;
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+    }
+
+    #view-account .account-square-btn span {
+        font-size: 11.5px !important;
+        font-weight: 600 !important;
     }
 
     #view-account div[style*="display: flex; gap: 10px;"] {
@@ -4402,13 +4758,17 @@ body.modal-open .modal-overlay {
     #view-account input[type="text"],
     #view-account input[type="email"] {
         min-width: 0 !important;
-        font-size: 13.5px !important;
-        padding: 8px 12px !important;
+        font-size: 13px !important;
+        padding: 10px 12px !important;
+        border-radius: 10px !important;
+        background: rgba(0, 0, 0, 0.35) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
     }
 
     #view-account .btn-primary {
-        padding: 8px 14px !important;
-        font-size: 13px !important;
+        padding: 10px 16px !important;
+        font-size: 12.5px !important;
+        border-radius: 10px !important;
         white-space: nowrap !important;
         flex-shrink: 0 !important;
     }
@@ -4587,4 +4947,428 @@ body.modal-open .modal-overlay {
     .mobile-hamburger-nav-btn.hide-on-pc {
         display: none !important;
     }
+}
+
+/* Compact Responsive Grid for Mobile Phones (Suggestions, My List, Custom Lists & Library) */
+@media (max-width: 768px) {
+    .watchlist-grid-cinematic,
+    .watchlist-grid,
+    #watchlist-grid,
+    #watched-grid,
+    #watchlist-live-grid,
+    #shows-grid,
+    #movies-grid,
+    #custom-list-grid,
+    #view-custom-list-detail .card-grid,
+    #search-suggestions-grid,
+    .search-suggestions-grid {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)) !important;
+        gap: 10px 8px !important;
+        padding: 8px 6px 30px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .watchlist-grid-cinematic .media-card,
+    .watchlist-grid .media-card,
+    #watchlist-grid .media-card,
+    #watched-grid .media-card,
+    #shows-grid .media-card,
+    #movies-grid .media-card,
+    #custom-list-grid .media-card,
+    #search-suggestions-grid .media-card,
+    .search-suggestions-grid .media-card {
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        border-radius: 11px !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        overflow: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    .watchlist-grid-cinematic .card-poster,
+    .watchlist-grid .card-poster,
+    #watchlist-grid .card-poster,
+    #watched-grid .card-poster,
+    #shows-grid .card-poster,
+    #movies-grid .card-poster,
+    #custom-list-grid .card-poster,
+    #search-suggestions-grid .card-poster,
+    .search-suggestions-grid .card-poster {
+        width: 100% !important;
+        padding-top: 0 !important;
+        height: auto !important;
+        aspect-ratio: 2 / 3 !important;
+        border-radius: 10px 10px 0 0 !important;
+        overflow: hidden !important;
+        position: relative !important;
+    }
+
+    .watchlist-grid-cinematic .card-info,
+    .watchlist-grid .card-info,
+    #watchlist-grid .card-info,
+    #watched-grid .card-info,
+    #shows-grid .card-info,
+    #movies-grid .card-info,
+    #custom-list-grid .card-info,
+    #search-suggestions-grid .card-info,
+    .search-suggestions-grid .card-info {
+        padding: 6px 6px 8px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        flex: 1 !important;
+    }
+
+    .watchlist-grid-cinematic .card-title,
+    .watchlist-grid .card-title,
+    #watchlist-grid .card-title,
+    #watched-grid .card-title,
+    #shows-grid .card-title,
+    #movies-grid .card-title,
+    #custom-list-grid .card-title,
+    #search-suggestions-grid .card-title,
+    .search-suggestions-grid .card-title {
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        line-height: 1.25 !important;
+        margin-bottom: 2px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        color: #fff !important;
+    }
+
+    .watchlist-grid-cinematic .card-meta,
+    .watchlist-grid .card-meta,
+    #watchlist-grid .card-meta,
+    #watched-grid .card-meta,
+    #shows-grid .card-meta,
+    #movies-grid .card-meta,
+    #custom-list-grid .card-meta,
+    #search-suggestions-grid .card-meta,
+    .search-suggestions-grid .card-meta {
+        font-size: 9.5px !important;
+        opacity: 0.65 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 5px !important;
+    }
+}
+
+    /* 20. Mobile Safe Area, Notifications, Addons, AI & Bug Report Styling */
+    .mobile-header-bar,
+    .top-bar,
+    .view-header {
+        padding-top: max(14px, env(safe-area-inset-top, 14px)) !important;
+    }
+
+    /* Toasts: Non-blocking clicks */
+    #toast-container,
+    .toast,
+    .update-toast {
+        pointer-events: none !important;
+    }
+    .toast button,
+    .update-toast button,
+    .toast a,
+    .update-toast a {
+        pointer-events: auto !important;
+    }
+
+    /* Mobile Addons View (#view-addons) */
+    #view-addons {
+        padding: max(16px, env(safe-area-inset-top, 16px)) 12px calc(var(--dock-h) + 20px) !important;
+    }
+    #view-addons .addon-card,
+    #view-addons .stremio-addon-card {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        padding: 12px !important;
+        border-radius: 12px !important;
+        gap: 8px !important;
+    }
+
+    /* Mobile MEEM AI Chat View (#view-ai) */
+    /* Mobile MEEM AI Chat View (#view-ai) Layout & Formatting Overhaul */
+    #view-ai {
+        display: none !important;
+    }
+    #view-ai.active {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        padding: max(8px, env(safe-area-inset-top, 8px)) 10px calc(72px + max(10px, env(safe-area-inset-bottom, 10px))) 10px !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+        position: relative !important;
+    }
+
+    #view-ai .ai-header {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        padding: 6px 8px 10px !important;
+        margin-bottom: 6px !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        flex-shrink: 0 !important;
+    }
+
+    #view-ai .ai-header-left {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        min-width: 0 !important;
+        flex: 1 !important;
+    }
+
+    #view-ai .mobile-hamburger-nav-btn {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        color: #ffffff !important;
+        width: 36px !important;
+        height: 36px !important;
+        border-radius: 10px !important;
+        font-size: 14px !important;
+        cursor: pointer !important;
+        flex-shrink: 0 !important;
+    }
+
+    #view-ai .ai-avatar-icon {
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 8px !important;
+        flex-shrink: 0 !important;
+    }
+
+    #view-ai .ai-header-title {
+        min-width: 0 !important;
+    }
+
+    #view-ai .ai-header-title h2 {
+        font-size: 15px !important;
+        font-weight: 800 !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    #view-ai .ai-header-title p {
+        display: none !important;
+    }
+
+    #view-ai .ai-header-actions {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        flex-shrink: 0 !important;
+    }
+
+    #view-ai .ai-quota-badge {
+        padding: 4px 8px !important;
+        font-size: 10.5px !important;
+        border-radius: 10px !important;
+    }
+
+    #view-ai .ai-action-btn {
+        padding: 5px 9px !important;
+        font-size: 11px !important;
+        border-radius: 10px !important;
+    }
+
+    #view-ai .ai-chat-container {
+        flex: 1 !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding: 6px 4px !important;
+        margin-bottom: 8px !important;
+        min-height: 0 !important;
+        border-radius: 16px !important;
+    }
+
+    #view-ai .ai-welcome-hero {
+        padding: 16px 10px !important;
+        text-align: center !important;
+    }
+
+    #view-ai .ai-welcome-hero h3 {
+        font-size: 17px !important;
+        font-weight: 800 !important;
+        margin-bottom: 6px !important;
+    }
+
+    #view-ai .ai-welcome-hero p {
+        font-size: 12px !important;
+        opacity: 0.75 !important;
+        line-height: 1.4 !important;
+        margin-bottom: 14px !important;
+    }
+
+    #view-ai .ai-suggestions-grid {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+    }
+
+    #view-ai .ai-suggestion-chip {
+        padding: 10px 12px !important;
+        font-size: 12px !important;
+        border-radius: 14px !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+        text-align: left !important;
+    }
+
+    #view-ai .ai-input-container {
+        flex-shrink: 0 !important;
+        position: relative !important;
+        z-index: 9990 !important;
+        background: #0A0A0A !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        border-radius: 20px !important;
+        padding: 6px 10px !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7) !important;
+        margin-bottom: 0 !important;
+    }
+
+    #view-ai .ai-input-wrapper {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+    }
+
+    #view-ai .ai-input-field {
+        flex: 1 !important;
+        font-size: 13.5px !important;
+        padding: 8px 8px !important;
+        border: none !important;
+        background: transparent !important;
+        color: #ffffff !important;
+        resize: none !important;
+        max-height: 80px !important;
+    }
+
+    #view-ai .ai-send-btn,
+    #view-ai .ai-attach-btn {
+        width: 34px !important;
+        height: 34px !important;
+        border-radius: 50% !important;
+        flex-shrink: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    /* Mobile Bug Report Modal (#modal-bug-report) */
+    #modal-bug-report .modal-content,
+    .bug-report-modal .modal-content {
+        width: 94% !important;
+        max-width: 100% !important;
+        max-height: 90vh !important;
+        padding: 16px !important;
+        border-radius: 16px !important;
+    }
+}
+
+
+    /* Mobile Compact Cards & Curated Collections Scaling */
+    .recommendations-row .media-card {
+        flex: 0 0 100px !important;
+        width: 100px !important;
+        min-width: 100px !important;
+    }
+
+    .recommendations-row .card-poster,
+    .recommendations-row .media-card .card-poster {
+        width: 100% !important;
+        height: auto !important;
+        aspect-ratio: 2 / 3 !important;
+        padding-top: 0 !important;
+        border-radius: 10px 10px 0 0 !important;
+        overflow: hidden !important;
+        position: relative !important;
+    }
+
+    .myspace-collection-card {
+        min-width: 130px !important;
+        max-width: 150px !important;
+        height: 175px !important;
+        border-radius: 14px !important;
+    }
+
+    .myspace-collection-card .card-deck-preview {
+        transform: scale(0.78) !important;
+    }
+
+    .search-history-pill {
+        padding: 5px 11px !important;
+        font-size: 0.8rem !important;
+        border-radius: 12px !important;
+    }
+
+    /* Hide Mobile Bottom Navigation Bar on Detail & Player Views */
+    #view-discover-detail:not([style*="display: none"]) ~ #mobile-bottom-nav,
+    #view-show-detail:not([style*="display: none"]) ~ #mobile-bottom-nav,
+    #view-custom-list-detail:not([style*="display: none"]) ~ #mobile-bottom-nav,
+    #view-player:not([style*="display: none"]) ~ #mobile-bottom-nav,
+    #view-music-player:not([style*="display: none"]) ~ #mobile-bottom-nav {
+        display: none !important;
+    }
+
+
+/* Compact Mobile Account Details Banner Button */
+@media (max-width: 1080px) {
+  #settings-account-banner {
+    min-height: 76px !important;
+    border-radius: 14px !important;
+    margin-bottom: 14px !important;
+  }
+  #settings-account-banner .settings-account-body {
+    padding: 12px 16px !important;
+    min-height: 76px !important;
+  }
+  #settings-account-banner .settings-account-avatar-wrap {
+    width: 48px !important;
+    height: 48px !important;
+  }
+  #settings-account-banner .settings-account-info h3 {
+    font-size: 1.05rem !important;
+  }
+  #settings-account-banner .settings-account-hint {
+    display: none !important;
+  }
+}
+
+/* Fullscreen Music Player Mobile Overhaul */
+@media (max-width: 1080px) {
+  /* Hide cut-off duplicate X button on top right on mobile */
+  .fs-alt-close-btn {
+    display: none !important;
+  }
+  /* Hide bottom 3 control icons on mobile */
+  .fullscreen-music-inner .fs-bar-right,
+  #fullscreen-music-modal .fs-bar-right {
+    display: none !important;
+  }
+  /* Ensure top nav header fits cleanly */
+  .fullscreen-top-nav {
+    padding: 10px 12px !important;
+    gap: 6px !important;
+  }
+  .fs-top-right-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+  }
 }

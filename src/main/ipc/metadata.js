@@ -895,10 +895,10 @@ function initMetadataIpc(ipcMain) {
     // 4. Invidious / Piped using proxied stream URLs (prioritizing 1080p itags)
     if (videoId) {
       const invidInstances = [
-        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=137`,
-        `https://invidious.nerqv.ps/latest_version?id=${videoId}&itag=137`,
-        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=248`,
-        `https://inv.tux.pizza/latest_version?id=${videoId}&itag=22`
+        `https://invidious.f5.si/latest_version?id=${videoId}&itag=137`,
+        `https://invidious.projectsegfau.lt/latest_version?id=${videoId}&itag=137`,
+        `https://invidious.lunar.icu/latest_version?id=${videoId}&itag=248`,
+        `https://invidious.f5.si/latest_version?id=${videoId}&itag=22`
       ];
       for (const invUrl of invidInstances) {
         try {
@@ -1573,7 +1573,7 @@ function initMetadataIpc(ipcMain) {
 
   async function fetchImdbSeasonRatings(imdbId, seasonNum) {
     if (!imdbId || !String(imdbId).startsWith('tt')) return {};
-    const omdbKeys = ['trilogy', 'b9bd48a6', '7c86a583', 'e3a24128'];
+    const omdbKeys = ['trilogy', 'b9bd48a6'];
     for (const k of omdbKeys) {
       try {
         const url = `https://www.omdbapi.com/?i=${imdbId}&Season=${seasonNum}&apikey=${k}`;
@@ -1591,6 +1591,27 @@ function initMetadataIpc(ipcMain) {
         }
       } catch (_) {}
     }
+
+    // Secondary fallback: Cinemeta series endpoint for episode ratings
+    try {
+      const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`;
+      const cinemetaResp = await axios.get(cinemetaUrl, { timeout: 4000 }).catch(() => null);
+      const meta = cinemetaResp?.data?.meta || cinemetaResp?.data;
+      if (meta && Array.isArray(meta.videos)) {
+        const map = {};
+        meta.videos.forEach(v => {
+          if (Number(v.season) === Number(seasonNum)) {
+            const epNum = Number(v.episode != null ? v.episode : v.number);
+            const r = parseFloat(v.rating || v.imdbRating);
+            if (!isNaN(epNum) && !isNaN(r) && r > 0) {
+              map[epNum] = r;
+            }
+          }
+        });
+        if (Object.keys(map).length > 0) return map;
+      }
+    } catch (_) {}
+
     return {};
   }
 
@@ -1744,6 +1765,7 @@ function initMetadataIpc(ipcMain) {
             finalEpisodes.forEach(ep => {
               if (imdbMap[ep.episode_number]) {
                 ep.imdbRating = imdbMap[ep.episode_number];
+                ep.imdb_rating = imdbMap[ep.episode_number];
                 ep.vote_average = imdbMap[ep.episode_number];
                 ep.rating = imdbMap[ep.episode_number];
               }

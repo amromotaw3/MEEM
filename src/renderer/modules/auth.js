@@ -502,10 +502,10 @@
         let clipText = '';
         try {
           if (window.Capacitor?.Plugins?.Clipboard?.read) {
-            const res = await window.Capacitor.Plugins.Clipboard.read();
+            const res = await window.Capacitor.Plugins.Clipboard.read().catch(() => ({ value: '' }));
             clipText = (res && res.value) ? String(res.value).trim() : '';
           } else if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
-            clipText = (await navigator.clipboard.readText()).trim();
+            clipText = (await navigator.clipboard.readText().catch(() => '')).trim();
           }
         } catch (_) {}
 
@@ -2262,8 +2262,17 @@
   }
 
   function selectProfile(id, skipAnimation = false) {
+    if (window._isSelectingProfile) return;
+    window._isSelectingProfile = true;
+    const profileListEl = document.getElementById('profile-list');
+    if (profileListEl) profileListEl.style.pointerEvents = 'none';
+
     const profile = appData.profiles.find(p => p.id === id);
-    if (!profile) return;
+    if (!profile) {
+      window._isSelectingProfile = false;
+      if (profileListEl) profileListEl.style.pointerEvents = '';
+      return;
+    }
 
     // Immediately apply selected banner (or global fallback)
     const selBanner = profile.banner || appData.globalBanner || null;
@@ -2425,6 +2434,10 @@
 
         showToast('Could not load profile: ' + (err.message || 'unknown error'));
         if (window.hideSplash) window.hideSplash();
+      } finally {
+        window._isSelectingProfile = false;
+        const profileListEl = document.getElementById('profile-list');
+        if (profileListEl) profileListEl.style.pointerEvents = '';
       }
     };
 

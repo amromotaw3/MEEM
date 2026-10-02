@@ -166,7 +166,7 @@
   // ══════════════════════════════════════════════════════════════════════════
   const parseLRC = (lrcString, duration = 180) => {
     if (!lrcString || typeof lrcString !== 'string') return [];
-    const lines = lrcString.split('\n');
+    const lines = lrcString.split(/\r?\n/);
     const result = [];
     const timeRegex = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g;
 
@@ -183,20 +183,22 @@
           const msPart = m[3] || '0';
           const milliseconds = msPart.length === 2 ? parseInt(msPart, 10) * 10 : (msPart.length === 1 ? parseInt(msPart, 10) * 100 : parseInt(msPart, 10));
           const timeInSeconds = minutes * 60 + seconds + milliseconds / 1000;
-          result.push({ time: timeInSeconds, text: text || '...' });
+          result.push({ time: timeInSeconds, text: text || '...', isSynced: true });
         }
       } else if (line && !line.startsWith('[ti:') && !line.startsWith('[ar:') && !line.startsWith('[al:') && !line.startsWith('[by:') && !line.startsWith('[offset:') && !line.startsWith('[length:')) {
-        result.push({ time: -1, text: line });
+        result.push({ time: -1, text: line, isSynced: false });
       }
     });
 
     const hasTimestamps = result.some(r => r.time >= 0);
     if (hasTimestamps) {
-      result.sort((a, b) => a.time - b.time);
+      // When timestamps exist, discard header/un-timestamped lines so they don't break sync
+      const syncedOnly = result.filter(r => r.time >= 0);
+      syncedOnly.sort((a, b) => a.time - b.time);
+      return syncedOnly;
     } else if (result.length > 0) {
-      const safeDuration = (typeof duration === 'number' && duration > 0) ? duration : 180;
-      const step = safeDuration / Math.max(1, result.length);
-      result.forEach((r, idx) => { r.time = idx * step; });
+      result.forEach((r) => { r.time = -1; r.isSynced = false; });
+      return result;
     }
 
     return result;
@@ -487,7 +489,157 @@
       this.likedTracks = new Set(JSON.parse(localStorage.getItem('meem_liked_music') || '[]'));
       this.categoryCache = new Map();
 
+      // YouTube fallback & direct stream playback support
+      this.isYtPlaying = false;
+      this.ytPlayer = null;
+      this._ytTrackerInterval = null;
+      this._initYtAudioContainer();
+
       this._initListeners();
+    }
+
+    _initYtAudioContainer() {
+      if (typeof document === 'undefined') return;
+      let cont = document.getElementById('meem-yt-audio-container');
+      if (!cont) {
+        cont = document.createElement('div');
+        cont.id = 'meem-yt-audio-container';
+        // Place outside viewport bounds without opacity:0/display:none to avoid WebView media throttling
+        cont.style.cssText = 'position:fixed;top:0;left:-9999px;width:320px;height:240px;pointer-events:none;z-index:-9999;';
+        cont.innerHTML = '<div id="meem-yt-audio-target"></div>';
+        document.body.appendChild(cont);
+      } else if (!document.getElementById('meem-yt-audio-target') && !this.ytPlayer) {
+        cont.innerHTML = '<div id="meem-yt-audio-target"></div>';
+      }
+
+      if (!window.YT && !document.getElementById('meem-yt-iframe-api-script')) {
+        const tag = document.createElement('script');
+        tag.id = 'meem-yt-iframe-api-script';
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+      }
+    }
+
+    _playYouTubeTrack(videoId) {
+      this._initYtAudioContainer();
+      try {
+        this.audio.pause();
+        this.audio.removeAttribute('src');
+      } catch (_) {}
+      this.isYtPlaying = true;
+      this.isPlaying = true;
+      this.updateUI();
+
+      const startYt = () => {
+        if (window.YT && window.YT.Player) {
+          const target = document.getElementById('meem-yt-audio-target');
+          if (!this.ytPlayer) {
+            if (!target) {
+              const cont = document.getElementById('meem-yt-audio-container');
+              if (cont) cont.innerHTML = '<div id="meem-yt-audio-target"></div>';
+            }
+            try {
+              this.ytPlayer = new window.YT.Player('meem-yt-audio-target', {
+                height: '240',
+                width: '320',
+                videoId: videoId,
+                playerVars: {
+                  autoplay: 1,
+                  controls: 0,
+                  playsinline: 1,
+                  fs: 0,
+                  disablekb: 1,
+                  rel: 0,
+                  iv_load_policy: 3
+                },
+                events: {
+                  onReady: (e) => {
+                    try { e.target.setVolume(Math.round(this.volume * 100)); } catch (_) {}
+                    try { e.target.playVideo(); } catch (_) {}
+                  },
+                  onStateChange: (e) => {
+                    if (e.data === 1) { // PLAYING
+                      this.isPlaying = true;
+                      this.updateUI();
+                    } else if (e.data === 2) { // PAUSED
+                      this.isPlaying = false;
+                      this.updateUI();
+                    } else if (e.data === 0) { // ENDED
+                      if (this.repeatMode === 'one') {
+                        try {
+                          this.ytPlayer.seekTo(0, true);
+                          this.ytPlayer.playVideo();
+                        } catch (_) {}
+                      } else {
+                        this.next();
+                      }
+                    }
+                  },
+                  onError: (e) => {
+                    console.warn('[MusicPlayer] YouTube player state error:', e.data);
+                    if (e.data === 150 || e.data === 101) {
+                      if (window.showToast) window.showToast('Playback restricted for this track, skipping...');
+                      setTimeout(() => this.next(), 1000);
+                    }
+                  }
+                }
+              });
+            } catch (err) {
+              console.warn('[MusicPlayer] Error creating YT.Player:', err);
+            }
+          } else {
+            try {
+              if (typeof this.ytPlayer.loadVideoById === 'function') {
+                this.ytPlayer.loadVideoById(videoId);
+                this.ytPlayer.playVideo();
+              } else if (typeof this.ytPlayer.cueVideoById === 'function') {
+                this.ytPlayer.cueVideoById(videoId);
+                this.ytPlayer.playVideo();
+              }
+            } catch (err) {
+              console.warn('[MusicPlayer] Error loading video in existing YT.Player:', err);
+            }
+          }
+        }
+      };
+
+      startYt();
+      if (!window.YT) {
+        const prevReady = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = () => {
+          if (typeof prevReady === 'function') prevReady();
+          if (this.isYtPlaying && this.currentTrack) startYt();
+        };
+      }
+
+      if (this._ytTrackerInterval) clearInterval(this._ytTrackerInterval);
+      this._ytTrackerInterval = setInterval(() => {
+        if (this.isYtPlaying && this.ytPlayer && typeof this.ytPlayer.getCurrentTime === 'function') {
+          try {
+            const cur = this.ytPlayer.getCurrentTime();
+            if (typeof cur === 'number' && !isNaN(cur)) {
+              this.currentTime = cur;
+            }
+            const d = this.ytPlayer.getDuration();
+            if (typeof d === 'number' && d > 0) {
+              this.duration = d;
+            }
+            this.syncLyricsPosition();
+            this.updateProgressUI();
+          } catch (_) {}
+        }
+      }, 250);
+    }
+
+    _stopYtTrack() {
+      this.isYtPlaying = false;
+      if (this._ytTrackerInterval) {
+        clearInterval(this._ytTrackerInterval);
+        this._ytTrackerInterval = null;
+      }
+      if (this.ytPlayer && typeof this.ytPlayer.stopVideo === 'function') {
+        try { this.ytPlayer.stopVideo(); } catch (_) {}
+      }
     }
 
     _initListeners() {
@@ -496,11 +648,13 @@
       this.audio.addEventListener('play', () => {
         this.isPlaying = true;
         this.updateUI();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
       });
 
       this.audio.addEventListener('pause', () => {
         this.isPlaying = false;
         this.updateUI();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
       });
 
       this.audio.addEventListener('timeupdate', () => {
@@ -508,6 +662,15 @@
         this.duration = this.audio.duration || this.currentTrack?.duration || 0;
         this.syncLyricsPosition();
         this.updateProgressUI();
+        if ('mediaSession' in navigator && this.duration > 0 && isFinite(this.duration)) {
+          try {
+            navigator.mediaSession.setPositionState({
+              duration: this.duration,
+              playbackRate: this.audio.playbackRate || 1,
+              position: Math.min(this.currentTime, this.duration)
+            });
+          } catch (_) {}
+        }
       });
 
       this.audio.addEventListener('loadedmetadata', () => {
@@ -527,6 +690,20 @@
       this.audio.addEventListener('error', (e) => {
         console.warn('[MusicPlayer] Playback error event:', e);
       });
+
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.setActionHandler('play', () => this.togglePlay());
+          navigator.mediaSession.setActionHandler('pause', () => this.togglePlay());
+          navigator.mediaSession.setActionHandler('previoustrack', () => this.prev());
+          navigator.mediaSession.setActionHandler('nexttrack', () => this.next());
+          navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (details.seekTime != null) this.seek(details.seekTime);
+          });
+        } catch (msErr) {
+          console.warn('[MusicPlayer] MediaSession action handler register error:', msErr);
+        }
+      }
     }
 
     async playTrack(track, newQueue = null) {
@@ -572,31 +749,62 @@
         const localPath = offlineItem?.filePath || offlineItem?.path || track.filePath || track.path;
 
         if (offlineItem && offlineItem.audioBlob) {
+          this._stopYtTrack();
           this.audio.src = URL.createObjectURL(offlineItem.audioBlob);
           this.lyricsList = parseLRC(offlineItem.lyrics || '');
+          await this.audio.play();
+          this.isPlaying = true;
         } else if (localPath) {
+          this._stopYtTrack();
           this.audio.src = localPath.startsWith('http') ? localPath : 'file:///' + localPath.replace(/\\/g, '/');
           this.lyricsList = parseLRC(offlineItem?.lyrics || track.lyrics || '');
-        } else {
-          // 2. Extract real audio stream URL from backend
-          let streamUrl = null;
-          if (window.api && window.api.getMusicStreamUrl) {
-            const cleanVidId = String(track.videoId || track.id || '').replace(/^(yt:|youtube:)/, '');
-            const streamRes = await window.api.getMusicStreamUrl(cleanVidId);
-            if (streamRes && streamRes.success && streamRes.streamUrl) {
-              streamUrl = streamRes.streamUrl;
+          await this.audio.play();
+          this.isPlaying = true;
+        } else if (track.audioUrl && (String(track.id).startsWith('itunes_') || track.audioUrl.includes('mzstatic') || track.audioUrl.includes('.mp3') || track.audioUrl.includes('.m4a') || track.audioUrl.includes('.ogg'))) {
+          // Direct audio file (iTunes preview, MP3 Quran stream, etc.)
+          this._stopYtTrack();
+          this.audio.src = track.audioUrl;
+          this.lyricsList = [];
+          try {
+            await this.audio.play();
+            this.isPlaying = true;
+          } catch (streamErr) {
+            console.warn('[MusicPlayer] Direct audio stream play failed, falling back to YouTube player:', streamErr);
+            const cleanVidId = String(track.videoId || track.id || '').replace(/^(yt:|youtube:)/, '').trim();
+            if (cleanVidId && /^[a-zA-Z0-9_-]{11}$/.test(cleanVidId)) {
+              this._playYouTubeTrack(cleanVidId);
+            } else {
+              throw streamErr;
             }
           }
-
-          if (!streamUrl && track.audioUrl) {
-            streamUrl = track.audioUrl;
+        } else {
+          // YouTube Music / Video Track
+          const cleanVidId = String(track.videoId || track.id || '').replace(/^(yt:|youtube:)/, '').trim();
+          if (cleanVidId && /^[a-zA-Z0-9_-]{11}$/.test(cleanVidId)) {
+            let streamResolved = false;
+            if (window.api && typeof window.api.getMusicStreamUrl === 'function') {
+              try {
+                const sRes = await window.api.getMusicStreamUrl(cleanVidId);
+                if (sRes && sRes.success && (sRes.streamUrl || sRes.url)) {
+                  const targetStream = sRes.streamUrl || sRes.url;
+                  this._stopYtTrack();
+                  this.audio.src = targetStream;
+                  this.lyricsList = [];
+                  await this.audio.play();
+                  this.isPlaying = true;
+                  streamResolved = true;
+                }
+              } catch (sErr) {
+                console.warn('[MusicPlayer] Direct stream URL resolution failed, falling back to YouTube player:', sErr.message);
+              }
+            }
+            if (!streamResolved) {
+              this._playYouTubeTrack(cleanVidId);
+            }
+          } else {
+            throw new Error('Invalid track source');
           }
-
-          if (!streamUrl) {
-            throw new Error('Could not resolve audio stream URL');
-          }
-
-          this.audio.src = streamUrl;
+        }
 
           // 3. Fetch real Synced Lyrics or Quran Reader Uthmani Text
           this.lyricsList = [];
@@ -621,10 +829,6 @@
               }
             }).catch(() => {});
           }
-        }
-
-        await this.audio.play();
-        this.isPlaying = true;
       } catch (err) {
         console.error('[MusicPlayer] play error:', err);
         if (window.showToast) window.showToast('Playback failed: ' + err.message);
@@ -793,6 +997,17 @@
         if (this.queue.length > 0) this.playTrack(this.queue[0]);
         return;
       }
+      if (this.isYtPlaying && this.ytPlayer && typeof this.ytPlayer.pauseVideo === 'function') {
+        if (this.isPlaying) {
+          try { this.ytPlayer.pauseVideo(); } catch (_) {}
+          this.isPlaying = false;
+        } else {
+          try { this.ytPlayer.playVideo(); } catch (_) {}
+          this.isPlaying = true;
+        }
+        this.updateUI();
+        return;
+      }
       if (this.isPlaying) {
         this.audio.pause();
       } else {
@@ -825,8 +1040,8 @@
     }
 
     prev() {
-      if (this.audio.currentTime > 4) {
-        this.audio.currentTime = 0;
+      if (this.currentTime > 4) {
+        this.seek(0);
         return;
       }
       if (!this.queue || this.queue.length === 0) return;
@@ -842,7 +1057,14 @@
 
     seek(timeSeconds) {
       if (isFinite(timeSeconds)) {
-        this.audio.currentTime = Math.max(0, Math.min(timeSeconds, this.duration || 1000));
+        if (this.isYtPlaying && this.ytPlayer && typeof this.ytPlayer.seekTo === 'function') {
+          try { this.ytPlayer.seekTo(timeSeconds, true); } catch (_) {}
+          this.currentTime = timeSeconds;
+          this.syncLyricsPosition();
+          this.updateProgressUI();
+        } else {
+          this.audio.currentTime = Math.max(0, Math.min(timeSeconds, this.duration || 1000));
+        }
       }
     }
 
@@ -850,6 +1072,9 @@
       this.volume = Math.max(0, Math.min(1, val));
       this.audio.volume = this.volume;
       this.isMuted = this.volume === 0;
+      if (this.ytPlayer && typeof this.ytPlayer.setVolume === 'function') {
+        try { this.ytPlayer.setVolume(this.volume * 100); } catch (_) {}
+      }
       try {
         localStorage.setItem('meem_global_volume', this.volume.toFixed(2));
         if (window.appData) window.appData.volume = Math.round(this.volume * 100);
@@ -858,6 +1083,7 @@
     }
 
     stopAndClose() {
+      this._stopYtTrack();
       this.audio.pause();
       this.audio.currentTime = 0;
       this.isPlaying = false;
@@ -1323,6 +1549,24 @@
       this.updateLikeUI();
       this.updateDownloadUI();
       this.updateVolumeUI();
+
+      if ('mediaSession' in navigator && window.MediaMetadata) {
+        try {
+          const artworkSrc = (thumbUrl && typeof thumbUrl === 'string' && (thumbUrl.startsWith('http') || thumbUrl.startsWith('data:') || thumbUrl.startsWith('blob:'))) ? thumbUrl : DEFAULT_MUSIC_COVER;
+          navigator.mediaSession.metadata = new window.MediaMetadata({
+            title: t.title || 'Unknown Track',
+            artist: t.artist || 'Unknown Artist',
+            album: t.album || 'MEEM Music',
+            artwork: [
+              { src: artworkSrc, sizes: '512x512', type: 'image/jpeg' }
+            ]
+          });
+          navigator.mediaSession.playbackState = this.isPlaying ? 'playing' : 'paused';
+        } catch (msErr) {
+          console.warn('[MusicPlayer] MediaMetadata update error:', msErr);
+        }
+      }
+
       try {
         window.dispatchEvent(new CustomEvent('meem:music-track-changed', {
           detail: { track: this.currentTrack, isPlaying: this.isPlaying }
@@ -1352,23 +1596,25 @@
 
     syncLyricsPosition() {
       if (this.quranData || !this.lyricsList || this.lyricsList.length === 0) return;
+      const isSynced = this.lyricsList.some(l => l.time >= 0);
+      if (!isSynced) return;
       const t = this.currentTime;
       let activeIdx = -1;
 
       for (let i = 0; i < this.lyricsList.length; i++) {
-        if (t >= this.lyricsList[i].time) {
+        if (this.lyricsList[i].time >= 0 && t >= this.lyricsList[i].time) {
           activeIdx = i;
-        } else {
+        } else if (this.lyricsList[i].time > t) {
           break;
         }
       }
 
+      const container = document.getElementById('fs-lyrics-container');
+      if (!container) return;
+      const lines = container.querySelectorAll('.lyric-line');
+
       if (activeIdx !== this.activeLyricIndex) {
         this.activeLyricIndex = activeIdx;
-        const container = document.getElementById('fs-lyrics-container');
-        if (!container) return;
-
-        const lines = container.querySelectorAll('.lyric-line');
         lines.forEach((line, idx) => {
           line.classList.toggle('active', idx === activeIdx);
           line.classList.toggle('passed', idx < activeIdx);
@@ -1376,6 +1622,41 @@
 
         if (activeIdx !== -1 && lines[activeIdx]) {
           lines[activeIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+
+      // Word & Letter Progressive Fill Karaoke Animation
+      if (activeIdx !== -1 && lines[activeIdx]) {
+        const activeLineObj = this.lyricsList[activeIdx];
+        const nextLineObj = this.lyricsList[activeIdx + 1];
+        const lineStart = activeLineObj.time;
+        const lineEnd = (nextLineObj && nextLineObj.time > lineStart) ? nextLineObj.time : (lineStart + 4.5);
+        const lineDuration = Math.max(1.0, lineEnd - lineStart);
+        const progressPct = Math.max(0, Math.min(1, (t - lineStart) / lineDuration));
+
+        const activeLineEl = lines[activeIdx];
+        activeLineEl.style.setProperty('--line-progress', (progressPct * 100).toFixed(1) + '%');
+
+        const wordEls = activeLineEl.querySelectorAll('.lyric-word');
+        if (wordEls.length > 0) {
+          const weights = Array.from(wordEls).map(w => Math.max(2, (w.textContent || '').trim().length));
+          const totalWeight = weights.reduce((a, b) => a + b, 0);
+          const currentWeightProgress = progressPct * totalWeight;
+
+          let accum = 0;
+          let activeWordIndex = wordEls.length - 1;
+          for (let wIdx = 0; wIdx < weights.length; wIdx++) {
+            accum += weights[wIdx];
+            if (currentWeightProgress <= accum) {
+              activeWordIndex = wIdx;
+              break;
+            }
+          }
+
+          wordEls.forEach((w, wIdx) => {
+            w.classList.toggle('word-active', wIdx <= activeWordIndex);
+            w.classList.toggle('word-current', wIdx === activeWordIndex);
+          });
         }
       }
     }
@@ -1434,7 +1715,9 @@
       if (window.showToast) window.showToast('Translating lyrics...');
 
       try {
-        const textBlock = this.lyricsList.map(l => l.text).join('\n');
+        const originalLines = this.lyricsList.map(l => (l.text || '').trim());
+        const DELIMITER = ' \n\n ';
+        const textBlock = originalLines.join(DELIMITER);
         let transLines = null;
 
         // Engine 1: Google Translate POST (higher rate limit & no URL length clipping)
@@ -1450,8 +1733,11 @@
           if (res.ok) {
             const json = await res.json();
             if (json && Array.isArray(json[0])) {
-              const fullTranslated = json[0].map(x => x[0]).join('');
-              transLines = fullTranslated.split('\n');
+              const fullTranslated = json[0].map(x => (x && typeof x[0] === 'string' ? x[0] : '')).join('');
+              const parts = fullTranslated.split(/\n+/).map(s => s.trim()).filter(s => s.length > 0);
+              if (parts.length > 1) {
+                transLines = parts;
+              }
             }
           }
         } catch (e1) {
@@ -1459,16 +1745,23 @@
         }
 
         // Engine 2: Google Clients5 fallback
-        if (!transLines) {
+        if (!transLines || transLines.length <= 1) {
           try {
-            const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=${encodeURIComponent(this.activeTranslationLang)}&q=${encodeURIComponent(textBlock)}`;
+            const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=${encodeURIComponent(this.activeTranslationLang)}&q=${encodeURIComponent(textBlock.substring(0, 3000))}`;
             const res2 = await fetch(url, { signal: AbortSignal.timeout(6000) });
             if (res2.ok) {
               const data2 = await res2.json();
+              let rawStr = '';
               if (Array.isArray(data2)) {
-                transLines = data2.map(item => (typeof item === 'string' ? item : (item[0] || '')));
+                if (typeof data2[0] === 'string') rawStr = data2[0];
+                else if (Array.isArray(data2[0]) && typeof data2[0][0] === 'string') rawStr = data2[0][0];
+                else rawStr = data2.map(i => (typeof i === 'string' ? i : (i?.[0] || ''))).join('\n');
               } else if (typeof data2 === 'string') {
-                transLines = data2.split('\n');
+                rawStr = data2;
+              }
+              const parts2 = rawStr.split(/\n+/).map(s => s.trim()).filter(s => s.length > 0);
+              if (parts2.length > 1) {
+                transLines = parts2;
               }
             }
           } catch (e2) {
@@ -1477,15 +1770,18 @@
         }
 
         // Engine 3: MyMemory API fallback
-        if (!transLines) {
+        if (!transLines || transLines.length <= 1) {
           try {
-            const safeChunk = textBlock.split('\n').slice(0, 30).join('\n');
+            const safeChunk = originalLines.slice(0, 25).join('\n');
             const mmUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(safeChunk)}&langpair=auto|${encodeURIComponent(this.activeTranslationLang)}`;
             const res3 = await fetch(mmUrl, { signal: AbortSignal.timeout(6000) });
             if (res3.ok) {
               const json3 = await res3.json();
               if (json3?.responseData?.translatedText) {
-                transLines = json3.responseData.translatedText.split('\n');
+                const parts3 = json3.responseData.translatedText.split(/\n+/).map(s => s.trim()).filter(s => s.length > 0);
+                if (parts3.length > 1) {
+                  transLines = parts3;
+                }
               }
             }
           } catch (e3) {
@@ -1493,10 +1789,19 @@
           }
         }
 
+        // STRICT SAFEGUARD: Never dump a paragraph or multi-line block into line 0!
         if (transLines && Array.isArray(transLines)) {
           this.translationCache.set(trackKey, transLines);
           this.lyricsList.forEach((line, idx) => {
-            line.translatedText = (transLines[idx] || '').trim();
+            let t = (transLines[idx] || '').trim();
+            if (t.includes('\n')) {
+              t = t.split('\n')[0].trim();
+            }
+            // Mismatch safeguard: If translation line 0 is a massive block but original line is short, discard line 0 paragraph
+            if (idx === 0 && t.length > 80 && line.text.length < 50 && transLines.length < this.lyricsList.length) {
+              t = '';
+            }
+            line.translatedText = t;
           });
         }
       } catch (err) {
@@ -1596,12 +1901,15 @@
 
       // 3. Synced Karaoke Lines (with optional bilingual translation)
       const isTranslated = this.activeTranslationLang && this.activeTranslationLang !== 'off';
-      const isRtl = this.activeTranslationLang === 'ar';
 
       container.innerHTML = this.lyricsList.map((item, idx) => {
-        const origText = `<div class="lyric-line-original">${escapeHTML(item.text)}</div>`;
+        const words = (item.text || '').split(' ').map((w, wIdx) => {
+          return `<span class="lyric-word" data-word-idx="${wIdx}">${escapeHTML(w)}</span>`;
+        }).join(' ');
+
+        const origText = `<div class="lyric-line-original">${words}</div>`;
         const transText = (isTranslated && item.translatedText)
-          ? `<div class="lyric-line-translated ${isRtl ? 'rtl-text' : ''}">${escapeHTML(item.translatedText)}</div>`
+          ? `<div class="lyric-line-translated">${escapeHTML(item.translatedText)}</div>`
           : '';
         return `<div class="lyric-line" data-index="${idx}" data-time="${item.time}">${origText}${transText}</div>`;
       }).join('');
@@ -1734,7 +2042,58 @@
         }
       } catch (e) {}
     }
-    return Player.categoryCache.get(category) || [];
+
+    const cached = Player.categoryCache.get(category);
+    if (cached && cached.length > 0) return cached;
+
+    // Built-in curated fallback tracks to prevent empty/black page
+    return [
+      {
+        id: 'f_nasheed_1',
+        videoId: 'O2rR_J6Vvss',
+        title: 'Rahmatun Lil Alameen (رحمة للعالمين)',
+        artist: 'Maher Zain',
+        cover: 'https://images.unsplash.com/photo-1507692049790-de58290a4334?w=500&q=80',
+        durationFormatted: '3:45',
+        category: 'nasheed'
+      },
+      {
+        id: 'f_quran_1',
+        videoId: '8qZtX8i4n8Y',
+        title: 'Surah Al-Kahf (سورة الكهف كاملة)',
+        artist: 'Mishary Alafasy',
+        cover: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500&q=80',
+        durationFormatted: '28:10',
+        category: 'quran'
+      },
+      {
+        id: 'f_nasheed_2',
+        videoId: 'q70cIqKqYlA',
+        title: 'Kun Anta (كن أنت)',
+        artist: 'Humood AlKhudher',
+        cover: 'https://images.unsplash.com/photo-1519817650390-64a93db51149?w=500&q=80',
+        durationFormatted: '3:50',
+        category: 'nasheed'
+      },
+      {
+        id: 'f_quran_2',
+        videoId: '2Jq6QY9J0Z8',
+        title: 'Surah Maryam (سورة مريم تلاوة خاشعة)',
+        artist: 'Ahmed Al-Nufais',
+        cover: 'https://images.unsplash.com/photo-1564769625905-50e93615e769?w=500&q=80',
+        durationFormatted: '18:24',
+        category: 'quran'
+      },
+      {
+        id: 'f_adkar_1',
+        videoId: 'adkar_morning_1',
+        title: 'أذكار الصباح كاملة بصوت هادئ ومريح',
+        artist: 'Mishary Alafasy',
+        cover: 'https://images.unsplash.com/photo-1609599006353-e629aaabfeae?w=500&q=80',
+        durationFormatted: '14:20',
+        category: 'adkar'
+      }
+    ];
   };
 
   const ensureMusicPageShell = () => {
@@ -2107,6 +2466,7 @@
     if (dd) dd.style.display = 'none';
     document.getElementById('fs-translate-trigger-btn')?.classList.remove('active');
   };
+  window.closeFullscreenMusicModal = closeFullscreenModal;
 
   const switchFullscreenTab = (tab) => {
     const artView = document.getElementById('fs-artwork-view');
@@ -2210,6 +2570,49 @@
     document.getElementById('fs-tab-lyrics')?.addEventListener('click', () => switchFullscreenTab('lyrics'));
     document.getElementById('fs-tab-queue')?.addEventListener('click', () => switchFullscreenTab('queue'));
     document.getElementById('btn-clear-queue')?.addEventListener('click', () => Player.clearQueue());
+
+    // Touch Swipe Gesture Navigation for Fullscreen Music Player Tabs
+    const fsModal = document.getElementById('fullscreen-music-modal');
+    if (fsModal) {
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchEndX = 0;
+      let touchEndY = 0;
+
+      fsModal.addEventListener('touchstart', (e) => {
+        if (!e.touches || e.touches.length === 0) return;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }, { passive: true });
+
+      fsModal.addEventListener('touchend', (e) => {
+        if (!e.changedTouches || e.changedTouches.length === 0) return;
+        touchEndX = e.changedTouches[0].clientX;
+        touchEndY = e.changedTouches[0].clientY;
+
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = touchEndY - touchStartY;
+
+        if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+          if (e.target.closest('input[type="range"], .music-vol-slider, .music-progress-bar-container')) return;
+
+          const tabs = ['artwork', 'lyrics', 'queue'];
+          let currentTab = 'artwork';
+          if (document.getElementById('fs-tab-lyrics')?.classList.contains('active')) currentTab = 'lyrics';
+          else if (document.getElementById('fs-tab-queue')?.classList.contains('active')) currentTab = 'queue';
+
+          const currentIdx = tabs.indexOf(currentTab);
+
+          if (deltaX < 0) {
+            const nextIdx = (currentIdx + 1) % tabs.length;
+            switchFullscreenTab(tabs[nextIdx]);
+          } else {
+            const prevIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+            switchFullscreenTab(tabs[prevIdx]);
+          }
+        }
+      }, { passive: true });
+    }
 
     document.getElementById('fs-play-btn')?.addEventListener('click', () => Player.togglePlay());
     document.getElementById('fs-next-btn')?.addEventListener('click', () => Player.next());

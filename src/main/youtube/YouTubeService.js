@@ -595,9 +595,9 @@ class YouTubeService {
       if (!streamUrl && videoId) {
         const axios = require('axios');
         const invidInstances = [
-          `https://inv.tux.pizza/latest_version?id=${videoId}&itag=22`,
-          `https://invidious.nerqv.ps/latest_version?id=${videoId}&itag=22`,
-          `https://inv.tux.pizza/latest_version?id=${videoId}&itag=18`
+          `https://invidious.f5.si/latest_version?id=${videoId}&itag=22`,
+          `https://invidious.projectsegfau.lt/latest_version?id=${videoId}&itag=22`,
+          `https://invidious.lunar.icu/latest_version?id=${videoId}&itag=18`
         ];
         for (const invUrl of invidInstances) {
           try {

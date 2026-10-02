@@ -2085,20 +2085,27 @@ body.mini-player-active #app-signature {
 }
 
 /* Hovering or active click (.open) over container or corner triggers opening animation */
-.profile-float-container:hover .profile-float-actions,
+/* Floating actions visible when open or desktop hover */
+@media (hover: hover) and (pointer: fine) {
+  .profile-float-container:hover .profile-float-actions {
+    transform: translateX(0) scale(1) !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+}
 .profile-float-container.open .profile-float-actions {
   transform: translateX(0) scale(1) !important;
   opacity: 1 !important;
   pointer-events: auto !important;
 }
 
-.profile-float-container:hover .profile-float-trigger-btn,
+/* Open state trigger styles */
 .profile-float-container.open .profile-float-trigger-btn {
   background: #e5e5e5 !important;
   transform: scale(1.05) !important;
 }
 
-.profile-float-container:hover .profile-float-trigger-btn i,
+/* Rotate icon when open */
 .profile-float-container.open .profile-float-trigger-btn i {
   transform: rotate(180deg) !important;
 }
@@ -2768,3 +2775,19 @@ body.mini-player-active #app-signature {
 
 
 
+
+/* Final Card Grid & Aspect Ratio Tightness Fix */
+.media-card, .discover-card {
+  height: fit-content !important;
+  align-self: start !important;
+}
+.media-card .card-poster, .discover-card .discover-poster-wrap {
+  width: 100% !important;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+}
+.media-card .card-poster img, .discover-card .discover-poster-wrap img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}

@@ -1,4 +1,5 @@
 /* ── Unified Cinematic Detail & Data Orchestrator (V4 - Mobile Polish) ── */
+const DEFAULT_TMDB_KEY = '4e44d9029b1270a757cddc766a1bcb63';
 
 /* ── Image Resolution Strategy ── */
 /* ── Image Resolution Strategy ── */
@@ -102,6 +103,62 @@ function stringSimilarity(a, b) {
     return (2.0 * intersect) / total;
 }
 
+window.checkIsSameMedia = function(a, b) {
+    if (!a || !b) return false;
+    if (typeof window.isSameItem === 'function') return window.isSameItem(a, b);
+    if (a.id != null && b.id != null && String(a.id) === String(b.id)) return true;
+    const aImdb = a.imdb_id || a.imdbId || (String(a.id || '').startsWith('tt') ? a.id : null);
+    const bImdb = b.imdb_id || b.imdbId || (String(b.id || '').startsWith('tt') ? b.id : null);
+    if (aImdb && bImdb && String(aImdb) === String(bImdb)) return true;
+    const getT = window.getTmdbIdStr || ((i) => (i?.tmdbId || i?.tmdb_id || null));
+    const aT = getT(a);
+    const bT = getT(b);
+    if (aT && bT && String(aT) === String(bT)) return true;
+    const aK = a.kitsuId || a.kitsu_id || (String(a.id || '').startsWith('kitsu:') ? String(a.id).replace('kitsu:', '') : null);
+    const bK = b.kitsuId || b.kitsu_id || (String(b.id || '').startsWith('kitsu:') ? String(b.id).replace('kitsu:', '') : null);
+    if (aK && bK && String(aK) === String(bK)) return true;
+    const tA = (a.title || a.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const tB = (b.title || b.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (tA && tB && tA === tB && tA.length >= 2) return true;
+    return false;
+};
+
+window.toggleItemInCustomList = function(listId, targetItem) {
+    const profile = window.currentProfile || window.appData?.profiles?.find(p => p.id === window.appData.activeProfileId);
+    if (!profile || !targetItem) return;
+    
+    const list = profile.custom_lists?.find(l => l.id === listId);
+    if (!list) return;
+
+    list.items = list.items || [];
+    const checkFn = window.checkIsSameMedia;
+    const index = list.items.findIndex(i => checkFn(i, targetItem));
+
+    if (index === -1) {
+        const toAdd = {
+            id: targetItem.id,
+            title: targetItem.title || targetItem.name || '',
+            type: targetItem.type || '',
+            poster: targetItem.poster || targetItem.poster_path || '',
+            backdrop: targetItem.backdrop || targetItem.backdrop_path || '',
+            release_date: targetItem.release_date || targetItem.first_air_date || '',
+            vote_average: targetItem.vote_average || 0,
+            overview: targetItem.overview || ''
+        };
+        list.items.push(toAdd);
+        if (typeof window.showToast === 'function') window.showToast(`Added to "${list.name}"`);
+    } else {
+        list.items.splice(index, 1);
+        if (typeof window.showToast === 'function') window.showToast(`Removed from "${list.name}"`);
+    }
+
+    if (typeof window.persist === 'function') window.persist(true);
+    if (typeof window.updateWatchlistUI === 'function') window.updateWatchlistUI();
+    if (typeof window.renderLibCustomLists === 'function') window.renderLibCustomLists();
+    if (typeof window.renderBentoWatchlist === 'function') window.renderBentoWatchlist();
+    if (window.currentView === 'custom-list-detail' && typeof window.renderCustomListDetail === 'function') window.renderCustomListDetail(listId);
+};
+
 window.renderUnifiedDetail = async function(item) {
     window.currentUnifiedDetailItem = item;
     const { switchView } = window;
@@ -150,7 +207,7 @@ window.renderUnifiedDetail = async function(item) {
 
         // RESOLVE NUMERIC TMDB ID TO IMDB ID FOR WESTERN CONTENT
         // Handles both bare numeric IDs ("12345") and prefixed IDs ("tmdb:12345")
-        const tmdbKey = window.appData?.tmdbKey || null;
+        const tmdbKey = window.appData?.tmdbKey || DEFAULT_TMDB_KEY;
         let numericTmdbId = null;
         if (cinemetaId) {
             const idStr = String(cinemetaId);
@@ -287,7 +344,7 @@ window.renderUnifiedDetail = async function(item) {
             anilist = await window.api.invoke('anilist-media-detailed', { title: item.title_english || item.title || item.name }).catch(() => null);
         } else {
             // Western Media: Cinemeta metadata + Fanart.tv enhancement + Direct TMDB (for guaranteed 4K backdrops & official logos)
-            const tmdbKey = window.appData?.tmdbKey || null;
+            const tmdbKey = window.appData?.tmdbKey || DEFAULT_TMDB_KEY;
             const fetchTmdbDetails = async () => {
                 try {
                     let tid = item.tmdbId || item.tmdb_id || (cinemetaId && /^\d+$/.test(String(cinemetaId)) ? cinemetaId : null);
@@ -298,7 +355,7 @@ window.renderUnifiedDetail = async function(item) {
                     }
                     if (tid && tmdbKey) {
                         const typePath = (mediaType === 'tv' || mediaType === 'series') ? 'tv' : 'movie';
-                        const details = await fetch(`https://api.themoviedb.org/3/${typePath}/${tid}?api_key=${tmdbKey}&append_to_response=images,external_ids`, { signal: AbortSignal.timeout(3500) }).then(r => r.json()).catch(() => null);
+                        const details = await fetch(`https://api.themoviedb.org/3/${typePath}/${tid}?api_key=${tmdbKey}&append_to_response=images,external_ids,credits`, { signal: AbortSignal.timeout(3500) }).then(r => r.json()).catch(() => null);
                         return details;
                     }
                 } catch (e) {}
@@ -467,6 +524,187 @@ function hideUnifiedLoader() {
     }
 }
 
+window.updateCardRatingBadges = function(mediaKey, rating) {
+    if (!mediaKey) return;
+    const profile = window.currentProfile || window.appData?.profiles?.find(p => p.id === window.appData?.activeProfileId);
+    const mediaRating = parseFloat(rating || (profile?.ratings && profile.ratings[mediaKey]) || (window.mediaRatingsCache && window.mediaRatingsCache[mediaKey]) || 0);
+
+    const cards = document.querySelectorAll(`[data-id="${mediaKey}"], [data-item-id="${mediaKey}"]`);
+    cards.forEach(card => {
+        // Hover badge at bottom-left of card poster
+        let hoverBadge = card.querySelector('.card-hover-star-badge');
+        // Permanent user star badge inside info container
+        let userBadge = card.querySelector('.card-user-star-badge');
+
+        if (mediaRating > 0) {
+            let starsHtml = '';
+            for (let i = 1; i <= 5; i++) {
+                if (mediaRating >= i) {
+                    starsHtml += '<i class="fas fa-star"></i>';
+                } else if (mediaRating === i - 0.5) {
+                    starsHtml += '<i class="fas fa-star-half-alt"></i>';
+                } else {
+                    starsHtml += '<i class="far fa-star" style="opacity:0.35;"></i>';
+                }
+            }
+
+            if (!userBadge) {
+                userBadge = document.createElement('div');
+                userBadge.className = 'card-user-star-badge';
+                const targetWrap = card.querySelector('.bento-wl-details, .discover-info, .card-details, .cw-details, .media-details, .search-card-info, .discover-meta') || card;
+                targetWrap.appendChild(userBadge);
+            }
+            userBadge.title = `Your Rating: ${mediaRating}/5`;
+            userBadge.innerHTML = `<span class="user-stars">${starsHtml}</span><span class="user-score">${mediaRating}/5</span>`;
+
+            if (!hoverBadge) {
+                hoverBadge = document.createElement('div');
+                hoverBadge.className = 'card-hover-star-badge';
+                card.appendChild(hoverBadge);
+            }
+            const starIcon = (mediaRating % 1 !== 0) ? 'fa-star-half-alt' : 'fa-star';
+            hoverBadge.title = `Your Rating: ${mediaRating}/5`;
+            hoverBadge.innerHTML = `<i class="fas ${starIcon}"></i> <span>${mediaRating}/5</span>`;
+        } else {
+            if (userBadge) userBadge.remove();
+            if (hoverBadge) hoverBadge.remove();
+        }
+    });
+};
+
+window.refreshAllCardRatingBadges = function() {
+    const profile = window.currentProfile || window.appData?.profiles?.find(p => p.id === window.appData?.activeProfileId);
+    const ratingsMap = { ...(window.mediaRatingsCache || {}), ...(profile?.ratings || {}) };
+
+    const cards = document.querySelectorAll('.discover-card, .card, .bento-wl-card, .continue-card, .media-card, .search-result-card, .show-card, .movie-card, .cw-card');
+    cards.forEach(card => {
+        const mediaId = card.getAttribute('data-id') || card.getAttribute('data-item-id') || card.dataset?.id || card.dataset?.itemId;
+        if (!mediaId) return;
+        const rating = parseFloat(ratingsMap[mediaId] || 0);
+        window.updateCardRatingBadges(mediaId, rating);
+    });
+};
+
+// Automatic Observer to attach user star ratings to dynamically rendered cards
+if (typeof MutationObserver !== 'undefined' && !window._cardRatingObserver) {
+    let _ratingDebounce = null;
+    window._cardRatingObserver = new MutationObserver(() => {
+        if (_ratingDebounce) clearTimeout(_ratingDebounce);
+        _ratingDebounce = setTimeout(() => {
+            if (typeof window.refreshAllCardRatingBadges === 'function') {
+                window.refreshAllCardRatingBadges();
+            }
+        }, 150);
+    });
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => {
+            const mainView = document.getElementById('main-content') || document.body;
+            if (mainView) window._cardRatingObserver.observe(mainView, { childList: true, subtree: true });
+        });
+    } else {
+        const mainView = document.getElementById('main-content') || document.body;
+        if (mainView) window._cardRatingObserver.observe(mainView, { childList: true, subtree: true });
+    }
+}
+
+function initDetailRatingWidget(mediaItem) {
+    const widget = document.getElementById('dd-star-rating-widget');
+    const ratingText = document.getElementById('dd-user-rating-text');
+    if (!widget) return;
+
+    const mediaKey = String(mediaItem?.id || mediaItem?.imdb_id || mediaItem?.imdbId || mediaItem?.path || '');
+    const profile = window.currentProfile || window.appData?.profiles?.find(p => p.id === window.appData?.activeProfileId);
+    let curRating = parseFloat((profile?.ratings && profile.ratings[mediaKey]) || (window.mediaRatingsCache && window.mediaRatingsCache[mediaKey]) || 0);
+
+    const updateStars = (val, isHover = false) => {
+        const stars = widget.querySelectorAll('.dd-star');
+        stars.forEach(s => {
+            const sVal = parseInt(s.getAttribute('data-val'), 10);
+            const icon = s.querySelector('i');
+            if (!icon) return;
+
+            if (val >= sVal) {
+                s.classList.add('active');
+                icon.className = 'fas fa-star';
+            } else if (val === sVal - 0.5) {
+                s.classList.add('active');
+                icon.className = 'fas fa-star-half-alt';
+            } else {
+                s.classList.remove('active');
+                icon.className = 'fas fa-star';
+            }
+        });
+        if (ratingText) {
+            if (val > 0) {
+                ratingText.textContent = `${val}/5`;
+                ratingText.style.color = '#fbbf24';
+            } else {
+                ratingText.textContent = 'Rate';
+                ratingText.style.color = 'rgba(255, 255, 255, 0.6)';
+            }
+        }
+    };
+
+    widget.setAttribute('data-rating', curRating);
+    updateStars(curRating);
+
+    const stars = widget.querySelectorAll('.dd-star');
+    stars.forEach(s => {
+        const sVal = parseInt(s.getAttribute('data-val'), 10);
+
+        const calcRatingFromEvent = (e) => {
+            const rect = s.getBoundingClientRect();
+            const isLeftHalf = (e.clientX - rect.left) < (rect.width / 2);
+            return isLeftHalf ? (sVal - 0.5) : sVal;
+        };
+
+        s.onmousemove = (e) => {
+            const hoverVal = calcRatingFromEvent(e);
+            updateStars(hoverVal, true);
+        };
+
+        s.onmouseleave = () => {
+            const activeVal = parseFloat(widget.getAttribute('data-rating')) || 0;
+            updateStars(activeVal);
+        };
+
+        s.onclick = async (e) => {
+            e.stopPropagation();
+            const clickVal = calcRatingFromEvent(e);
+            widget.setAttribute('data-rating', clickVal);
+            updateStars(clickVal);
+
+            if (profile) {
+                profile.ratings = profile.ratings || {};
+                profile.ratings[mediaKey] = clickVal;
+            }
+            window.mediaRatingsCache = window.mediaRatingsCache || {};
+            window.mediaRatingsCache[mediaKey] = clickVal;
+
+            if (typeof window.persist === 'function') window.persist(true);
+
+            if (window.bridge?.saveMediaRating) {
+                window.bridge.saveMediaRating({
+                    profileId: profile?.id || 'default',
+                    userId: window.currentSession?.user?.id || null,
+                    profileName: profile?.name || 'User',
+                    mediaId: mediaKey,
+                    mediaTitle: mediaItem.title || mediaItem.name || '',
+                    rating: clickVal
+                }).catch(err => console.warn('[Rating] save error:', err));
+            }
+
+            if (typeof showToast === 'function') {
+                showToast(`Rated ${clickVal} ★`);
+            }
+
+            if (typeof window.updateCardRatingBadges === 'function') {
+                window.updateCardRatingBadges(mediaKey, clickVal);
+            }
+        };
+    });
+}
+
 function setupUnifiedSkeleton(container, item) {
     const { escapeHTML } = window;
     container.classList.add('cinematic-mode');
@@ -493,7 +731,7 @@ function setupUnifiedSkeleton(container, item) {
     const isKitsu = item.source === 'kitsu' || item.source === 'mal' || item.source === 'jikan' || !!item.anime_id || !!item.mal_id || (item.id && (String(item.id).startsWith('kitsu:') || String(item.id).startsWith('mal:') || String(item.id).startsWith('jikan:') || String(item.id).startsWith('anilist:')));
     const isTV = window.checkIfTV(item);
     const isMetaActive = (typeof window.isMetadataProviderActive === 'function' && window.isMetadataProviderActive()) ||
-                         (window.appData?.tmdbKey && window.appData?.tmdbEnabled !== false) ||
+                         ((window.appData?.tmdbKey || DEFAULT_TMDB_KEY) && window.appData?.tmdbEnabled !== false) ||
                          (window.appData?.installedAddons || []).some(a => (a.id || a.name || a.url || '').toLowerCase().includes('cinemeta'));
     const isLocalTV = isTV && item.episodes && item.episodes.length > 0;
     const showTmdbNotice = isLocalTV && !isMetaActive;
@@ -546,14 +784,26 @@ function setupUnifiedSkeleton(container, item) {
                     </div>
 
                     <div id="dd-meta" class="dd-meta-row-premium">
+                        <span class="dd-tag dd-runtime-tag" id="dd-duration" style="display:none;"></span>
+                        <span class="dd-tag" id="dd-year">${(item.release_date || item.first_air_date || item.year || '').slice(0, 4) || '----'}</span>
                         <div id="dd-ratings-wrap" class="dd-ratings-wrap">
                             <span class="dd-rating-badge dd-rating-imdb" id="dd-rating">
-                                <span class="dd-rating-source">${item.source === 'tmdb' ? 'TMDB' : (item.imdbRating || String(item.id).startsWith('tt') ? 'IMDb' : 'Rating')}</span>
                                 <span class="dd-rating-val">★ ${(parseFloat(item.imdbRating || item.vote_average || item.rating) || 0).toFixed(1)}</span>
+                                <span class="dd-rating-source">${item.source === 'tmdb' ? 'TMDB' : (item.imdbRating || String(item.id).startsWith('tt') ? 'IMDb' : 'Rating')}</span>
                             </span>
                         </div>
-                        <span class="dd-tag" id="dd-year">${(item.release_date || item.first_air_date || item.year || '').slice(0, 4) || '----'}</span>
-                        <span class="imdb-tag" id="dd-imdb-badge" style="display:none;">IMDb</span>
+                    </div>
+
+                    <div class="dd-user-rating-section" id="dd-user-rating-section">
+                        <span class="dd-user-rating-label">RATE THIS</span>
+                        <div class="dd-star-rating-widget" id="dd-star-rating-widget" data-rating="0" title="Click to rate (1 - 5 stars)">
+                            <span class="dd-star" data-val="1"><i class="fas fa-star"></i></span>
+                            <span class="dd-star" data-val="2"><i class="fas fa-star"></i></span>
+                            <span class="dd-star" data-val="3"><i class="fas fa-star"></i></span>
+                            <span class="dd-star" data-val="4"><i class="fas fa-star"></i></span>
+                            <span class="dd-star" data-val="5"><i class="fas fa-star"></i></span>
+                            <span class="dd-user-rating-text" id="dd-user-rating-text">Rate</span>
+                        </div>
                     </div>
 
                     <div id="dd-extra-info" class="dd-pills-container"></div>
@@ -564,9 +814,6 @@ function setupUnifiedSkeleton(container, item) {
                         <div class="dd-summary-actions" id="dd-summary-actions" style="display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
                             <button class="dd-read-more-btn" id="dd-read-more-btn" type="button" style="display: none; margin-top: 0;">
                                 <i class="fas fa-chevron-down"></i> Read More
-                            </button>
-                            <button class="dd-read-more-btn dd-yt-trailer-btn" id="dd-youtube-btn" type="button" title="Watch Trailer on YouTube" style="display: none; margin-top: 0; cursor: pointer;">
-                                <i class="fab fa-youtube" style="font-size: 1rem;"></i> <span>Trailer</span>
                             </button>
                         </div>
                     </div>
@@ -591,9 +838,12 @@ function setupUnifiedSkeleton(container, item) {
                     ` : ''}
 
                     <div class="dd-bottom-actions">
-                        <button class="dd-btn-main primary-premium" id="dd-play-btn-top" onclick="window.openEpisodes()">${isTV ? '<i class="fas fa-list-ol"></i> Show Episodes' : '<i class="fas fa-play-circle" style="font-size: 0.95rem;"></i> Watch Now'}</button>
+                        <button class="dd-btn-main primary-premium dd-action-pill" id="dd-play-btn-top" onclick="window.openEpisodes()">${isTV ? '<i class="fas fa-list-ol"></i> Show Episodes' : '<i class="fas fa-play-circle" style="font-size: 0.95rem;"></i> Watch Now'}</button>
+                        <button class="dd-btn-main primary-premium dd-action-pill dd-yt-trailer-btn" id="dd-youtube-btn" type="button" title="Watch Trailer on YouTube" style="display: none;">
+                            <i class="fab fa-youtube"></i> <span>Watch Trailer</span>
+                        </button>
                         <div class="dd-list-dropdown">
-                            <button class="dd-btn-main primary-premium" id="btn-main-list" type="button"><i class="fas fa-plus-circle" style="font-size: 0.95rem;"></i> My List</button>
+                            <button class="dd-btn-main primary-premium dd-action-pill" id="btn-main-list" type="button"><i class="fas fa-plus-circle" style="font-size: 0.95rem;"></i> Add to Library</button>
                             <div class="dd-dropdown-menu" id="dd-list-menu">
                                 <div class="dd-menu-inner">
                                 <div class="dd-menu-title">Select action</div>
@@ -613,12 +863,17 @@ function setupUnifiedSkeleton(container, item) {
                             </div>
                             </div>
                         </div>
-                        <button class="dd-btn-main primary-premium" id="dd-go-back-btn" type="button"><i class="fas fa-chevron-left"></i> Go Back</button>
+                        <button class="dd-btn-main primary-premium dd-action-pill" id="dd-go-back-btn" type="button"><i class="fas fa-chevron-left"></i> Go Back</button>
                     </div>
                 </div>
             </div>
         </div>
     `;
+
+    // Initialize interactive star rating widget
+    if (typeof initDetailRatingWidget === 'function') {
+        initDetailRatingWidget(item);
+    }
 
     window.getTmdbIdStr = (i) => {
         if (!i) return null;
@@ -1404,9 +1659,6 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
             metaContainer.prepend(rtSpan);
         }
         
-        // Resolve Age Rating
-        const ageRating = tmdb?.certification || extra1?.certification || item.certification;
-
         // Hide yellow hardcoded IMDb badge
         const imdbBadge = document.getElementById('dd-imdb-badge');
         if (imdbBadge) imdbBadge.style.display = 'none';
@@ -1415,79 +1667,6 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         Array.from(metaContainer.querySelectorAll('.dd-rating-tag-age')).forEach(e => e.remove());
         Array.from(metaContainer.querySelectorAll('.dd-id-tag')).forEach(e => e.remove());
         Array.from(metaContainer.querySelectorAll('.dd-meta-badges-column')).forEach(e => e.remove());
-
-        // Render linked IDs (IMDb/TMDB) for transparency
-        const tmdbCacheObj = window.appData?.tmdbCache?.[item.id] || {};
-        const cinemetaCacheObj = window.appData?.cinemetaCache?.[item.id] || {};
-        let resolvedImdb = item.imdb_id || item.imdbId || tmdbCacheObj.imdb_id || tmdbCacheObj.imdbId || cinemetaCacheObj.imdb_id || cinemetaCacheObj.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
-        const resolvedTmdb = item.tmdbId || item.tmdb_id || tmdbCacheObj.tmdbId || tmdbCacheObj.tmdb_id || (/^\d+$/.test(String(item.id)) ? item.id : null);
-
-        // Create the vertical badges column
-        const badgesCol = document.createElement('div');
-        badgesCol.className = 'dd-meta-badges-column';
-        badgesCol.style.cssText = `
-            display: inline-flex;
-            flex-direction: column;
-            gap: 4px;
-            align-items: flex-start;
-            margin-left: 10px;
-        `;
-
-        const createMetaBadge = (text, isUnrated = false, isImdb = false) => {
-            const span = document.createElement('span');
-            span.className = 'dd-pill dd-id-tag';
-            span.textContent = text;
-            span.style.cssText = `
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                padding: 2px 10px;
-                border-radius: 20px;
-                border: 1px solid ${isImdb ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255, 255, 255, 0.08)'};
-                color: ${isImdb ? '#f59e0b' : (isUnrated ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.85)')};
-                background: ${isImdb ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)'};
-                font-size: 10px;
-                font-weight: 700;
-                white-space: nowrap;
-                letter-spacing: 0.5px;
-                line-height: 1;
-                height: 18px;
-                backdrop-filter: blur(10px);
-                -webkit-backdrop-filter: blur(10px);
-            `;
-            return span;
-        };
-
-        // 1. Add Age Rating badge (top row)
-        const cleanAgeRating = (ageRating || '').trim().toUpperCase();
-        const isUnrated = !cleanAgeRating || cleanAgeRating === 'NR' || cleanAgeRating === 'NOT RATED' || cleanAgeRating === 'UNRATED';
-        
-        if (!isUnrated) {
-            badgesCol.appendChild(createMetaBadge(cleanAgeRating, false));
-        }
-
-        // 2. Add ID metadata
-        if (resolvedImdb) {
-            item.imdb_id = resolvedImdb;
-            item.imdbId = resolvedImdb;
-        } else if (isKitsu) {
-            const kitsuId = item.kitsuId || (String(item.id).startsWith('kitsu:') ? String(item.id).replace('kitsu:', '') : null);
-            if (kitsuId) {
-                fetch(`https://kitsu.io/api/edge/anime/${kitsuId}/mappings?page[limit]=20`)
-                    .then(r => r.json())
-                    .then(json => {
-                        const imdbMap = json?.data?.find(m => m.attributes?.externalSite === 'imdb');
-                        if (imdbMap && imdbMap.attributes?.externalId) {
-                            const imdbId = imdbMap.attributes.externalId;
-                            item.imdb_id = imdbId;
-                            item.imdbId = imdbId;
-                            badgesCol.appendChild(createMetaBadge(`IMDb: ${imdbId}`, false, true));
-                        }
-                    }).catch(() => null);
-            }
-        }
-
-        metaContainer.appendChild(badgesCol);
     }
 
     const extraInfo = document.getElementById('dd-extra-info');
@@ -1496,6 +1675,32 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
         const allGenres = extractAllGenres(item, tmdb, extra1, anilist);
         if (allGenres.length > 0) {
             extraInfo.appendChild(createPillGroup('GENRES', allGenres));
+        }
+
+        // Extract Studios / Producers
+        let studioList = [];
+        if (tmdb?.production_companies && Array.isArray(tmdb.production_companies)) {
+            studioList = tmdb.production_companies.slice(0, 5).map(c => c.name).filter(Boolean);
+        } else if (extra1?.production_companies && Array.isArray(extra1.production_companies)) {
+            studioList = extra1.production_companies.slice(0, 5).map(c => c.name).filter(Boolean);
+        } else if (anilist?.studios?.nodes && Array.isArray(anilist.studios.nodes)) {
+            studioList = anilist.studios.nodes.slice(0, 5).map(s => s.name).filter(Boolean);
+        }
+
+        let castList = [];
+        if (tmdb?.credits?.cast && Array.isArray(tmdb.credits.cast)) {
+            castList = tmdb.credits.cast.slice(0, 6).map(c => c.name || c.original_name).filter(Boolean);
+        } else if (extra1?.cast && Array.isArray(extra1.cast)) {
+            castList = extra1.cast.slice(0, 6).map(c => typeof c === 'string' ? c : (c.name || '')).filter(Boolean);
+        } else if (item.cast && Array.isArray(item.cast)) {
+            castList = item.cast.slice(0, 6).map(c => typeof c === 'string' ? c : (c.name || '')).filter(Boolean);
+        } else if (anilist?.characters?.edges && Array.isArray(anilist.characters.edges)) {
+            castList = anilist.characters.edges.slice(0, 6).map(e => e.node?.name?.userPreferred || e.node?.name?.full).filter(Boolean);
+        }
+
+        const finalStudiosProducers = studioList.length > 0 ? studioList : castList;
+        if (finalStudiosProducers.length > 0) {
+            extraInfo.appendChild(createPillGroup('STUDIOS & PRODUCERS', finalStudiosProducers));
         }
     }
 
@@ -1603,9 +1808,11 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
             const epN = parseInt(card.dataset.episode);
             const entry = stillsMap[epN];
             if (!entry) return;
-            const stillUrl = typeof entry === 'object' ? entry.still : entry;
+            const imdbRating = typeof entry === 'object' ? (entry.imdbRating || entry.imdb_rating) : null;
             const voteAverage = typeof entry === 'object' ? entry.vote_average : null;
+            const chosenRating = (imdbRating && parseFloat(imdbRating) > 0) ? imdbRating : voteAverage;
             const epName = typeof entry === 'object' ? entry.name : null;
+            const stillUrl = typeof entry === 'string' ? entry : (entry?.still_path || entry?.stillPath || entry?.still || entry?.stillUrl || entry?.still_url);
 
             if (stillUrl) {
                 const img = card.querySelector('img');
@@ -1626,17 +1833,22 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                 }
             }
 
-            if (voteAverage && parseFloat(voteAverage) > 0) {
+            if (chosenRating && parseFloat(chosenRating) > 0) {
                 const metaRow = card.querySelector('.dd-ep-meta-row');
                 if (metaRow) {
                     let rEl = card.querySelector('.dd-ep-rating');
-                    if (!rEl) {
-                        rEl = document.createElement('span');
-                        rEl.className = 'dd-ep-rating';
-                        rEl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.18);color:#F5C518;font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px;margin-left:auto;letter-spacing:0.3px;';
-                        metaRow.appendChild(rEl);
+                    if (!rEl || (imdbRating && parseFloat(imdbRating) > 0) || !rEl.dataset.hasImdb) {
+                        if (!rEl) {
+                            rEl = document.createElement('span');
+                            rEl.className = 'dd-ep-rating';
+                            rEl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.18);color:#F5C518;font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px;margin-left:auto;letter-spacing:0.3px;';
+                            metaRow.appendChild(rEl);
+                        }
+                        if (imdbRating && parseFloat(imdbRating) > 0) {
+                            rEl.dataset.hasImdb = 'true';
+                        }
+                        rEl.innerHTML = `<i class="fas fa-star" style="font-size:8px;"></i>${parseFloat(chosenRating).toFixed(1)}`;
                     }
-                    rEl.innerHTML = `<i class="fas fa-star" style="font-size:8px;"></i>${parseFloat(voteAverage).toFixed(1)}`;
                 }
             }
 
@@ -1743,10 +1955,79 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                     epImgDiv.appendChild(overlay);
                 }
 
-                const rawVote = v.vote_average != null ? v.vote_average : (v.rating != null ? v.rating : v.imdbRating);
+                // Check playback progress & watched state for this episode
+                const profile = window.currentProfile || window.appData?.profiles?.find(p => p.id === window.appData?.activeProfileId);
+                const pb = profile?.playback || {};
+                const mainId = String(currentItem?.id || currentItem?.imdb_id || currentItem?.tmdbId || '');
+                const cleanImdb = (currentItem?.imdb_id || currentItem?.imdbId || '').replace(/^tt/, '');
+
+                const possibleKeys = [
+                    `${mainId}_S${currentSeason}E${epNum}`,
+                    `${mainId}_s${currentSeason}e${epNum}`,
+                    `${mainId}_E${epNum}`,
+                    `tt${cleanImdb}_S${currentSeason}E${epNum}`,
+                    `tt${cleanImdb}_E${epNum}`,
+                    v.path
+                ].filter(Boolean);
+
+                let pbData = null;
+                for (const k of possibleKeys) {
+                    if (pb[k] && (pb[k].duration > 0 || pb[k].time > 0)) {
+                        pbData = pb[k];
+                        break;
+                    }
+                }
+                if (!pbData) {
+                    for (const [k, d] of Object.entries(pb)) {
+                        if (!d) continue;
+                        const meta = d.meta || {};
+                        if (
+                            (meta.showId === mainId || meta.id === mainId || (cleanImdb && String(k).includes(cleanImdb))) &&
+                            (meta.episode == epNum) &&
+                            (meta.season == currentSeason || !meta.season || currentSeason == 1)
+                        ) {
+                            pbData = d;
+                            break;
+                        }
+                    }
+                }
+
+                if (pbData) {
+                    const time = pbData.time || 0;
+                    const dur = pbData.duration || 1;
+                    const pct = dur > 0 ? Math.min(100, Math.max(0, (time / dur) * 100)) : 0;
+                    const isWatched = pbData.watched || pct >= 85;
+
+                    if (isWatched) {
+                        const watchedBadge = document.createElement('div');
+                        watchedBadge.className = 'dd-ep-watched-badge';
+                        watchedBadge.title = 'Watched';
+                        watchedBadge.innerHTML = '<i class="fas fa-check"></i>';
+                        epImgDiv.appendChild(watchedBadge);
+
+                        const progressBar = document.createElement('div');
+                        progressBar.className = 'dd-ep-progress-bar';
+                        progressBar.innerHTML = '<div class="dd-ep-progress-fill" style="width: 100%;"></div>';
+                        epImgDiv.appendChild(progressBar);
+                    } else if (pct >= 2) {
+                        const progressBar = document.createElement('div');
+                        progressBar.className = 'dd-ep-progress-bar';
+                        progressBar.innerHTML = `<div class="dd-ep-progress-fill" style="width: ${pct.toFixed(1)}%;"></div>`;
+                        epImgDiv.appendChild(progressBar);
+                    }
+                }
+
+                const hasRealImdb = (v.imdbRating != null && parseFloat(v.imdbRating) > 0) || (v.imdb_rating != null && parseFloat(v.imdb_rating) > 0);
+                const rawVote = (v.imdbRating != null && parseFloat(v.imdbRating) > 0)
+                    ? v.imdbRating
+                    : (v.imdb_rating != null && parseFloat(v.imdb_rating) > 0)
+                        ? v.imdb_rating
+                        : (v.rating != null && parseFloat(v.rating) > 0)
+                            ? v.rating
+                            : v.vote_average;
                 const epRating = parseFloat(rawVote);
                 const ratingHtml = (!isNaN(epRating) && epRating > 0)
-                    ? `<span class="dd-ep-rating" style="display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.15);color:#F5C518;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:auto;"><i class="fas fa-star" style="font-size:8px;"></i>${epRating.toFixed(1)}</span>`
+                    ? `<span class="dd-ep-rating" ${hasRealImdb ? 'data-has-imdb="true"' : ''} style="display:inline-flex;align-items:center;gap:3px;background:rgba(245,197,24,0.15);color:#F5C518;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:auto;"><i class="fas fa-star" style="font-size:8px;"></i>${epRating.toFixed(1)}</span>`
                     : '';
 
                 const formattedTitle = (finalTitle && !finalTitle.toLowerCase().startsWith('episode') && finalTitle !== String(epNum))
@@ -1816,6 +2097,15 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
 
         panel.classList.add('active');
         title.textContent = 'Manage Lists';
+
+        const item = window.currentUnifiedDetailItem || window.currentDetailItem;
+        const checkIsSameMedia = window.checkIsSameMedia || ((a, b) => a && b && String(a.id) === String(b.id));
+        const toggleItemInCustomList = window.toggleItemInCustomList || (() => {});
+        const createNewCustomList = (name, itemToAdd) => {
+            if (typeof window.createNewCustomList === 'function') {
+                window.createNewCustomList(name, itemToAdd);
+            }
+        };
 
         const profile = window.currentProfile || window.appData?.profiles?.find(p => p.id === window.appData.activeProfileId);
         if (!profile) {
@@ -2083,7 +2373,7 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                         const isAnime = false;
                         let apiEpisodes = null;
 
-                        const tmdbKey = window.appData?.tmdbKey || null;
+                        const tmdbKey = window.appData?.tmdbKey || DEFAULT_TMDB_KEY;
                         const tmdbEnabled = window.appData?.tmdbEnabled !== false;
 
                         if (tmdbKey && tmdbEnabled && (imdbId || tmdbId)) {
@@ -2386,7 +2676,8 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                         tmdbData.episodes.forEach(te => {
                             map[te.episode_number] = {
                                 still: te.still_path,
-                                vote_average: te.vote_average || te.rating,
+                                imdbRating: te.imdbRating || te.imdb_rating || null,
+                                vote_average: te.imdbRating || te.imdb_rating || te.vote_average || te.rating,
                                 name: te.name
                             };
                         });
@@ -2409,7 +2700,9 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                     name: v.title || v.name || `Episode ${v.episode}`,
                     still_path: v.thumbnail || v.still || v.still_path || v.image || null,
                     air_date: v.released || null,
-                    vote_average: v.rating || v.imdbRating || v.vote_average || 0
+                    imdbRating: v.imdbRating || v.rating || 0,
+                    imdb_rating: v.imdbRating || v.rating || 0,
+                    vote_average: v.imdbRating || v.rating || v.vote_average || 0
                 }));
             }
         }
@@ -2425,7 +2718,8 @@ function populateUnifiedUI(item, tmdb, images, extra1, anilist) {
                     res.episodes.forEach(ep => {
                         map[ep.episode_number] = {
                             still: ep.still_path,
-                            vote_average: ep.vote_average || ep.rating,
+                            imdbRating: ep.imdbRating || ep.imdb_rating || null,
+                            vote_average: ep.imdbRating || ep.imdb_rating || ep.vote_average || ep.rating,
                             name: ep.name
                         };
                     });
@@ -2692,7 +2986,7 @@ async function resolveTrailerYoutubeUrl(item, cinemeta, extra1, anilist) {
 
         // 3. TMDB Videos Fallback
         if (!youtubeUrl) {
-            const tmdbKey = window.appData?.tmdbKey;
+            const tmdbKey = window.appData?.tmdbKey || DEFAULT_TMDB_KEY;
             const imdbId = item.imdb_id || item.imdbId || (String(item.id).startsWith('tt') ? item.id : null);
             let tmdbId = item.tmdbId || item.tmdb_id;
             

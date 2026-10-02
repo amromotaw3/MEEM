@@ -1449,6 +1449,12 @@ CRITICAL RULES FOR LIST MANAGEMENT & BATCH OPERATIONS:
 CRITICAL RULES FOR MULTIMODAL & IMAGE ANALYSIS:
 - When the user sends an image: Inspect visual cues, identify Movie/Anime/Character, episode context, and provide a 2-3 sentence overview.
 
+CRITICAL MANDATE: ABSOLUTE PROHIBITION ON RAW CODE / JSON / FUNCTION-CALL SYNTAX:
+- You are an intelligent cinematic companion having a natural human conversation.
+- NEVER output raw JSON objects (e.g. {"name": ...}, {"items": ...}), code blocks, or python/javascript scripts unless the user explicitly asks for programming code.
+- Always execute actions and recommendations by invoking the function tools directly via the tool API.
+- Your output text MUST ALWAYS be pure, warm, natural conversational language formatted cleanly with Markdown bolding, bullets, and emojis.
+
 IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Google, Gemini, OpenAI, LLM, or underlying model names under any circumstances.`;
   }
 
@@ -1659,6 +1665,7 @@ IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Goog
           const apiKey = keyEntry.key;
 
           try {
+            const reqSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000);
             const groqPayload = convertGeminiBodyToOpenAiFormat(body, model);
             const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
               method: 'POST',
@@ -1667,7 +1674,7 @@ IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Goog
                 'Authorization': `Bearer ${apiKey}`
               },
               body: JSON.stringify(groqPayload),
-              signal: signal
+              signal: reqSignal
             });
 
             if (response.ok) {
@@ -1707,6 +1714,7 @@ IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Goog
           const apiKey = keyEntry.key;
 
           try {
+            const reqSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000);
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
             const response = await fetch(url, {
               method: 'POST',
@@ -1715,7 +1723,7 @@ IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Goog
                 'x-goog-api-key': apiKey
               },
               body: JSON.stringify(body),
-              signal: signal
+              signal: reqSignal
             });
 
             if (response.ok) {
@@ -1865,6 +1873,9 @@ IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Goog
       scrollToBottom();
     }
     renderSidebarSessions();
+    if (typeof window.toggleMobileAIChatsDrawer === 'function') {
+      window.toggleMobileAIChatsDrawer(false);
+    }
   }
 
   function deleteChatSession(sessionId, e) {
@@ -1902,14 +1913,17 @@ IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Goog
 
   function renderSidebarSessions() {
     const listEl = document.getElementById('ai-sessions-list');
+    const drawerListEl = document.getElementById('ai-drawer-sessions-list');
     const counterEl = document.getElementById('ai-sessions-counter');
-    if (!listEl) return;
 
     const sessions = getSavedSessions();
     if (counterEl) counterEl.textContent = String(sessions.length);
 
+    const emptyHTML = `<div class="ai-empty-sessions"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto 8px; opacity: 0.3; display: block;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>No previous chats<br><span style="font-size: 11px; opacity: 0.6;">Start a new conversation now!</span></div>`;
+
     if (sessions.length === 0) {
-      listEl.innerHTML = `<div class="ai-empty-sessions"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto 8px; opacity: 0.3; display: block;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>No previous chats<br><span style="font-size: 11px; opacity: 0.6;">Start a new conversation now!</span></div>`;
+      if (listEl) listEl.innerHTML = emptyHTML;
+      if (drawerListEl) drawerListEl.innerHTML = emptyHTML;
       return;
     }
 
@@ -1936,7 +1950,8 @@ IDENTITY & BRANDING: You are exclusively MEEM AI (ميم AI). NEVER mention Goog
       `;
     });
 
-    listEl.innerHTML = html;
+    if (listEl) listEl.innerHTML = html;
+    if (drawerListEl) drawerListEl.innerHTML = html;
   }
 
   function deriveQuickTitle(userText) {
@@ -1993,7 +2008,7 @@ Output ONLY the clean 2-4 word title, no quotes, no extra punctuation.`;
     if (!text) return { text: '', tools: toolResultsSummary };
 
     let cleanText = text;
-    const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\}|\[[\s\S]*?\])\s*```/gi;
+    const jsonBlockRegex = /```(?:json|javascript|js)?\s*(\{[\s\S]*?\}|\[[\s\S]*?\])\s*```/gi;
     let match;
 
     while ((match = jsonBlockRegex.exec(text)) !== null) {
@@ -2021,9 +2036,28 @@ Output ONLY the clean 2-4 word title, no quotes, no extra punctuation.`;
             args: { items: itemsToRecommend },
             result: toolRes
           });
-          cleanText = cleanText.replace(rawBlock, '').trim();
         }
-      } catch (_) {}
+        cleanText = cleanText.replace(rawBlock, '').trim();
+      } catch (_) {
+        cleanText = cleanText.replace(rawBlock, '').trim();
+      }
+    }
+
+    // Strip any raw unbracketed JSON or function pseudo-calls
+    cleanText = cleanText.replace(/^(?:\{\s*"name"\s*:\s*"[^"]+".*\}|\{\s*"items"\s*:\s*\[.*\]\s*\})$/gim, '').trim();
+    cleanText = cleanText.replace(/^(?:play_media|recommend_media|play_music|download_media)\s*\([^\)]*\);?/gim, '').trim();
+
+    // Fallback text if model only emitted raw JSON/code
+    if (!cleanText) {
+      const isArabic = /[\u0600-\u06FF]/.test(text) || (window.currentProfile?.language === 'ar');
+      const recTool = toolResultsSummary.find(t => t.name === 'recommend_media');
+      if (recTool?.result?.results?.length > 0) {
+        cleanText = isArabic
+          ? 'إليك الأعمال المميزة التي اخترتها لك 🎬✨'
+          : 'Here are the recommended media titles for you 🎬✨';
+      } else {
+        cleanText = isArabic ? 'تمام، نفذت طلبك بنجاح ✨' : 'All done! ✨';
+      }
     }
 
     return { text: cleanText, tools: toolResultsSummary };
@@ -3565,6 +3599,19 @@ TITLES: <comma-separated list of 1 to 3 exact original movie/series/anime titles
     }, 200);
   };
   window.askMeemAIFromSearch = window.askMeemAI;
+
+  window.toggleMobileAIChatsDrawer = function (show) {
+    const modal = document.getElementById('ai-chats-drawer-modal');
+    if (!modal) return;
+    const isVisible = modal.style.display !== 'none';
+    const shouldShow = typeof show === 'boolean' ? show : !isVisible;
+    if (shouldShow) {
+      renderSidebarSessions();
+      modal.style.display = 'flex';
+    } else {
+      modal.style.display = 'none';
+    }
+  };
 
   window.initAIView = initAIView;
   window.updateAIQuotaUI = updateQuotaUI;

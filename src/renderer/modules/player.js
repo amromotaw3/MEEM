@@ -246,8 +246,9 @@
 
     // Resolve local path if missing or contained in id/meta/appData
     if (!item.path && item.url) item.path = item.url;
-    if (!item.path && item.id && (item.id.includes(':\\') || item.id.includes(':/') || item.id.startsWith('/'))) {
-      item.path = item.id;
+    const strId = String(item.id || '');
+    if (!item.path && strId && (strId.includes(':\\') || strId.includes(':/') || strId.startsWith('/'))) {
+      item.path = strId;
     }
     if (!item.path && item.meta?.path) item.path = item.meta.path;
 

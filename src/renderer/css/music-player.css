@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
 /* ==========================================================================
    MEEM MUSIC PLAYER — LUXURY MONOCHROME (BLACK & WHITE) THEME
    Floating Dock Bar, Clean Geometry, Non-Pulsing Ambient Background
@@ -1104,15 +1106,14 @@ body.sidebar-collapsed #global-music-player-bar {
 
 .fullscreen-music-backdrop {
   position: absolute;
-  inset: -40px;
+  inset: -60px;
   background-size: cover;
   background-position: center;
-  filter: blur(80px) brightness(0.2) grayscale(20%);
-  opacity: 0.25;
+  filter: blur(70px) brightness(0.45) saturate(150%);
+  opacity: 0.75;
   z-index: 1;
-  transform: scale(1.1);
-  transition: background-image 0.5s ease;
-  animation: none !important;
+  transform: scale(1.2);
+  transition: background-image 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .fullscreen-music-inner {
@@ -1133,22 +1134,24 @@ body.sidebar-collapsed #global-music-player-bar {
 }
 
 .fullscreen-close-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 17px;
   cursor: pointer;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   transition: all 0.2s ease;
 }
 
 .fullscreen-close-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.25);
   transform: scale(1.08);
 }
 
@@ -1406,6 +1409,7 @@ body.sidebar-collapsed #global-music-player-bar {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: left center;
   user-select: none;
+  text-align: left;
 }
 
 .lyric-line:hover {
@@ -1427,16 +1431,40 @@ body.sidebar-collapsed #global-music-player-bar {
 
 .lyric-line-original {
   display: block;
+  text-align: left;
+}
+
+.lyric-word {
+  display: inline-block;
+  transition: color 0.15s ease, transform 0.15s ease, text-shadow 0.15s ease;
+  color: rgba(255, 255, 255, 0.35);
+  margin-right: 0.22em;
+}
+
+.lyric-line.active .lyric-word {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.lyric-line.active .lyric-word.word-active {
+  color: #ffffff;
+  text-shadow: 0 0 12px rgba(255, 255, 255, 0.95), 0 0 24px rgba(255, 255, 255, 0.5);
+}
+
+.lyric-line.active .lyric-word.word-current {
+  color: #ffffff;
+  transform: scale(1.08);
+  text-shadow: 0 0 16px rgba(255, 255, 255, 1), 0 0 30px rgba(59, 130, 246, 0.85);
 }
 
 .lyric-line-translated {
   display: block;
-  font-size: 0.62em;
+  font-size: 0.52em;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.55);
   margin-top: 4px;
   line-height: 1.35;
-  transition: all 0.3s ease;
+  text-align: left;
+  transition: color 0.2s ease;
 }
 
 .lyric-line.active .lyric-line-translated {
@@ -1648,7 +1676,6 @@ body.sidebar-collapsed #global-music-player-bar {
 /* ══════════════════════════════════════════════════════════════════════════
    13. QURAN READER MODE (Uthmani Typography & Sacred Reading View)
    ══════════════════════════════════════════════════════════════════════════ */
-@import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&display=swap');
 
 .quran-reader-wrapper {
   width: 100%;

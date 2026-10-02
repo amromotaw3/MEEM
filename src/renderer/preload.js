@@ -92,6 +92,8 @@ contextBridge.exposeInMainWorld('api', {
   getPlaybackPosition: (profileId, key) => ipcRenderer.invoke('get-playback-position', { profileId, key }),
   getProfilePlayback: (profileId) => ipcRenderer.invoke('get-profile-playback', profileId),
   clearProfilePlayback: (profileId) => ipcRenderer.invoke('clear-profile-playback', profileId),
+  saveMediaRating: (payload) => ipcRenderer.invoke('save-media-rating', payload),
+  getMediaRatings: (payload) => ipcRenderer.invoke('get-media-ratings', payload),
 
   // Cloud Auth & Profile wrappers
   cloudLogin: (email, password) => ipcRenderer.invoke('cloud-login', { email, password }),
@@ -159,6 +161,7 @@ contextBridge.exposeInMainWorld('api', {
       'load-app-data', 'save-app-data', 'get-hardware-id', 'clear-cache',
       'save-playback-position', 'get-playback-position', 'get-profile-playback',
       'clear-profile-playback', 'cloud-delete-playback-position',
+      'save-media-rating', 'get-media-ratings',
       'clean-missing-downloads', 'clear-session',
 
       // Cloud Authentication & Profiles

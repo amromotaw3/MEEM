@@ -1317,8 +1317,8 @@
       nextContent.innerHTML = `
         <div class="hero-badge">Featured ${type}</div>
         ${item.logoUrl ? 
-          `<img id="hero-logo" src="${(typeof window.localImg === 'function') ? window.localImg(item.logoUrl) : item.logoUrl}" onerror="this.style.display='none'; const sibling = this.parentElement?.querySelector('.hero-fallback-title'); if(sibling) sibling.style.display='block';" style="display: block; max-width: 320px; max-height: 80px; object-fit: contain; margin-bottom: 12px; transition: opacity 0.25s ease;">
-           <h1 class="hero-title hero-fallback-title" style="display:none">${escapeHTML(title)}</h1>` : 
+          `<img id="hero-logo" src="${(typeof window.localImg === 'function') ? window.localImg(item.logoUrl) : item.logoUrl}" onerror="this.style.display='none';" style="display: block; max-width: 320px; max-height: 80px; object-fit: contain; margin-bottom: 8px; transition: opacity 0.25s ease;">
+           <h1 class="hero-title">${escapeHTML(title)}</h1>` : 
           `<h1 class="hero-title">${escapeHTML(title)}</h1>`
         }
         <div class="hero-meta">
@@ -2503,13 +2503,9 @@
           ]);
           const traktResults = [...(resMovies?.results || []), ...(resShows?.results || [])];
           
-          const existingIds = new Set(allResults.map(r => String(r.id || r.imdb_id || '').toLowerCase()));
-          const existingTitles = new Set(allResults.map(r => String(r.title || r.name || '').toLowerCase()));
-          
           traktResults.forEach(item => {
-            const itemId = String(item.id || item.imdb_id || '').toLowerCase();
-            const itemTitle = String(item.title || item.name || '').toLowerCase();
-            if (!existingIds.has(itemId) && !existingTitles.has(itemTitle)) {
+            const alreadyExists = allResults.some(r => (typeof window.isSameItem === 'function') ? window.isSameItem(r, item) : (String(r.id || r.imdb_id || '').toLowerCase() === String(item.id || item.imdb_id || '').toLowerCase()));
+            if (!alreadyExists) {
               allResults.push(item);
             }
           });
